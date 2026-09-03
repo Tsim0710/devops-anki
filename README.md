@@ -19,7 +19,7 @@
 | Сборка | `build.py` |
 
 **Дек = `DevOps::<domain>`** (12 штук). Вся остальная навигация — теги:
-`topic::<subtopic>`, `difficulty::junior|middle|senior`, `source::theory|interview|web`,
+`topic::<subtopic>`, `difficulty::junior|middle|senior`, `source::theory|interview|web|core`,
 `situational`, `unverified`, `deprecated`.
 
 Деки не дробятся до subtopic сознательно: импорт `.apkg` не переносит уже существующие
