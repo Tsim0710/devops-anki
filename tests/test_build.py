@@ -127,6 +127,16 @@ def test_source_list_gives_one_tag_per_source():
     assert "source::theory" in tags and "source::interview" in tags
 
 
+def test_core_is_a_valid_source(ctx):
+    """core = карта добавлена для полноты покрытия, вне конспектов и собесов."""
+    assert B.validate(wrap(card(source="core")), *ctx)[0] == []
+    assert "source::core" in B.card_tags(card(source="core"))
+
+
+def test_unknown_source_fails(ctx):
+    assert B.validate(wrap(card(source="chatgpt")), *ctx)[0]
+
+
 def test_default_tags():
     tags = B.card_tags(card())
     assert "topic::probes" in tags
