@@ -143,3 +143,1313 @@
     `initialDelaySeconds` (это ослабило бы liveness навсегда), а отдельным `startupProbe`
     с большим `failureThreshold`.
   ref: "Вопрос с собеса: «под в CrashLoopBackOff, в логах приложение стартует нормально»"
+
+# --- probes: добор junior/middle ---
+
+- id: k8s-probes-007
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какими четырьмя способами kubelet может выполнить пробу?
+  answer: |
+    `httpGet` (код 200–399 = успех), `exec` (exit code 0 = успех), `tcpSocket`
+    (соединение установилось = успех) и `grpc` (стандартный health-протокол gRPC).
+  explanation: |
+    Выбор механизма — это выбор того, **что именно** ты считаешь признаком здоровья.
+    `tcpSocket` проверяет только что порт слушает: зависшее приложение с открытым сокетом
+    такую пробу пройдёт. `httpGet` спрашивает у самого приложения. `exec` даёт полную
+    свободу, но стоит форка процесса на каждую проверку.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-008
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    На каком уровне манифеста объявляются пробы — на поде или на контейнере?
+  answer: |
+    На **контейнере**. У каждого контейнера в поде свои `livenessProbe`,
+    `readinessProbe` и `startupProbe`.
+  explanation: |
+    Это прямо следует из того, кто исполняет последствия: liveness убивает **контейнер**,
+    а не под, поэтому и настройка живёт там же. Отсюда же вытекает поведение
+    многоконтейнерного пода — провал пробы у sidecar рестартит sidecar, а основной
+    контейнер продолжает работать.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-009
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие значения по умолчанию у `periodSeconds`, `timeoutSeconds`, `failureThreshold`
+    и `initialDelaySeconds`?
+  answer: |
+    `periodSeconds: 10`, `timeoutSeconds: 1`, `failureThreshold: 3`,
+    `initialDelaySeconds: 0`.
+  explanation: |
+    Знать их нужно из-за `timeoutSeconds: 1` — это самый неожиданный дефолт. Ручка
+    `/healthz`, которая под нагрузкой отвечает за 1.2 секунды, считается **провалившейся**,
+    хотя приложение живо. Дальше три таких провала подряд — и liveness убивает
+    здоровый контейнер ровно в тот момент, когда сервису и так тяжело.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-010
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под провалил readiness. Он исчезает из `EndpointSlice` или остаётся там?
+  answer: |
+    **Остаётся**, но с `conditions.ready: false`. Из списка он не удаляется — меняется
+    его состояние, и kube-proxy перестаёт заводить на него правила.
+  explanation: |
+    Это важно для отладки: `kubectl get endpointslice` покажет под, и по одному факту
+    его присутствия нельзя делать вывод «трафик идёт». Смотреть надо именно на `ready`.
+    Заодно отсюда работает `publishNotReadyAddresses` у headless-сервисов — адрес есть,
+    просто помечен неготовым.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/"
+
+- id: k8s-probes-011
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `successThreshold` у liveness и startup нельзя поставить больше 1?
+  answer: |
+    Kubernetes это запрещает: для liveness и startup допустимо только `successThreshold: 1`.
+    Больше единицы можно задать лишь у readiness.
+  explanation: |
+    Асимметрия намеренная. Для «жив» и «стартовал» задержка подтверждения означала бы,
+    что контейнер считается мёртвым дольше, чем он мёртв на самом деле — это только
+    вредит. А вот для трафика осторожность оправдана: `successThreshold: 3` у readiness
+    не даёт вернуть нагрузку на флапающий под после единственного удачного ответа.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-012
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `exec`-проба дороже остальных на плотно набитом узле?
+  answer: |
+    Каждая проверка — это **запуск процесса внутри контейнера**, каждые `periodSeconds`,
+    у каждого контейнера. Сотня подов с exec-пробой раз в 10 секунд даёт постоянный
+    поток форков и заметный расход CPU на узле.
+  explanation: |
+    `httpGet` и `tcpSocket` kubelet делает сам, из своего процесса, сетевым запросом —
+    это дешёвая операция. `exec` идёт через container runtime и поднимает процесс
+    в namespace контейнера. Отсюда практическое правило: exec берут, когда приложение
+    физически не умеет отдать HTTP-ручку, а не по умолчанию.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-013
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    В поде два контейнера: `app` и `log-shipper`. У `log-shipper` провалилась
+    `livenessProbe`. Что произойдёт?
+  options:
+    a: "Перезапустится только контейнер `log-shipper`, `app` продолжит работать"
+    b: "Перезапустится весь под, оба контейнера"
+    c: "Под будет пересоздан контроллером на другом узле"
+    d: "Под целиком выпадет из endpoints, но перезапуска не будет"
+  answer: a
+  explanation: |
+    Пробы объявляются на контейнере, и последствия у них контейнерные: kubelet убивает
+    и перезапускает именно тот контейнер, чья проба провалилась. Под при этом живёт
+    дальше, его IP и sandbox сохраняются, растёт только `restartCount` конкретного
+    контейнера. Вариант (d) описывает readiness, а не liveness.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-probes-014
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение стартует за 2 секунды, но раз в несколько дней зависает намертво.
+    Какую пробу и с какими параметрами ставить?
+  answer: |
+    `livenessProbe` с коротким `periodSeconds` и небольшим `failureThreshold` —
+    зависание должно обнаруживаться быстро. `startupProbe` здесь не нужен: старт быстрый.
+  explanation: |
+    Параметры проб задаются не «на всякий случай», а из двух чисел: сколько длится
+    легитимный старт и как быстро надо реагировать на зависание. Когда эти числа
+    конфликтуют (медленный старт + быстрая реакция), их разводят через `startupProbe`.
+    Когда не конфликтуют — лишняя проба только добавляет мест, где можно ошибиться.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-015
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужна `readinessProbe` у пода, который уже прошёл `startupProbe` и стабильно
+    работает?
+  answer: |
+    Чтобы под мог **временно** отказаться от трафика в рантайме: переподключение к БД,
+    прогрев кеша, переполненная очередь запросов, graceful shutdown.
+  explanation: |
+    Readiness — не одноразовый стартовый гейт, kubelet опрашивает её всю жизнь пода.
+    Это единственный штатный способ сказать «я жив, но сейчас не обслуживай меня»
+    без рестарта и потери состояния. Если readiness рассматривать как «проверку при
+    старте», её обычно ставят один раз и лишают смысла.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+# --- pods: junior/middle ---
+
+- id: k8s-pods-001
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что контейнеры внутри одного пода делят между собой?
+  answer: |
+    Сетевой namespace (общий IP, общий localhost, общий диапазон портов), IPC-namespace
+    и тома, которые примонтированы обоим. **Файловые системы у них раздельные.**
+  explanation: |
+    Из общего сетевого namespace следуют два практических вывода: контейнеры в поде
+    ходят друг к другу по `localhost`, и два контейнера **не могут слушать один порт** —
+    будет конфликт. Раздельные файловые системы — причина, по которой обмен файлами
+    между контейнерами требует явного общего тома, обычно `emptyDir`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-002
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Перечисли фазы пода (`status.phase`) и что означает каждая.
+  answer: |
+    `Pending` — принят, но не все контейнеры запущены (ждёт планирования или тянет образ);
+    `Running` — назначен на узел, хотя бы один контейнер работает;
+    `Succeeded` — все контейнеры завершились с кодом 0 и перезапуска не будет;
+    `Failed` — все завершились, хотя бы один с ненулевым кодом;
+    `Unknown` — состояние получить не удалось (обычно узел недоступен).
+  explanation: |
+    Фаза — это грубая сводка, а не диагноз, и на ней часто останавливаются зря.
+    `Running` не значит «работает»: под с контейнером в `CrashLoopBackOff` тоже
+    в фазе `Running`. Настоящая причина всегда в `status.containerStatuses` и в событиях,
+    которые видно через `kubectl describe pod`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-003
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие значения бывают у `restartPolicy` и какое из них по умолчанию?
+  answer: |
+    `Always` (по умолчанию), `OnFailure`, `Never`. Политика задаётся на **поде**
+    и применяется ко всем его контейнерам.
+  explanation: |
+    Политика неявно связана с типом нагрузки: у Deployment всегда `Always`, потому что
+    сервис обязан работать всегда; у Job допустимы только `OnFailure` и `Never`, потому что
+    задача обязана завершиться — с `Always` она бы перезапускалась вечно после успеха.
+    Kubernetes это прямо запрещает при создании Job.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-004
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как выполняются init-контейнеры относительно основных?
+  answer: |
+    Строго **последовательно и до** основных: каждый должен завершиться с кодом 0,
+    только тогда запускается следующий. Основные контейнеры не стартуют, пока не
+    отработали все init.
+  explanation: |
+    Отсюда их типичное применение: дождаться миграции БД, скачать конфиг, проверить
+    доступность зависимости. И отсюда же типичный симптом — под навсегда в `Init:0/2`,
+    когда init ждёт того, чего никогда не будет. Упавший init перезапускается
+    по `restartPolicy` пода, поэтому с `Never` под сразу уходит в `Failed`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/init-containers/"
+
+- id: k8s-pods-005
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что за контейнер `pause` и зачем он в каждом поде?
+  answer: |
+    Инфраструктурный контейнер (sandbox), который **держит namespace'ы пода** — прежде
+    всего сетевой. Он ничего не делает, только ждёт.
+  explanation: |
+    Именно `pause` объясняет, почему IP пода переживает рестарт контейнера: приложение
+    убили и подняли заново, а sandbox с сетевым namespace никто не трогал. Если бы
+    namespace принадлежал прикладному контейнеру, каждый рестарт менял бы адрес пода.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-006
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Контейнер упал и перезапустился. Как посмотреть логи именно упавшего запуска?
+  answer: |
+    `kubectl logs <pod> --previous` (можно `-p`), при нескольких контейнерах —
+    с `-c <container>`.
+  explanation: |
+    Обычный `kubectl logs` показывает **текущий** запуск, а он у только что
+    перезапущенного контейнера почти пустой — причина падения осталась в предыдущем.
+    Это первая команда при разборе `CrashLoopBackOff`. Хранится только один предыдущий
+    запуск: после второго рестарта логи первого уже недоступны.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/"
+
+- id: k8s-pods-007
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Что на самом деле означает `CrashLoopBackOff`?
+  answer: |
+    Что контейнер уже несколько раз падал, и kubelet **ждёт перед очередным
+    перезапуском**. Задержка растёт экспоненциально: 10s, 20s, 40s и так далее
+    до потолка в 5 минут.
+  explanation: |
+    Это состояние ожидания, а не причина падения — искать надо в логах предыдущего
+    запуска и в exit code, а не в самом статусе. Backoff существует, чтобы битый под
+    не жёг ресурсы узла бесконечным циклом рестартов. Успешная работа контейнера
+    сбрасывает счётчик задержки.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-008
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означают exit codes `137` и `143` у контейнера?
+  answer: |
+    Оба вида `128 + номер сигнала`. `137` = 128 + 9 (SIGKILL) — чаще всего OOMKilled
+    или истёкший grace period. `143` = 128 + 15 (SIGTERM) — штатное завершение
+    по сигналу остановки.
+  explanation: |
+    Различать их нужно, потому что это два противоположных диагноза: `143` — под гасили
+    штатно (выкат, drain, масштабирование), и это норма; `137` — процесс убили
+    принудительно, и это почти всегда либо превышение memory-limit, либо приложение,
+    не успевшее умереть за `terminationGracePeriodSeconds`. Подтверждение OOM ищется
+    в `status.containerStatuses[].lastState.terminated.reason`.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+
+- id: k8s-pods-009
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как определяется QoS-класс пода?
+  answer: |
+    `Guaranteed` — у **каждого** контейнера заданы и requests, и limits по CPU и памяти,
+    и они равны. `BestEffort` — не задано вообще ничего. `Burstable` — всё остальное.
+  explanation: |
+    Класс не выставляется руками, он выводится из requests и limits — и определяет
+    порядок вытеснения при нехватке памяти на узле: первыми выгоняют `BestEffort`,
+    последними `Guaranteed`. Отсюда типичная ошибка: limits проставили только одному
+    контейнеру из двух, и весь под остался `Burstable`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/"
+
+- id: k8s-pods-010
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Контейнер стабильно упирается в свои `limits` по CPU и по памяти.
+    Что с ним происходит?
+  options:
+    a: "И то и другое приводит к перезапуску контейнера"
+    b: "CPU — троттлинг, память — контейнер убивают (OOMKilled)"
+    c: "CPU — контейнер убивают, память — троттлинг аллокаций"
+    d: "Оба лимита мягкие: под просто вытеснят на другой узел"
+  answer: b
+  explanation: |
+    CPU — ресурс сжимаемый: у процесса можно отобрать такты, и он просто станет медленнее,
+    поэтому cgroups его троттлят. Память отобрать нельзя — уже выделенные страницы
+    не отдать обратно, поэтому единственный способ соблюсти лимит это убить процесс.
+    Практическое следствие: симптом превышения CPU-лимита — рост latency без единой
+    ошибки в логах, и по логам его не найти.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-pods-011
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит с подом от момента `kubectl delete pod` до его исчезновения?
+  answer: |
+    Под помечается на удаление и параллельно: адрес снимается из endpoints; выполняется
+    хук `preStop`; контейнерам шлётся `SIGTERM`; по истечении
+    `terminationGracePeriodSeconds` (по умолчанию 30) — `SIGKILL`.
+  explanation: |
+    Ключевое слово здесь — **параллельно**: снятие из endpoints и отправка SIGTERM
+    не синхронизированы между собой, распространение правил по узлам занимает время.
+    Поэтому под может получить запросы уже после SIGTERM. Отсюда стандартный приём —
+    `preStop: sleep 5`, который даёт правилам разъехаться до того, как приложение
+    начнёт закрываться.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-012
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кто перезапускает контейнер, а кто пересоздаёт под — и в чём разница для меня?
+  answer: |
+    Контейнер перезапускает **kubelet** на том же узле: под, его имя и IP сохраняются,
+    растёт `restartCount`. Под пересоздаёт **контроллер** (ReplicaSet и подобные):
+    появляется новый объект с новым именем и новым IP.
+  explanation: |
+    Сам под себя не воскрешает — удали под, созданный вручную, и он исчезнет навсегда.
+    Различать эти два события важно при разборе инцидента: `restartCount: 47` означает
+    падающее приложение, а вереница подов с новыми именами — что их выселяет узел
+    или пересоздаёт выкат. Ищутся они в разных местах: первое в статусе пода,
+    второе в событиях.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-013
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Когда два контейнера действительно должны жить в одном поде, а когда это ошибка?
+  answer: |
+    Должны — когда они неразрывны: делят том или localhost и не имеют смысла по
+    отдельности (sidecar с логами, прокси, адаптер метрик). Ошибка — когда их просто
+    удобно катить вместе: у пода один жизненный цикл и одно масштабирование на всех.
+  explanation: |
+    Под — это единица планирования и масштабирования. Запихнув в него фронт и бэкенд,
+    ты получаешь их обязательно на одном узле, в одинаковом количестве реплик и
+    с общим рестартом. Проверочный вопрос: «нужно ли мне когда-нибудь скейлить их
+    по-разному?» Ответ «да» — это два Deployment, а не один под.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+# --- workload-controllers: junior/middle ---
+
+- id: k8s-workload-controllers-001
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как устроена цепочка Deployment → ReplicaSet → Pod: кто за что отвечает?
+  answer: |
+    Deployment управляет версиями: на каждое изменение pod-template он создаёт новый ReplicaSet
+    и перекладывает реплики между старым и новым. ReplicaSet держит **заданное число
+    подов**. Поды запускает kubelet.
+  explanation: |
+    Разделение нужно именно ради выката: чтобы катиться без даунтайма и уметь
+    откатываться, кто-то должен одновременно держать две версии. Эту роль играет
+    Deployment, а ReplicaSet остаётся тупым счётчиком «должно быть N штук» и понятия
+    не имеет ни про версии, ни про rollout.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-002
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему ReplicaSet не пишут руками, хотя он умеет держать реплики?
+  answer: |
+    Потому что он не умеет катиться: смена образа в ReplicaSet не обновит уже работающие
+    поды и не даст откатиться. Deployment добавляет ровно это.
+  explanation: |
+    ReplicaSet следит только за числом подов, а не за их содержимым. Чтобы применить
+    новую версию, пришлось бы удалять поды руками — то есть с даунтаймом и без пути
+    назад. Голый ReplicaSet осмыслен разве что в учебных целях; в проде его создаёт
+    Deployment и он же им управляет.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/"
+
+- id: k8s-workload-controllers-003
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем DaemonSet отличается от Deployment по способу задания числа реплик?
+  answer: |
+    У DaemonSet числа реплик **нет**: он держит по одному поду на каждом подходящем узле.
+    Добавили узел — под приедет туда сам, убрали узел — под исчезнет вместе с ним.
+  explanation: |
+    Это ровно та модель, которая нужна инфраструктурным агентам: CNI, сборщик логов,
+    node-exporter, CSI-драйвер. Они привязаны к узлу, а не к нагрузке, поэтому
+    «сколько реплик» — неправильный вопрос. Множество узлов сужается через
+    `nodeSelector`, `affinity` и tolerations.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/"
+
+- id: k8s-workload-controllers-004
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что StatefulSet даёт поду такого, чего не даёт Deployment?
+  answer: |
+    Стабильную идентичность: предсказуемое имя с порядковым номером (`web-0`, `web-1`),
+    **свой** PVC, привязанный к этому имени, персональную DNS-запись в headless-сервисе
+    и упорядоченные запуск и остановку.
+  explanation: |
+    Всё это нужно там, где реплики не взаимозаменяемы: у базы данных `web-0` — это
+    конкретный участник кластера со своими данными, а не «одна из трёх». В Deployment
+    поды анонимны, имена случайны, том общий или отсутствует, порядок запуска не
+    определён — для stateful-нагрузки это неприемлемо.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-005
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем Job отличается от CronJob?
+  answer: |
+    Job запускает поды до успешного завершения **один раз**. CronJob — это контроллер
+    над Job: по расписанию он штампует новые объекты Job, каждый из которых работает
+    самостоятельно.
+  explanation: |
+    Отсюда важное следствие для отладки: CronJob сам ничего не запускает, он только
+    создаёт Job'ы. Проблема «задача не отработала» ищется в порождённом Job и его подах,
+    а не в CronJob. Оттуда же берётся мусор в кластере: каждое срабатывание оставляет
+    объект, и без ограничения истории они копятся.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-006
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько ReplicaSet существует у Deployment во время выката и после него?
+  answer: |
+    Во время выката — минимум два: старый, у которого реплики убывают, и новый,
+    у которого прибывают. После выката старый остаётся с нулём реплик.
+  explanation: |
+    Именно поэтому откат мгновенный: старый ReplicaSet никуда не делся, у него полностью
+    сохранён pod-template, и `rollout undo` просто снова поднимает ему реплики — ничего
+    не пересобирается и не скачивается заново. Сколько таких пустых ReplicaSet
+    сохраняется, задаёт `revisionHistoryLimit`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-007
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что задают `maxSurge` и `maxUnavailable` и какие у них значения по умолчанию?
+  answer: |
+    `maxSurge` — сколько подов можно поднять **сверх** желаемого числа; `maxUnavailable` —
+    сколько можно недосчитаться в процессе. По умолчанию оба `25%`.
+  explanation: |
+    Вдвоём они задают ширину окна выката, то есть компромисс между скоростью и запасом
+    ёмкости. `maxUnavailable: 0` означает «сначала подними новый под, только потом гаси
+    старый» — безопасно, но требует свободных ресурсов в кластере. Оба в ноль
+    одновременно поставить нельзя: выкат не сможет сдвинуться с места.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-008
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    В `rollout history` пять ревизий. Ты делаешь `kubectl rollout undo --to-revision=1`.
+    Какой номер получит результат?
+  options:
+    a: "6 — номера ревизий только растут"
+    b: "1 — ревизия возвращается на своё место"
+    c: "5 — текущая ревизия перезаписывается"
+    d: "0 — счётчик сбрасывается"
+  answer: a
+  explanation: |
+    Откат — это не перемотка истории, а **новое изменение**, просто с уже известным
+    содержимым: Deployment снова активирует старый ReplicaSet и присваивает этому
+    событию следующий номер. История строго монотонна, поэтому по номеру нельзя судить
+    о содержимом ревизии — только `rollout history --revision=N` покажет, что там внутри.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-009
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Когда `strategy: Recreate` обязателен вместо RollingUpdate?
+  answer: |
+    Когда две версии приложения не могут работать одновременно: том с
+    `ReadWriteOnce`, который не отдать двум подам сразу; несовместимая миграция схемы БД;
+    эксклюзивная блокировка или лицензия.
+  explanation: |
+    RollingUpdate по определению держит старую и новую версию рядом — это его смысл.
+    Если сосуществование невозможно, выкат встанет намертво (новый под не получит том)
+    либо, хуже, две версии подерутся за общий ресурс. `Recreate` честно гасит всё
+    старое до запуска нового, платя за это даунтаймом.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-010
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Предыдущий запуск CronJob ещё работает, наступило время следующего.
+    Чем управляется поведение?
+  answer: |
+    Полем `concurrencyPolicy`: `Allow` (по умолчанию) — запустить параллельно;
+    `Forbid` — пропустить новый запуск; `Replace` — убить текущий и запустить новый.
+  explanation: |
+    Дефолт `Allow` опасен именно для тех задач, ради которых берут CronJob: бэкап,
+    миграция, рассылка. Если задача иногда идёт дольше интервала, копии начинают
+    наслаиваться, соревноваться за один ресурс и дублировать побочные эффекты.
+    Для всего, что имеет побочный эффект, ставят `Forbid`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-011
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Минутный CronJob за месяц оставил в кластере десятки тысяч объектов.
+    Чем это ограничивают?
+  answer: |
+    Полями `successfulJobsHistoryLimit` (по умолчанию 3) и `failedJobsHistoryLimit`
+    (по умолчанию 1) — сколько завершённых Job хранить. Плюс `ttlSecondsAfterFinished`
+    на самом Job для автоудаления по времени.
+  explanation: |
+    Каждый Job тянет за собой поды, а всё это лежит в etcd — единственном хранилище
+    состояния кластера. Раздутый etcd замедляет apiserver, то есть вообще всё.
+    Дефолты выглядят безобидно, но их легко обнулить: `successfulJobsHistoryLimit: 0`
+    в шаблоне — и история не хранится совсем.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-012
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Удалил StatefulSet — PVC его подов остались. Это баг?
+  answer: |
+    Нет, поведение по умолчанию: тома переживают удаление контроллера, чтобы данные
+    не пропали вместе с манифестом. Удалять PVC надо осознанно и руками.
+  explanation: |
+    Логика в том, что StatefulSet — описание нагрузки, а PVC — заявка на данные, и
+    вторые дороже первого: пересоздашь StatefulSet с тем же именем — поды подхватят
+    свои прежние тома. Обратная сторона — тихо копящиеся оплачиваемые диски после
+    удалённых нагрузок. Управлять этим можно через
+    `persistentVolumeClaimRetentionPolicy`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-013
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Задеплоил DaemonSet, а на control-plane узлах подов нет. Почему?
+  answer: |
+    На control-plane узлах стоит taint `node-role.kubernetes.io/control-plane:NoSchedule`.
+    Нужен явный `toleration` в pod-template DaemonSet.
+  explanation: |
+    Taint — это отказ узла принимать поды, и DaemonSet никакого иммунитета к нему
+    не имеет. Для мониторинга и сбора логов покрытие control-plane обычно как раз нужно,
+    поэтому у таких чартов toleration прописан по умолчанию. Проверяется симптом
+    мгновенно: `desired` в статусе DaemonSet будет меньше числа узлов.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"
+
+- id: k8s-workload-controllers-014
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в Job нельзя указать `restartPolicy: Always`?
+  answer: |
+    Потому что Job обязан завершиться, а `Always` означает «перезапускать даже после
+    успеха» — задача никогда бы не закончилась. API отклоняет такой манифест;
+    допустимы только `OnFailure` и `Never`.
+  explanation: |
+    Разница между `OnFailure` и `Never` в том, **что** повторяется при падении:
+    `OnFailure` перезапускает контейнер в том же поде, `Never` оставляет под в `Failed`,
+    и Job создаёт новый под. Второе удобнее для разбора — упавшие поды остаются
+    на месте вместе с логами.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/job/"
+
+- id: k8s-workload-controllers-015
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    `kubectl rollout status` висит и не завершается. Куда смотреть?
+  answer: |
+    Новые поды не становятся ready. Причины по частоте: не проходит `readinessProbe`,
+    не тянется образ (`ImagePullBackOff`), нет ресурсов для планирования (`Pending`),
+    упирается в квоту namespace. Через `progressDeadlineSeconds` (по умолчанию 600)
+    выкат помечается провалившимся.
+  explanation: |
+    Deployment продвигает выкат только по готовности новых подов, поэтому «завис
+    rollout» — это всегда симптом, а не причина: проблема в конкретном поде. Смотреть
+    надо не на Deployment, а на новый ReplicaSet и его поды. Важно, что откат
+    автоматически **не** происходит — по истечении дедлайна выкат просто останавливается
+    в текущем состоянии.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+# --- services: junior/middle ---
+
+- id: k8s-services-001
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Service хранит у себя список подов?
+  answer: |
+    Нет. Service хранит **селектор**. По селектору контроллер endpoints ведёт отдельный
+    объект `EndpointSlice` со списком адресов, а kube-proxy на каждом узле превращает
+    его в правила в ядре.
+  explanation: |
+    Отсюда порядок отладки «сервис есть, трафика нет»: смотреть надо не на Service,
+    а на `kubectl get endpointslice` — пустой список означает, что селектор не совпал
+    с метками подов или поды не готовы. Само по себе существование Service ничего
+    не гарантирует, это лишь декларация намерения.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-002
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Перечисли типы Service и как они соотносятся друг с другом.
+  answer: |
+    `ClusterIP` — базовый, адрес только внутри кластера. `NodePort` — это ClusterIP
+    **плюс** порт на каждом узле. `LoadBalancer` — это NodePort **плюс** внешний
+    балансировщик от облака. `ExternalName` стоит особняком: это просто CNAME в DNS.
+  explanation: |
+    Типы — надстройки, а не альтернативы: у LoadBalancer внутри всё равно есть и
+    ClusterIP, и NodePort. Понимание этой матрёшки объясняет, почему у LoadBalancer
+    на узлах открываются порты из диапазона NodePort, и почему внутрикластерные
+    обращения к нему всё равно идут через ClusterIP.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-003
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `clusterIP: None` (headless Service)?
+  answer: |
+    Отключает виртуальный IP и балансировку: DNS-имя сервиса начинает резолвиться
+    **сразу в IP всех готовых подов**, а не в один ClusterIP.
+  explanation: |
+    Нужно там, где клиент обязан видеть отдельные экземпляры, а не безликую точку входа:
+    реплики БД (писать только в primary), кластеры с обнаружением участников, gRPC-клиент
+    с собственной балансировкой. Для StatefulSet headless-сервис ещё и даёт каждому поду
+    персональное DNS-имя вида `web-0.svc-name`.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-004
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем различаются `port`, `targetPort` и `nodePort` в манифесте Service?
+  answer: |
+    `port` — порт самого сервиса (на ClusterIP), `targetPort` — порт **контейнера**,
+    куда трафик пересылается, `nodePort` — порт на каждом узле для типа NodePort.
+  explanation: |
+    Три числа для трёх разных сетевых точек, и путаница между ними — самая частая
+    причина «сервис есть, а curl молчит». Клиенты внутри кластера обращаются на `port`,
+    приложение слушает `targetPort`, а `nodePort` появляется только когда вход нужен
+    снаружи. Если `targetPort` не указан, он считается равным `port`.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-005
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    ClusterIP не поднят ни на одном интерфейсе в кластере, но `curl` на него работает.
+    Как?
+  answer: |
+    ClusterIP — виртуальный адрес, существующий только как **правило в ядре**.
+    Пакет на него никуда не доезжает: он переписывается (DNAT) на IP конкретного пода
+    прямо на узле-отправителе.
+  explanation: |
+    Отсюда следствия, которые проверяют на собесе: ClusterIP нельзя пропинговать
+    (ICMP правилами не обрабатывается) и его не видно в `ip addr`. Правила
+    раскладывает kube-proxy на **каждом** узле, поэтому подмена происходит локально,
+    ещё до того как пакет ушёл в сеть.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-006
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Через что физически проходит пакет, отправленный на ClusterIP?
+  options:
+    a: "Через процесс kube-proxy на узле-отправителе"
+    b: "Через правила в ядре узла-отправителя, kube-proxy их только записывает"
+    c: "Через kube-apiserver, который знает актуальный список подов"
+    d: "Через ingress-controller, он и есть балансировщик кластера"
+  answer: b
+  explanation: |
+    Имя `kube-proxy` обманывает: он не проксирует трафик, а работает control plane'ом
+    для сети сервисов — следит за EndpointSlice и программирует iptables, IPVS или
+    nftables. Данные идут через ядро. Поэтому упавший kube-proxy не рвёт существующие
+    соединения — правила остаются на месте, просто перестают обновляться.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-007
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Балансировка Service работает на уровне запросов или соединений?
+  answer: |
+    На уровне **соединений**. Под выбирается один раз, при установке соединения,
+    и все запросы внутри него идут в один и тот же под.
+  explanation: |
+    Это следствие того, что балансировка живёт на L4, в ядре: там нет понятия
+    «HTTP-запрос», есть только новый коннект. Для HTTP/1.1 с коротким keep-alive это
+    незаметно, а для долгих соединений — принципиально. Балансировка ещё и «тупая»:
+    это выбор наугад по весу, без учёта загрузки подов.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-008
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Отскейлил gRPC-сервис до 10 реплик, но нагрузка идёт в один под. Почему и что делать?
+  answer: |
+    gRPC работает поверх HTTP/2 и держит **одно долгое соединение**, а Service
+    балансирует на коннект. Клиент выбрал под один раз и остался на нём навсегда.
+    Лечится клиентской балансировкой через headless Service, service mesh или прокси
+    с поддержкой HTTP/2.
+  explanation: |
+    Симптом контринтуитивен: реплики есть, они здоровы, все запросы у одной. Причина
+    в том, что L4-балансировщик физически не видит границ запросов внутри установленного
+    соединения. Поэтому решение всегда лежит на уровне, который эти границы видит —
+    у клиента или у L7-прокси.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-009
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Создал `type: LoadBalancer` на bare-metal кластере, `EXTERNAL-IP` вечно `<pending>`.
+    Почему?
+  answer: |
+    Внешний адрес выдаёт не Kubernetes, а cloud-controller-manager, который ходит в API
+    облака. На bare-metal его нет, выдавать адрес некому. Нужен MetalLB или аналог.
+  explanation: |
+    Kubernetes сам по себе балансировщиков не создаёт — он лишь описывает намерение
+    и ждёт, что кто-то его исполнит. Это тот же паттерн, что с Ingress: объект без
+    контроллера остаётся декларацией. `<pending>` означает «заявка принята, исполнитель
+    не найден», и в событиях сервиса это будет видно прямым текстом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-010
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какой диапазон портов у NodePort по умолчанию и чем NodePort плох в проде?
+  answer: |
+    `30000–32767`. Плох тем, что открывает порт на **каждом** узле кластера, даёт
+    некрасивый адрес вида `узел:31543`, не умеет TLS и путей, и требует, чтобы клиент
+    сам знал живые адреса узлов.
+  explanation: |
+    NodePort — это механизм, а не продуктовое решение: он существует как фундамент
+    для LoadBalancer, а не как способ выставить сервис наружу. В проде наружу выходят
+    через Ingress или LoadBalancer, а NodePort остаётся для отладки и стендов.
+    Отдельный риск — сетевой периметр: порт открывается на всех узлах разом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-011
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `externalTrafficPolicy: Local` и чем за это платишь?
+  answer: |
+    Запрещает пересылку входящего внешнего трафика на другие узлы — пакет обслуживает
+    только под на том узле, куда он пришёл. Взамен сохраняется **реальный source IP**
+    клиента. Плата — неравномерность: узлы с большим числом подов получат больше нагрузки.
+  explanation: |
+    При дефолтном `Cluster` узел может перекинуть пакет соседу, и для этого делает SNAT —
+    подменяет источник, из-за чего приложение видит IP узла вместо клиента. Это ломает
+    геолокацию, rate limiting по IP и аудит. `Local` убирает лишний хоп и SNAT, но
+    требует, чтобы поды были на всех узлах, куда балансировщик шлёт трафик.
+  ref: "https://kubernetes.io/docs/tutorials/services/source-ip/"
+
+- id: k8s-services-012
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что умеет и чего не умеет `sessionAffinity: ClientIP`?
+  answer: |
+    Умеет привязать соединения с одного IP к одному поду (по умолчанию на 3 часа).
+    Не умеет ничего сложнее: ни куки, ни заголовки, ни ключ сессии — это L4, он видит
+    только адреса.
+  explanation: |
+    Привязка по IP разваливается ровно там, где она обычно нужна: клиенты за общим NAT
+    выглядят одним адресом и уедут в один под, а мобильный клиент при смене сети
+    поменяет IP и потеряет привязку. Это костыль для legacy-приложений с состоянием
+    в памяти; нормальное решение — вынести сессию во внешнее хранилище.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-013
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие три сети живут в кластере и какая из них маршрутизируется в обычной сети?
+  answer: |
+    Сеть узлов (реальная, из VPC), pod CIDR (адреса подов, раздаёт CNI) и service CIDR
+    (виртуальные ClusterIP). Реально маршрутизируется только сеть узлов; pod-сеть —
+    внутри кластера, service-сеть не существует вне правил ядра.
+  explanation: |
+    Разделение объясняет типовые сетевые сюрпризы: на ClusterIP нельзя сходить снаружи
+    кластера, а pod IP не отвечает из офисной сети без специальной маршрутизации.
+    И оно же объясняет требование не пересекать эти диапазоны с адресами VPC —
+    иначе часть реальной сети станет недостижимой изнутри подов.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+# --- config-secrets: junior/middle ---
+
+- id: k8s-config-secrets-001
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какими двумя способами ConfigMap или Secret попадают в контейнер?
+  answer: |
+    Переменными окружения (`env` / `envFrom`) и файлами через том (`volumeMounts`).
+    Выбор способа определяет главное — обновится ли значение без рестарта пода.
+  explanation: |
+    Это не вопрос вкуса: env впаивается в процесс при старте и не меняется никогда,
+    а файлы в томе kubelet обновляет на живом поде. Отсюда практическое правило —
+    скалярные настройки, которые всё равно требуют рестарта, можно через env;
+    целые конфиг-файлы и то, что должно перечитываться на лету, — только томом.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+- id: k8s-config-secrets-002
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: junior
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Secret шифрует свои данные?
+  answer: |
+    Нет. Значения хранятся в base64 — это кодирование, а не шифрование, и разворачивается
+    одной командой. Шифрование в etcd включается отдельно администратором кластера.
+  explanation: |
+    Реальные отличия Secret от ConfigMap лежат в другом: он не светится в выводе по
+    умолчанию, у него есть типы, kubelet держит его в tmpfs, и на него отдельно
+    навешивается RBAC. То есть Secret — это про **разграничение доступа**, а не про
+    криптографию. Кто может читать Secret'ы в namespace, тот видит их открытым текстом.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"
+
+- id: k8s-config-secrets-003
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `envFrom` в отличие от `env` с `valueFrom`?
+  answer: |
+    `envFrom` втягивает **весь** ConfigMap или Secret целиком: каждый ключ становится
+    переменной окружения с тем же именем. `env` + `valueFrom` берёт один конкретный ключ.
+  explanation: |
+    `envFrom` короче, но делает состав переменных неявным — по манифесту пода уже
+    не видно, что именно в него приезжает, и добавление ключа в ConfigMap молча меняет
+    окружение приложения. Плюс ключи, не подходящие под правила имён переменных,
+    молча пропускаются. Для секретов явное перечисление обычно предпочтительнее.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+- id: k8s-config-secrets-004
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у Secret есть поле `type` и какие типы встречаются чаще всего?
+  answer: |
+    Тип задаёт ожидаемый набор ключей и позволяет Kubernetes использовать секрет
+    по назначению. Чаще всего: `Opaque` (произвольные данные, по умолчанию),
+    `kubernetes.io/tls` (ключи `tls.crt` и `tls.key`), `kubernetes.io/dockerconfigjson`
+    (доступ к приватному registry).
+  explanation: |
+    Тип — это контракт: Ingress ждёт от TLS-секрета именно `tls.crt` и `tls.key`
+    и с произвольным Opaque работать не станет, а `imagePullSecrets` требует
+    dockerconfigjson. Плюс API валидирует состав ключей при создании, то есть ошибка
+    ловится сразу, а не в момент, когда под не смог подтянуть образ.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"
+
+- id: k8s-config-secrets-005
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как под получает доступ к образу из приватного registry?
+  answer: |
+    Через `imagePullSecrets` в спеке пода (или в ServiceAccount, под которым он
+    запускается) — ссылку на Secret типа `kubernetes.io/dockerconfigjson`.
+  explanation: |
+    Тянет образ **kubelet**, а не приложение, поэтому секрет нужен до старта контейнера
+    и читается с узла. Прописывать его в ServiceAccount удобнее: тогда он автоматически
+    применяется ко всем подам namespace и его не надо копировать в каждый манифест.
+    Симптом отсутствия — `ImagePullBackOff` с ошибкой авторизации в событиях пода.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/"
+
+- id: k8s-config-secrets-006
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Ты поменял значение в ConfigMap. Под его использует. Когда изменение доедет?
+  options:
+    a: "Через env — сразу; через том — только после рестарта пода"
+    b: "Через env — никогда без рестарта; через том — kubelet обновит файл с задержкой"
+    c: "И то и другое обновится сразу, kubelet следит за обоими"
+    d: "Ни то ни другое: ConfigMap читается один раз при создании пода"
+  answer: b
+  explanation: |
+    Переменные окружения задаются процессу при `exec` и после этого физически
+    неизменяемы — ни Kubernetes, ни кто-либо ещё не может подменить окружение живому
+    процессу. Файлы в томе — это симлинки, которые kubelet периодически переставляет
+    на новую версию, поэтому там обновление происходит, но не мгновенно.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+- id: k8s-config-secrets-007
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Файл из ConfigMap обновился в томе. Значит ли это, что приложение подхватило
+    новый конфиг?
+  answer: |
+    Нет. Обновился только файл на диске. Перечитает ли его приложение — целиком вопрос
+    к приложению: умеет ли оно следить за файлом или перезагружаться по сигналу.
+  explanation: |
+    Это две независимые границы, и их постоянно склеивают в одну. Большинство сервисов
+    читают конфиг один раз при старте, поэтому обновлённый файл лежит рядом
+    и никем не замечен. Отсюда стандартный приём: аннотация с хешем конфига
+    в pod-template — меняется конфиг, меняется аннотация, Deployment катит новые поды.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+- id: k8s-config-secrets-008
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему файл, примонтированный через `subPath`, перестаёт обновляться?
+  answer: |
+    Потому что `subPath` монтирует **конкретный файл**, а не каталог. Механизм обновления
+    работает через подмену симлинка внутри каталога тома — при `subPath` этой ссылки нет,
+    и файл замерзает на версии, которая была при старте пода.
+  explanation: |
+    Ловушка в том, что `subPath` берут ровно там, где он ломает: чтобы положить один
+    файл в каталог с чужим содержимым (`/etc/nginx/nginx.conf`) и не затереть остальное.
+    Обходной путь — монтировать каталог целиком в отдельное место и делать симлинк
+    самому, либо смириться и катить поды при смене конфига.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-config-secrets-009
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт с содержимым `/etc/nginx`, если примонтировать туда том с одним файлом?
+  answer: |
+    Всё, что было в этом каталоге в образе, станет недоступно: монтирование **закрывает
+    каталог целиком**, оставляя видимым только содержимое тома.
+  explanation: |
+    Это обычная семантика mount в Linux, а не особенность Kubernetes: точка монтирования
+    перекрывает то, что лежало под ней. Симптом — приложение не находит файлов, которые
+    точно есть в образе. Решения два: `subPath` для подмены одного файла (ценой потери
+    авто-обновления) или монтирование в пустой каталог.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-config-secrets-010
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как заставить приложение увидеть новый конфиг, если оно читает его только при старте?
+  answer: |
+    Положить хеш конфига в аннотацию pod-template Deployment. Меняется ConfigMap →
+    меняется аннотация → меняется pod-template → Deployment катит новые поды штатным
+    rolling update.
+  explanation: |
+    Deployment реагирует только на изменение своего pod-template — правка ConfigMap
+    для него невидима, поэтому сам по себе выкат не начнётся. Аннотация с хешем делает
+    внешнее изменение видимым в шаблоне. В Helm это `checksum/config` в аннотациях,
+    и такая строка есть почти в каждом приличном чарте.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-config-secrets-011
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под завис в `ContainerCreating`. Как это связано с ConfigMap и Secret?
+  answer: |
+    Скорее всего под ссылается на несуществующий ConfigMap или Secret. Планирование
+    прошло, узел выбран, но kubelet не может смонтировать том и ждёт — бесконечно,
+    пока объект не появится.
+  explanation: |
+    Ждать, а не падать, — сознательное решение: объект может появиться через секунду,
+    и убивать под из-за гонки при развёртывании неправильно. Цена в том, что симптом
+    молчаливый: в логах пусто, потому что контейнер даже не стартовал. Причина всегда
+    видна в `kubectl describe pod`, в событиях, прямым текстом.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-config-secrets-012
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В `env.valueFrom.configMapKeyRef` опечатка в имени ключа. Что будет с подом?
+  answer: |
+    Под **не запустится**: kubelet не сможет собрать окружение и остановится
+    с `CreateContainerConfigError`. Дефолт не подставляется.
+  explanation: |
+    Kubernetes не угадывает намерения: ссылка на несуществующий ключ — это ошибка
+    конфигурации, а не повод стартовать с пустым значением. Поведение можно смягчить
+    флагом `optional: true` — тогда переменная просто не появится, и ответственность
+    за отсутствующее значение переходит приложению.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+- id: k8s-config-secrets-013
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `immutable: true` у ConfigMap и Secret?
+  answer: |
+    Запрещает изменять `data` — объект можно только удалить и создать заново. Взамен
+    kubelet перестаёт следить за ним и снимает нагрузку с apiserver.
+  explanation: |
+    В большом кластере каждый под с примонтированным ConfigMap держит watch на apiserver;
+    на десятках тысяч подов это заметная нагрузка. Неизменяемость её убирает. Побочный
+    эффект полезен сам по себе: конфиг перестаёт незаметно меняться под работающими
+    подами, а новая версия требует нового объекта и явного выката.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+- id: k8s-config-secrets-014
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Почему секреты лучше монтировать томом, чем прокидывать через `env`?
+  answer: |
+    Переменные окружения утекают слишком легко: они видны в `kubectl describe pod`,
+    в дампах при краше, в логах стартующего приложения, наследуются дочерними процессами
+    и попадают в системы отчётов об ошибках.
+  explanation: |
+    Файл в томе доступен только процессу, который его открыл, лежит в tmpfs
+    (то есть не попадает на диск узла) и обновляется без рестарта пода. Окружение же
+    по своей природе глобально для процесса и путешествует вниз по дереву процессов —
+    ровно то поведение, которого от секрета не хочется.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"
+
+- id: k8s-config-secrets-015
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    ConfigMap удалили, а под с ним продолжает работать. Почему и что сломается дальше?
+  answer: |
+    Работающий контейнер уже получил свои данные: env впаян в процесс, файлы тома лежат
+    у kubelet локально. Сломается при **следующем** старте пода — новый под не сможет
+    смонтировать том и зависнет в `ContainerCreating`.
+  explanation: |
+    Это классическая отложенная поломка: кластер выглядит здоровым ровно до первого
+    выката, перепланирования или рестарта узла, а потом сервис не поднимается, и связь
+    с давним удалением объекта уже неочевидна. Отсюда правило — состояние кластера
+    держать в git, а не править объекты руками.
+  ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
