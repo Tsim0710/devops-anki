@@ -445,16 +445,45 @@ def web_payload(cards) -> list[dict]:
     return out
 
 
+PAGE_HEAD = """<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DevOps Drill">
+<meta name="theme-color" content="#e9edf0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12171b" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#127919;</text></svg>">
+{title}
+</head>
+<body>
+"""
+
+
 def build_web(cards) -> int:
-    """Самодостаточный HTML: карты вшиты в страницу, внешних запросов за данными нет."""
+    """Две сборки одной страницы:
+      build/drill.html — фрагмент для Artifact (там свой doctype и head);
+      build/index.html — самостоятельный документ для GitHub Pages.
+    Карты вшиты внутрь, за данными страница никуда не ходит."""
     template = (ROOT / "web" / "drill.html").read_text(encoding="utf-8")
     payload = web_payload(cards)
     marker = "/*__CARDS__*/[]"
     if marker not in template:
         raise SystemExit("web/drill.html: не найден маркер для подстановки карт")
     page = template.replace(marker, json.dumps(payload, ensure_ascii=False))
+
     BUILD_DIR.mkdir(exist_ok=True)
     (BUILD_DIR / "drill.html").write_text(page, encoding="utf-8")
+
+    title = re.search(r"<title>.*?</title>", page)
+    (BUILD_DIR / "index.html").write_text(
+        PAGE_HEAD.format(title=title.group(0) if title else "<title>DevOps Drill</title>")
+        + page + "\n</body>\n</html>\n",
+        encoding="utf-8",
+    )
     return len(payload)
 
 
@@ -512,7 +541,7 @@ def main() -> int:
     n_web = build_web(cards)
     print(f"OK: {manifest['count']} карт -> build/devops.apkg")
     print(f"    деки: {', '.join(manifest['decks'])}")
-    print(f"    {n_web} карт -> build/drill.html (веб-тренажёр)")
+    print(f"    {n_web} карт -> build/drill.html + build/index.html (тренажёр)")
     return 0
 
 

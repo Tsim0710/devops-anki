@@ -25,6 +25,11 @@ on:
 permissions:
   contents: write
 
+# Публикация страницы не должна наезжать сама на себя при частых пушах.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -50,6 +55,18 @@ jobs:
       - name: build apkg
         run: python build.py
 
+      # Тренажёр на GitHub Pages: всегда последняя собранная версия, без логина.
+      - name: подготовить страницу
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p site
+          cp build/index.html site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: site
+
       - uses: actions/upload-artifact@v4
         with:
           name: devops-apkg
@@ -65,3 +82,18 @@ jobs:
         with:
           files: build/devops.apkg
           generate_release_notes: true
+
+  # Выкладывает тренажёр на https://<owner>.github.io/devops-anki/
+  deploy-pages:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
