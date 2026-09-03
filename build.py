@@ -8,7 +8,7 @@ cards/**/*.yaml -> build/devops.apkg
   * model_id / deck_id детерминированы из имени -> импорт не создаёт новые notetype и деки.
   * Дек = DevOps::<domain>. Вся остальная навигация — теги.
 Режимы:
-  python build.py                 сборка build/devops.apkg + build/manifest.json
+  python build.py                 сборка build/devops.apkg + build/drill.html + manifest
   python build.py --validate      только валидация (для CI)
   python build.py --index [dom]   индекс существующих карт (читать ПЕРЕД генерацией темы)
 """
@@ -412,6 +412,52 @@ def build(cards) -> dict:
     return manifest
 
 
+# ----------------------------------------------------------------------- веб-тренажёр
+
+def web_payload(cards) -> list[dict]:
+    """Те же карты, что в .apkg, но для веб-тренажёра. Рендер общий с Anki —
+    один источник правды на разметку."""
+    out = []
+    for _, _, card in cards:
+        if card.get("deprecated"):
+            continue
+        src = card["source"]
+        item = {
+            "id": card["id"],
+            "domain": card["domain"],
+            "subtopic": card["subtopic"],
+            "difficulty": card["difficulty"],
+            "source": [src] if isinstance(src, str) else src,
+            "type": card.get("type", "basic"),
+            "situational": bool(card.get("situational")),
+            "verified": bool(card.get("verified")),
+            "prompt": render(card["prompt"]),
+            "explanation": render(card["explanation"]),
+        }
+        if item["type"] == "mcq":
+            item["options"] = {k: render(v) for k, v in card["options"].items()}
+            item["answer"] = card["answer"]
+        else:
+            item["answer"] = render(card["answer"])
+        if card.get("ref"):
+            item["ref"] = card["ref"]
+        out.append(item)
+    return out
+
+
+def build_web(cards) -> int:
+    """Самодостаточный HTML: карты вшиты в страницу, внешних запросов за данными нет."""
+    template = (ROOT / "web" / "drill.html").read_text(encoding="utf-8")
+    payload = web_payload(cards)
+    marker = "/*__CARDS__*/[]"
+    if marker not in template:
+        raise SystemExit("web/drill.html: не найден маркер для подстановки карт")
+    page = template.replace(marker, json.dumps(payload, ensure_ascii=False))
+    BUILD_DIR.mkdir(exist_ok=True)
+    (BUILD_DIR / "drill.html").write_text(page, encoding="utf-8")
+    return len(payload)
+
+
 # -------------------------------------------------------------------------- index
 
 def print_index(cards, domain: str | None) -> None:
@@ -463,8 +509,10 @@ def main() -> int:
         print(f"NOTE  {note}", file=sys.stderr)
 
     manifest = build(cards)
+    n_web = build_web(cards)
     print(f"OK: {manifest['count']} карт -> build/devops.apkg")
     print(f"    деки: {', '.join(manifest['decks'])}")
+    print(f"    {n_web} карт -> build/drill.html (веб-тренажёр)")
     return 0
 
 

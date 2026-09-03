@@ -1,0 +1,535 @@
+<title>DevOps Drill</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --ground: #e9edf0;
+  --surface: #ffffff;
+  --surface-2: #f2f5f7;
+  --ink: #12181d;
+  --ink-2: #56646f;
+  --ink-3: #8695a1;
+  --line: #d3dbe1;
+  --accent: #0f6e6e;
+  --accent-ink: #ffffff;
+  --junior: #2f7a58;
+  --middle: #8d6410;
+  --senior: #a3453a;
+  --know: #2f7a58;
+  --dunno: #a3453a;
+  --code-bg: #eff2f5;
+  --shadow: 0 1px 2px rgba(18,24,29,.06), 0 8px 24px rgba(18,24,29,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #12171b;
+    --surface: #1a2126;
+    --surface-2: #212a30;
+    --ink: #e4eaee;
+    --ink-2: #9aa9b4;
+    --ink-3: #6d7d89;
+    --line: #2c363d;
+    --accent: #3fa9a2;
+    --accent-ink: #08201f;
+    --junior: #6cc79b;
+    --middle: #d5a53e;
+    --senior: #e28477;
+    --know: #6cc79b;
+    --dunno: #e28477;
+    --code-bg: #131a1f;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #12171b;
+  --surface: #1a2126;
+  --surface-2: #212a30;
+  --ink: #e4eaee;
+  --ink-2: #9aa9b4;
+  --ink-3: #6d7d89;
+  --line: #2c363d;
+  --accent: #3fa9a2;
+  --accent-ink: #08201f;
+  --junior: #6cc79b;
+  --middle: #d5a53e;
+  --senior: #e28477;
+  --know: #6cc79b;
+  --dunno: #e28477;
+  --code-bg: #131a1f;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+.app {
+  max-width: 680px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 96px;
+}
+
+/* --- шапка --- */
+.bar {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 18px 2px 12px;
+}
+.brand {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px; font-weight: 500; letter-spacing: .06em;
+  color: var(--ink-2); text-transform: uppercase;
+}
+.brand b { color: var(--accent); font-weight: 500; }
+.stat {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- фильтры --- */
+.filters { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.row-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); width: 100%; margin-bottom: -2px;
+}
+.chip {
+  font: inherit; font-size: 13px;
+  padding: 6px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink-2); cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.chip:hover { border-color: var(--ink-3); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip.lvl[aria-pressed="true"] { background: var(--c); border-color: var(--c); color: var(--surface); }
+.chip .n {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  opacity: .6; margin-left: 5px; font-variant-numeric: tabular-nums;
+}
+:where(.chip):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- карточка --- */
+.stage { flex: 1; display: flex; flex-direction: column; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 20px 20px 22px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  color: var(--ink-3); letter-spacing: .02em;
+}
+.meta .lvl { color: var(--c); font-weight: 500; }
+.meta .dot { color: var(--line); }
+.meta .warn {
+  color: var(--middle); border: 1px solid currentColor;
+  border-radius: 4px; padding: 0 5px;
+}
+.q { font-size: 19px; line-height: 1.45; }
+.q p:first-child { margin-top: 0; }
+.q p:last-child { margin-bottom: 0; }
+
+/* варианты MCQ */
+.opts { display: flex; flex-direction: column; gap: 7px; }
+.opt {
+  display: flex; gap: 10px; text-align: left; width: 100%;
+  font: inherit; font-size: 15px;
+  padding: 11px 13px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--ink); cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.opt:hover { border-color: var(--ink-3); }
+.opt .k {
+  font-family: "IBM Plex Mono", monospace; font-weight: 500;
+  color: var(--ink-3); flex: 0 0 auto;
+}
+.opt p { margin: 0; }
+.opt.picked { border-color: var(--accent); }
+.opt.right { border-color: var(--know); background: color-mix(in srgb, var(--know) 12%, var(--surface)); }
+.opt.right .k { color: var(--know); }
+.opt.wrong { border-color: var(--dunno); background: color-mix(in srgb, var(--dunno) 10%, var(--surface)); }
+.opt.wrong .k { color: var(--dunno); }
+.opt[disabled] { cursor: default; }
+
+/* ответ */
+.split { border: none; border-top: 1px solid var(--line); margin: 2px 0 0; }
+.block { display: flex; flex-direction: column; gap: 5px; }
+.block .lbl {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px; letter-spacing: .11em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.a { font-size: 17px; }
+.a p:first-child, .e p:first-child { margin-top: 0; }
+.a p:last-child, .e p:last-child { margin-bottom: 0; }
+.e { color: var(--ink-2); font-size: 15.5px; }
+.ref {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  color: var(--ink-3); word-break: break-all;
+}
+
+code, pre { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: .87em; }
+pre {
+  background: var(--code-bg); border-radius: 8px; padding: 12px 14px;
+  overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 8px 0;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+ul, ol { padding-left: 20px; margin: 8px 0; }
+b, strong { font-weight: 600; }
+
+/* --- действия --- */
+.actions {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(to top, var(--ground) 62%, transparent);
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+}
+.actions-in { max-width: 680px; margin: 0 auto; display: flex; gap: 10px; }
+.btn {
+  flex: 1; font: inherit; font-size: 16px; font-weight: 500;
+  min-height: 54px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  box-shadow: var(--shadow);
+  transition: transform .08s;
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.know { color: var(--know); border-color: color-mix(in srgb, var(--know) 45%, var(--line)); }
+.btn.dunno { color: var(--dunno); border-color: color-mix(in srgb, var(--dunno) 45%, var(--line)); }
+.btn .hint {
+  display: block; font-family: "IBM Plex Mono", monospace;
+  font-size: 10px; font-weight: 400; color: var(--ink-3); letter-spacing: .05em;
+}
+
+/* --- прогресс и пустое состояние --- */
+.progress { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-bottom: 14px; }
+.progress i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
+.empty {
+  border: 1px dashed var(--line); border-radius: 14px;
+  padding: 40px 24px; text-align: center; color: var(--ink-2);
+}
+.empty .big { font-size: 17px; color: var(--ink); margin-bottom: 6px; }
+.done { text-align: center; padding: 32px 20px; }
+.done .num {
+  font-family: "IBM Plex Mono", monospace; font-size: 40px;
+  color: var(--accent); font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+@media (max-width: 480px) {
+  .card { padding: 17px 16px 19px; border-radius: 12px; }
+  .q { font-size: 18px; }
+}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand">devops<b>::</b>drill</div>
+    <div class="stat" id="stat"></div>
+  </header>
+
+  <div class="filters">
+    <div class="row" id="domains"><span class="row-label">тема</span></div>
+    <div class="row" id="subtopics"></div>
+    <div class="row" id="levels"><span class="row-label">уровень</span></div>
+  </div>
+
+  <div class="progress"><i id="bar" style="width:0%"></i></div>
+  <main class="stage" id="stage"></main>
+</div>
+
+<footer class="actions"><div class="actions-in" id="actions"></div></footer>
+
+<script>const CARDS = /*__CARDS__*/[];</script>
+<script>
+(function () {
+  "use strict";
+
+  var LEVELS = [
+    { id: "junior", label: "junior", color: "var(--junior)" },
+    { id: "middle", label: "middle", color: "var(--middle)" },
+    { id: "senior", label: "senior", color: "var(--senior)" }
+  ];
+  var KEY_F = "drill.filters.v1";
+  var KEY_P = "drill.progress.v1";
+
+  function load(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+
+  var filters = load(KEY_F, null) || { domain: null, subtopic: null, levels: ["junior", "middle", "senior"] };
+  if (!Array.isArray(filters.levels) || !filters.levels.length) filters.levels = ["junior", "middle", "senior"];
+  var progress = load(KEY_P, {}) || {};
+
+  var queue = [], pos = 0, revealed = false, picked = null, sessionSeen = 0;
+
+  var $stat = document.getElementById("stat");
+  var $domains = document.getElementById("domains");
+  var $subs = document.getElementById("subtopics");
+  var $levels = document.getElementById("levels");
+  var $stage = document.getElementById("stage");
+  var $actions = document.getElementById("actions");
+  var $bar = document.getElementById("bar");
+
+  function domains() {
+    var seen = [];
+    CARDS.forEach(function (c) { if (seen.indexOf(c.domain) < 0) seen.push(c.domain); });
+    return seen.sort();
+  }
+  function subtopics(domain) {
+    var seen = [];
+    CARDS.forEach(function (c) {
+      if (c.domain === domain && seen.indexOf(c.subtopic) < 0) seen.push(c.subtopic);
+    });
+    return seen.sort();
+  }
+  function matches(c) {
+    if (filters.domain && c.domain !== filters.domain) return false;
+    if (filters.subtopic && c.subtopic !== filters.subtopic) return false;
+    return filters.levels.indexOf(c.difficulty) >= 0;
+  }
+  function box(c) { var b = progress[c.id]; return typeof b === "number" ? b : 0; }
+
+  function rebuild() {
+    var pool = CARDS.filter(matches);
+    // сначала то, что хуже знаешь; внутри одной корзины — вперемешку
+    pool.forEach(function (c) { c._r = Math.random(); });
+    pool.sort(function (a, b) { return (box(a) - box(b)) || (a._r - b._r); });
+    queue = pool;
+    pos = 0; revealed = false; picked = null;
+    save(KEY_F, filters);
+    render();
+  }
+
+  function chip(label, active, onClick, count, extraClass, color) {
+    var b = document.createElement("button");
+    b.className = "chip" + (extraClass ? " " + extraClass : "");
+    b.type = "button";
+    b.setAttribute("aria-pressed", active ? "true" : "false");
+    if (color) b.style.setProperty("--c", color);
+    b.innerHTML = label + (count != null ? '<span class="n">' + count + "</span>" : "");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function renderFilters() {
+    $domains.querySelectorAll(".chip").forEach(function (n) { n.remove(); });
+    $subs.innerHTML = "";
+    $levels.querySelectorAll(".chip").forEach(function (n) { n.remove(); });
+
+    $domains.appendChild(chip("всё", !filters.domain, function () {
+      filters.domain = null; filters.subtopic = null; rebuild();
+    }, CARDS.length));
+
+    domains().forEach(function (d) {
+      var n = CARDS.filter(function (c) { return c.domain === d; }).length;
+      $domains.appendChild(chip(d, filters.domain === d, function () {
+        filters.domain = filters.domain === d ? null : d;
+        filters.subtopic = null;
+        rebuild();
+      }, n));
+    });
+
+    if (filters.domain) {
+      var lbl = document.createElement("span");
+      lbl.className = "row-label";
+      lbl.textContent = "подтема";
+      $subs.appendChild(lbl);
+      $subs.appendChild(chip("вся тема", !filters.subtopic, function () {
+        filters.subtopic = null; rebuild();
+      }));
+      subtopics(filters.domain).forEach(function (s) {
+        var n = CARDS.filter(function (c) { return c.domain === filters.domain && c.subtopic === s; }).length;
+        $subs.appendChild(chip(s, filters.subtopic === s, function () {
+          filters.subtopic = filters.subtopic === s ? null : s;
+          rebuild();
+        }, n));
+      });
+    }
+
+    LEVELS.forEach(function (l) {
+      var on = filters.levels.indexOf(l.id) >= 0;
+      $levels.appendChild(chip(l.label, on, function () {
+        var i = filters.levels.indexOf(l.id);
+        if (i >= 0) { if (filters.levels.length > 1) filters.levels.splice(i, 1); }
+        else filters.levels.push(l.id);
+        rebuild();
+      }, null, "lvl", l.color));
+    });
+  }
+
+  function levelColor(d) {
+    return d === "junior" ? "var(--junior)" : d === "senior" ? "var(--senior)" : "var(--middle)";
+  }
+
+  function renderCard(c) {
+    var el = document.createElement("article");
+    el.className = "card";
+
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    meta.style.setProperty("--c", levelColor(c.difficulty));
+    var bits = [
+      '<span>' + c.domain + " / " + c.subtopic + "</span>",
+      '<span class="dot">·</span>',
+      '<span class="lvl">' + c.difficulty + "</span>",
+      '<span class="dot">·</span>',
+      "<span>" + c.source.join(" + ") + "</span>"
+    ];
+    if (c.situational) bits.push('<span class="dot">·</span><span>ситуационная</span>');
+    if (!c.verified) bits.push('<span class="warn">не вычитана</span>');
+    meta.innerHTML = bits.join("");
+    el.appendChild(meta);
+
+    var q = document.createElement("div");
+    q.className = "q";
+    q.innerHTML = c.prompt;
+    el.appendChild(q);
+
+    if (c.type === "mcq") {
+      var box_ = document.createElement("div");
+      box_.className = "opts";
+      Object.keys(c.options).sort().forEach(function (k) {
+        var o = document.createElement("button");
+        o.className = "opt";
+        o.type = "button";
+        o.innerHTML = '<span class="k">' + k + ")</span><span>" + c.options[k] + "</span>";
+        if (revealed) {
+          o.disabled = true;
+          if (k === c.answer) o.classList.add("right");
+          else if (k === picked) o.classList.add("wrong");
+        } else {
+          if (k === picked) o.classList.add("picked");
+          o.addEventListener("click", function () { picked = k; reveal(); });
+        }
+        box_.appendChild(o);
+      });
+      el.appendChild(box_);
+    }
+
+    if (revealed) {
+      el.appendChild(Object.assign(document.createElement("hr"), { className: "split" }));
+      if (c.type !== "mcq") {
+        el.appendChild(block("ответ", c.answer, "a"));
+      }
+      el.appendChild(block("почему", c.explanation, "e"));
+      if (c.ref) {
+        var r = document.createElement("div");
+        r.className = "ref";
+        r.textContent = c.ref;
+        el.appendChild(r);
+      }
+    }
+    return el;
+  }
+
+  function block(label, html, cls) {
+    var b = document.createElement("div");
+    b.className = "block";
+    var l = document.createElement("div");
+    l.className = "lbl";
+    l.textContent = label;
+    var body = document.createElement("div");
+    body.className = cls;
+    body.innerHTML = html;
+    b.appendChild(l);
+    b.appendChild(body);
+    return b;
+  }
+
+  function button(label, hint, cls, onClick) {
+    var b = document.createElement("button");
+    b.className = "btn " + cls;
+    b.type = "button";
+    b.innerHTML = label + (hint ? '<span class="hint">' + hint + "</span>" : "");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function reveal() { revealed = true; render(); }
+
+  function grade(known) {
+    var c = queue[pos];
+    if (c) {
+      var b = box(c);
+      progress[c.id] = known ? Math.min(b + 1, 4) : 0;
+      save(KEY_P, progress);
+      sessionSeen++;
+    }
+    pos++; revealed = false; picked = null;
+    render();
+  }
+
+  function render() {
+    renderFilters();
+    $stage.innerHTML = "";
+    $actions.innerHTML = "";
+
+    var total = queue.length;
+    $bar.style.width = total ? Math.round((pos / total) * 100) + "%" : "0%";
+
+    if (!total) {
+      $stage.innerHTML = '<div class="empty"><div class="big">Под фильтр ничего не попало</div>' +
+        "Включи ещё уровень или выбери другую тему.</div>";
+      $stat.textContent = "0 карт";
+      return;
+    }
+
+    if (pos >= total) {
+      $stage.innerHTML = '<div class="done"><div class="num">' + sessionSeen + "</div>" +
+        "<div>вопросов за подход</div></div>";
+      $actions.appendChild(button("Ещё раз", "заново по этой теме", "primary", function () {
+        sessionSeen = 0; rebuild();
+      }));
+      $stat.textContent = "круг пройден";
+      return;
+    }
+
+    var c = queue[pos];
+    $stage.appendChild(renderCard(c));
+    $stat.textContent = (pos + 1) + " / " + total;
+
+    if (!revealed) {
+      $actions.appendChild(button("Показать ответ", "пробел", "primary", reveal));
+    } else {
+      $actions.appendChild(button("Не знаю", "1", "dunno", function () { grade(false); }));
+      $actions.appendChild(button("Знаю", "2", "know", function () { grade(true); }));
+    }
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (pos >= queue.length) return;
+    if (!revealed && (e.code === "Space" || e.key === "Enter")) { e.preventDefault(); reveal(); }
+    else if (revealed && (e.key === "1" || e.key === "ArrowLeft")) { e.preventDefault(); grade(false); }
+    else if (revealed && (e.key === "2" || e.key === "ArrowRight" || e.key === "Enter")) { e.preventDefault(); grade(true); }
+  });
+
+  rebuild();
+})();
+</script>
