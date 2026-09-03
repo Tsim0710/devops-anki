@@ -1,0 +1,166 @@
+# Контролируемый словарь subtopic.
+# Правила: kebab-case, единственное осмысленное имя на концепцию.
+# Новая subtopic добавляется СНАЧАЛА сюда, потом используется в картах.
+# Переименование безопасно (subtopic = тег, не дек), но id карт при этом НЕ трогаются.
+
+k8s:
+  - architecture
+  - kubelet-runtime
+  - api-model
+  - pods
+  - probes
+  - workload-controllers
+  - labels-selectors
+  - config-secrets
+  - storage
+  - cluster-networking
+  - services
+  - cluster-dns
+  - ingress
+  - scheduling
+  - placement
+  - autoscaling
+  - rbac
+  - namespaces-quotas
+  - pod-security
+  - troubleshooting
+  - observability
+  - packaging-gitops
+  - bootstrap
+  - crd-operators
+  - ebpf-cilium
+  - service-mesh
+
+networks:
+  - osi-model
+  - ipv4-addressing
+  - ethernet-arp
+  - dhcp
+  - routing
+  - bgp-ospf
+  - nat
+  - tcp-udp
+  - dns
+  - ipv6
+  - tls
+  - http
+  - proxy-cdn
+  - load-balancing
+  - linux-netns
+  - container-networking
+  - vpn-tunnels
+  - firewall
+  - cloud-vpc
+  - diagnostics
+
+linux:
+  - processes
+  - systemd
+  - filesystem
+  - permissions
+  - users-groups
+  - networking
+  - package-management
+  - logs
+  - performance
+  - cgroups-namespaces
+  - ssh
+  - cron
+  - text-processing
+
+docker:
+  - images
+  - dockerfile
+  - layers-cache
+  - registry
+  - volumes
+  - networking
+  - compose
+  - buildkit
+  - runtime
+  - security
+
+cicd:
+  - github-actions
+  - gitlab-ci
+  - jenkins
+  - argocd
+  - pipeline-design
+  - artifacts
+  - secrets-management
+  - runners
+  - deployment-strategies
+  - testing-in-ci
+
+terraform:
+  - core-workflow
+  - state
+  - providers
+  - modules
+  - variables-outputs
+  - lifecycle
+  - backends
+  - workspaces
+  - import-refactor
+  - testing
+
+ansible:
+  - inventory
+  - playbooks
+  - roles
+  - modules
+  - variables
+  - templates
+  - idempotency
+  - vault
+  - dynamic-inventory
+
+gcp:
+  - iam
+  - gke
+  - networking
+  - storage
+  - compute
+  - cloud-build
+  - monitoring
+  - billing-quotas
+
+cloudflare:
+  - dns
+  - proxy-cdn
+  - ssl-tls
+  - waf
+  - workers
+  - page-rules
+  - zero-trust
+
+git:
+  - branching
+  - merge-rebase
+  - history-rewrite
+  - refs-internals
+  - hooks
+  - workflows
+  - hosting-platforms
+  - submodules
+  - troubleshooting
+
+observability:
+  - metrics
+  - prometheus
+  - alerting
+  - logging
+  - tracing
+  - grafana
+  - slo-sli
+  - methodologies
+
+security:
+  - tls-pki
+  - secrets
+  - authn-authz
+  - container-security
+  - supply-chain
+  - network-security
+  - vulnerability-management
+  - hardening
