@@ -1,4 +1,21 @@
 {
-  "note": "Снапшоты конспектов из Google Docs. Экспортируются один раз, дальше вся генерация идёт из файлов в репо: доки по 250k символов целиком через коннектор не читаются.",
-  "documents": []
+  "note": "Снапшоты конспектов из Google Docs. Экспортируются один раз, дальше вся генерация идёт из файлов в репо: доки по 250k символов целиком через коннектор не читаются. При правке дока — переэкспортировать и сверить sha256.",
+  "documents": [
+    {
+      "file": "sources/networks.md",
+      "title": "Сети для DevOps — шпаргалка",
+      "doc_id": "14oy4FuNAYklknCYReVsPJ0r7vpXBGPr0ZwpYF4jpVdk",
+      "exported_at": "2026-09-03",
+      "sha256": "67720e41fe78b0cacdb682650b50cc56dc023da4ae63382e6a8d1b8b940e92b0",
+      "chars": 245568
+    },
+    {
+      "file": "sources/k8s.md",
+      "title": "Kubernetes — конспект",
+      "doc_id": "1e0RZR44fbxnWFIwdDasOJmYeNp4GwXC3KVC5-Wv4mF4",
+      "exported_at": "2026-09-03",
+      "sha256": "740b2941d07272d75bb2cc950532eb07f1a42cb6d6ac17d7e7b50b694e432ae8",
+      "chars": 253133
+    }
+  ]
 }
