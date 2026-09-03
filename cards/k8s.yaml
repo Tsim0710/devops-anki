@@ -1453,3 +1453,1084 @@
     с давним удалением объекта уже неочевидна. Отсюда правило — состояние кластера
     держать в git, а не править объекты руками.
   ref: "https://kubernetes.io/docs/concepts/configuration/configmap/"
+
+# --- architecture: junior/middle ---
+
+- id: k8s-architecture-001
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из каких компонентов состоит control plane и что делает каждый?
+  answer: |
+    `kube-apiserver` — единственная дверь ко всему; `etcd` — key-value хранилище,
+    единственный источник истины; `kube-scheduler` — решает, на какой узел сажать под;
+    `kube-controller-manager` — набор контроллеров, приводящих факт к желаемому.
+    В облаке добавляется `cloud-controller-manager`.
+  explanation: |
+    Разделение построено вокруг apiserver: ни один компонент не ходит в etcd напрямую
+    и не общается с другими напрямую — все читают и пишут через API. Отсюда единая точка
+    для аутентификации, авторизации, аудита и валидации, и отсюда же следует, что
+    падение apiserver парализует управление, хотя запущенные поды продолжают работать.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-architecture-002
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что работает на worker-узле?
+  answer: |
+    `kubelet` — агент, который берёт spec у apiserver, просит runtime запустить
+    контейнеры и пишет status обратно; `kube-proxy` — программирует сетевые правила
+    Service; container runtime (обычно `containerd`) — собственно запускает контейнеры.
+  explanation: |
+    Docker в этом списке нет с версии 1.24: kubelet общается с runtime по CRI, а Docker
+    его не реализует напрямую. Полезно помнить, кто чей начальник: kubelet — единственный,
+    кто реально запускает контейнеры, а scheduler и controller-manager только пишут
+    объекты в API.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-architecture-003
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему никто не ходит в etcd напрямую?
+  answer: |
+    Потому что apiserver — единственное место, где выполняются аутентификация,
+    авторизация, admission-проверки, валидация схемы и аудит. Запись мимо него
+    обходит все гарантии разом и легко оставит кластер в невалидном состоянии.
+  explanation: |
+    etcd не знает ничего про Kubernetes — для него это просто ключи и значения.
+    Вся семантика (что поле обязательно, что имя уникально, что у объекта есть владелец)
+    живёт в apiserver. Плюс watch-механизм: контроллеры подписаны именно на apiserver,
+    и запись мимо него они увидят не так, как ожидают.
+  ref: "https://kubernetes.io/docs/concepts/overview/components/"
+
+- id: k8s-architecture-004
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `kube-scheduler`, когда выбрал узел для пода?
+  answer: |
+    Делает ровно **одну запись**: проставляет `spec.nodeName` у объекта пода
+    (через подресурс binding). Больше ничего — контейнеры он не запускает.
+  explanation: |
+    Это шов между scheduler и kubelet: kubelet каждого узла следит за подами со своим
+    `nodeName` и подхватывает всё, что там появилось. Отсюда следует, что под с заранее
+    проставленным `nodeName` минует scheduler целиком, а падение scheduler'а не трогает
+    уже работающие поды — новые просто зависают в `Pending`.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/"
+
+- id: k8s-architecture-005
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Через какие три ступени проходит любой запрос к apiserver?
+  answer: |
+    Аутентификация (кто ты) → авторизация (можно ли тебе это, обычно RBAC) →
+    admission (мутация и валидация объекта). Только после этого объект пишется в etcd.
+  explanation: |
+    Ступени решают разные задачи, и по сообщению об ошибке видно, какая сработала:
+    `Unauthorized` — не опознали, `Forbidden` — опознали, но не разрешили, отказ
+    от webhook'а — прошёл RBAC, но не понравился политике. Admission — единственная
+    ступень, которая может **изменить** объект: так работают инъекции sidecar'ов.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/controlling-access/"
+
+- id: k8s-architecture-006
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Упал etcd. Что произойдёт с уже работающими подами?
+  options:
+    a: "Продолжат работать; сломается управление кластером"
+    b: "Будут остановлены — kubelet потеряет их спецификации"
+    c: "Будут перепланированы на другие узлы"
+    d: "Перейдут в статус Unknown и через 5 минут удалятся"
+  answer: a
+  explanation: |
+    Контейнеры запущены runtime'ом на узле и от etcd не зависят: kubelet держит спеки
+    в собственном кеше и продолжает следить за контейнерами. Перестаёт работать всё,
+    что требует чтения или записи состояния — `kubectl`, выкаты, планирование новых подов,
+    реакция на падение узла. Кластер становится «замороженным, но живым».
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-architecture-007
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    В HA-кластере три реплики controller-manager. Не создадут ли они три ReplicaSet
+    на один Deployment?
+  answer: |
+    Нет. Контроллеры используют leader election: активна ровно одна реплика, остальные
+    стоят в горячем резерве и ждут, пока лидер перестанет продлевать аренду (Lease).
+  explanation: |
+    Это принципиально для reconcile-архитектуры: несколько контроллеров, одновременно
+    приводящих один объект к желаемому состоянию, устроили бы гонку и дублирование.
+    Отсюда же вывод про HA-control-plane вообще: три узла дают **отказоустойчивость,
+    а не производительность** — работает всё равно один.
+  ref: "https://kubernetes.io/docs/concepts/architecture/leases/"
+
+- id: k8s-architecture-008
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое static pod и почему его нельзя удалить через `kubectl delete`?
+  answer: |
+    Это под, который kubelet запускает по файлу с узла (обычно из
+    `/etc/kubernetes/manifests`), а не по объекту из API. В API он виден как mirror pod —
+    зеркало, доступное только на чтение. Удалишь его — kubelet тут же создаст зеркало заново.
+  explanation: |
+    Так решается проблема курицы и яйца при загрузке кластера: apiserver сам запускается
+    как static pod, ведь пока его нет, никакой API-объект создать невозможно. Чтобы
+    убрать static pod по-настоящему, нужно удалить его манифест с файловой системы узла.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/"
+
+- id: k8s-architecture-009
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как по имени пода понять, кто его создал?
+  answer: |
+    `web-7d9f8c5b4-x2kfp` (два случайных сегмента) — Deployment через ReplicaSet;
+    `web-0` (порядковый номер) — StatefulSet; `web-x2kfp` (один случайный сегмент) —
+    DaemonSet или Job; `kube-apiserver-node1` (имя узла в конце) — static pod.
+  explanation: |
+    Полезный навык при разборе незнакомого кластера: имя сразу говорит, где искать
+    владельца и что произойдёт при удалении пода. Средний сегмент у Deployment — это хеш
+    pod-template, поэтому он меняется при каждом выкате: по нему видно, какие поды
+    от какой версии.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/"
+
+- id: k8s-architecture-010
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем оркестратор принципиально отличается от `docker compose` + Ansible?
+  answer: |
+    Compose и Ansible описывают, **что сделать сейчас**, и на этом их ответственность
+    кончается. Kubernetes описывает, **что должно быть верно всегда**, и непрерывно
+    приводит факт к этому состоянию сам.
+  explanation: |
+    Отсюда всё остальное: поднять упавшее, переселить поды с умершего узла, выкатить
+    версию без даунтайма, добавить реплик под нагрузкой. С императивными инструментами
+    каждое из этих действий — отдельный запуск, который кто-то должен инициировать.
+    Куб — это петля, работающая без тебя.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-architecture-011
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит между `kubectl apply -f deploy.yaml` и запущенным контейнером?
+  answer: |
+    kubectl шлёт объект в apiserver → тот проводит его через authn/authz/admission
+    и пишет в etcd → deployment-контроллер создаёт ReplicaSet → тот создаёт поды →
+    scheduler проставляет им `nodeName` → kubelet нужного узла видит свой под и просит
+    containerd запустить контейнеры.
+  explanation: |
+    Цепочка — это карта для диагностики: на каждом звене свой симптом. Объект не создался —
+    RBAC или admission; под в `Pending` — scheduler не нашёл узел; под в
+    `ContainerCreating` — kubelet не смог смонтировать том или сеть; `ImagePullBackOff` —
+    runtime не достал образ. Отсюда правило: не гадать, а идти по цепочке сверху вниз.
+  ref: "https://kubernetes.io/docs/concepts/overview/components/"
+
+- id: k8s-architecture-012
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт managed-кластер (GKE, EKS) и чего в нём нельзя?
+  answer: |
+    Провайдер держит control plane сам: обновляет, бэкапит etcd, обеспечивает HA.
+    Взамен нет доступа к узлам control plane и к etcd, ограничен набор флагов apiserver
+    и список admission-плагинов.
+  explanation: |
+    Практическое следствие для отладки: в managed-кластере нет смысла искать
+    `kube-apiserver` среди подов — их не видно, а логи control plane приходят через
+    систему логирования облака. Всё, что требует правки флагов apiserver или прямого
+    доступа к etcd, в managed-кластере либо делается через API провайдера, либо
+    не делается вовсе.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-architecture-013
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Откуда apiserver знает, кто ты, когда ты выполняешь `kubectl get pods`?
+  answer: |
+    Из `kubeconfig`: там лежит клиентский сертификат, токен или конфигурация OIDC.
+    Личность зашита в эти учётные данные — Kubernetes не хранит пользователей у себя
+    как объекты.
+  explanation: |
+    Отсюда особенность, которая удивляет: объекта User в API нет, «создать пользователя»
+    нельзя. Есть только способ доказать личность (серт, токен, OIDC) и RBAC, который
+    привязывает права к имени из этого доказательства. Для подов личность выдаётся иначе —
+    токеном ServiceAccount, который kubelet монтирует в контейнер.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
+
+# --- api-model: junior/middle ---
+
+- id: k8s-api-model-001
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `spec` и `status` у объекта Kubernetes?
+  answer: |
+    `spec` — желаемое состояние, его пишешь ты. `status` — фактическое состояние,
+    его пишет контроллер. Работа контроллера — это бесконечное приведение status к spec.
+  explanation: |
+    Отсюда главное правило работы с кластером: не воюй с фактом — меняй желаемое.
+    Убил под руками, а он вернулся, — значит `spec` контроллера выше по цепочке говорит,
+    что подов должно быть N, и он прав. Менять надо `spec`, а не воевать со следствием.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-002
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие четыре поля есть у любого объекта Kubernetes?
+  answer: |
+    `apiVersion`, `kind`, `metadata` (имя, namespace, метки, аннотации) и `spec`.
+    У большинства объектов ещё и `status`, который заполняет контроллер.
+  explanation: |
+    Единообразие здесь не косметика: оно позволяет одному `kubectl` и одному apiserver
+    работать с любым типом, включая те, которых в Kubernetes нет — CRD выглядят
+    ровно так же. Отсюда же понятно, что расширение кластера своими типами не требует
+    менять ядро.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-003
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `kubectl apply` отличается от `kubectl create`?
+  answer: |
+    `create` — императивная операция: создать, и если объект есть, упасть с ошибкой.
+    `apply` — декларативная: привести объект к описанному состоянию, создав его или
+    обновив.
+  explanation: |
+    Разница в идемпотентности: `apply` можно выполнять сколько угодно раз с тем же
+    результатом, поэтому именно он лежит в основе GitOps. Он же умеет удалять поля,
+    исчезнувшие из манифеста, — для этого apiserver хранит информацию о том, кто
+    какими полями владеет.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/"
+
+- id: k8s-api-model-004
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть, какие поля есть у ресурса, не открывая документацию?
+  answer: |
+    `kubectl explain <ресурс>` и глубже через точку: `kubectl explain deployment.spec.strategy`.
+    Флаг `--recursive` покажет всё дерево полей сразу.
+  explanation: |
+    Схему отдаёт сам apiserver, поэтому ответ всегда соответствует **твоей** версии
+    кластера — в отличие от документации в интернете, которая может описывать другую.
+    Это же работает для CRD: `kubectl explain` покажет поля установленных операторов.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_explain/"
+
+- id: k8s-api-model-005
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Сделал `kubectl scale deploy/web --replicas=1`, через минуту реплик снова 3. Почему?
+  answer: |
+    Потому что желаемое состояние приехало обратно: скорее всего сработал GitOps-агент
+    (Argo CD) или HPA, у которых свой источник правды. Ручное изменение факта проигрывает
+    тому, кто владеет `spec`.
+  explanation: |
+    Это тот же принцип «не воюй с фактом», но на уровень выше: у объекта может быть
+    внешний владелец, который непрерывно приводит его к своему представлению.
+    Чинить надо там, где живёт правда — в git-репозитории или в настройках HPA,
+    а не командой в кластере.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-006
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `ownerReferences` и что происходит при удалении владельца?
+  answer: |
+    Ссылка в `metadata` дочернего объекта на родителя. При удалении владельца garbage
+    collector удаляет всех детей каскадно — так удаление Deployment уносит ReplicaSet,
+    а тот поды.
+  explanation: |
+    Каскад объясняет, почему удалять надо с самого верха цепочки: удалишь только поды —
+    ReplicaSet создаст новые, удалишь ReplicaSet — Deployment создаст новый. Режим
+    можно менять: `--cascade=orphan` оставит детей сиротами, и они продолжат
+    существовать без владельца.
+  ref: "https://kubernetes.io/docs/concepts/architecture/garbage-collection/"
+
+- id: k8s-api-model-007
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означают `metadata.generation` и `status.observedGeneration`?
+  answer: |
+    `generation` растёт на каждое изменение `spec`. `observedGeneration` — та generation,
+    которую контроллер уже обработал. Если они не совпали, изменение ещё не доехало.
+  explanation: |
+    Это машинный способ отличить «контроллер ещё не увидел мои правки» от «увидел, но
+    не может их применить». Без него остаётся гадать, глядя на статус. На той же паре
+    строится ожидание готовности в скриптах и в операторах.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-008
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Удалённый под «воскрес». Это тот же под?
+  answer: |
+    Нет. Это **новый объект**: другое имя, другой UID, другой IP, пустая история.
+    Контроллер не воскрешает под, он создаёт другой, чтобы их снова стало N.
+  explanation: |
+    Разница принципиальна для отладки: логи, события и состояние старого пода исчезли
+    вместе с ним, `kubectl logs --previous` тут уже не поможет. Поэтому упавший под,
+    который нужно исследовать, «замораживают» — снимают с него selector-метку, чтобы
+    контроллер потерял его и создал замену, а больной экземпляр остался нетронутым.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-api-model-009
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что значит запись `apps/v1` в `apiVersion` и бывает ли пусто перед версией?
+  answer: |
+    Это группа API и её версия. Ядро (Pod, Service, ConfigMap) живёт в «пустой» группе
+    и пишется просто `v1`. Всё остальное — в именованных группах: `apps/v1`,
+    `batch/v1`, `networking.k8s.io/v1`.
+  explanation: |
+    Группы позволяют развивать разные части API независимо и постепенно выводить старые
+    версии: `v1beta1` может исчезнуть в следующем релизе, `v1` — нет. Отсюда типичная
+    поломка при обновлении кластера: манифест с устаревшей версией перестаёт
+    приниматься, хотя ресурс никуда не делся.
+  ref: "https://kubernetes.io/docs/reference/using-api/"
+
+- id: k8s-api-model-010
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Где императивные команды (`kubectl scale`, `kubectl edit`) остаются легитимными?
+  options:
+    a: "При отладке и в инцидентах, когда важна скорость реакции"
+    b: "Всегда — это самый быстрый способ управлять кластером"
+    c: "Нигде, любая императивная команда — антипаттерн"
+    d: "Только в managed-кластерах, где нет доступа к манифестам"
+  answer: a
+  explanation: |
+    Императив плох не сам по себе, а как **источник правды**: изменение, живущее только
+    в памяти кластера, теряется при следующем `apply` и не воспроизводится при
+    пересоздании. В инциденте, когда надо срочно погасить нагрузку, это приемлемо —
+    при условии, что потом то же изменение поедет в git. Антипаттерн — `kubectl edit`
+    как штатный способ выката.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-011
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему контроллеры устроены как бесконечный цикл, а не как реакция на событие?
+  answer: |
+    Потому что событие можно пропустить: сеть моргнула, контроллер перезапустился,
+    watch оборвался. Цикл сверки текущего состояния с желаемым самовосстанавливается —
+    пропущенное изменение будет замечено на следующем витке.
+  explanation: |
+    Это называется level-triggered в противоположность edge-triggered: контроллер
+    смотрит на **состояние**, а не на факт изменения. Watch-события служат лишь
+    оптимизацией — они ускоряют реакцию, но корректность на них не завязана.
+    Отсюда устойчивость кластера к рестартам собственных компонентов.
+  ref: "https://kubernetes.io/docs/concepts/architecture/controller/"
+
+- id: k8s-api-model-012
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Объект принят кластером без ошибок. Значит ли это, что механизм заработал?
+  answer: |
+    Нет. Валидация проверяет **форму** объекта, а не наличие исполнителя. Ingress без
+    ingress-controller, PVC без StorageClass, HPA без metrics-server создадутся молча
+    и не будут делать ничего.
+  explanation: |
+    Это следствие декларативной модели: запись в etcd и её исполнение — разные события.
+    Поэтому после создания всегда смотрят на `status` и на события объекта, а не
+    на факт успешного `apply`. «Принято» означает лишь «понято», но не «сделано».
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+# --- labels-selectors: junior/middle ---
+
+- id: k8s-labels-selectors-001
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем label отличается от annotation?
+  answer: |
+    По label **ищут и выбирают** — это индексируемый ключ, по которому работают
+    селекторы. Annotation ищут нельзя: это прицепленные данные для людей и инструментов.
+  explanation: |
+    Разница не стилистическая, а функциональная: селекторы Service, Deployment и
+    `kubectl get -l` работают только с labels. Проверочный вопрос при выборе:
+    «я буду по этому что-то выбирать?» Да — label. Нет, это просто данные для
+    cert-manager или ingress-контроллера — annotation.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/"
+
+- id: k8s-labels-selectors-002
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие ограничения у селектора Service по сравнению с селектором Deployment?
+  answer: |
+    Селектор Service понимает **только равенство** (`app: web`). Deployment и другие
+    контроллеры умеют ещё и множественные выражения: `matchExpressions` с `In`, `NotIn`,
+    `Exists`, `DoesNotExist`.
+  explanation: |
+    Ограничение историческое, но живое: попытка описать в Service выбор «всё, кроме
+    canary» просто не выразима, и разделять трафик приходится дополнительной меткой
+    вроде `track: stable`. Знать это полезно, чтобы не искать несуществующий синтаксис.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/"
+
+- id: k8s-labels-selectors-003
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие метки принято ставить для верхнеуровневой идентификации приложения?
+  answer: |
+    Рекомендованный набор `app.kubernetes.io/*`: `name`, `instance`, `version`,
+    `component`, `part-of`, `managed-by`.
+  explanation: |
+    Смысл соглашения — чтобы чужие инструменты (дашборды, оператор, сборщик метрик)
+    понимали твой кластер без настройки. Важно не путать эти метки с selector-метками
+    контроллера: `version` меняется при каждом релизе, и селектор по нему сломался бы
+    при первом же выкате.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/"
+
+- id: k8s-labels-selectors-004
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    У Deployment 3 реплики. Ты навесил его selector-метку на посторонний под вручную.
+    Сколько подов останется?
+  options:
+    a: "3 — Deployment удалит лишний под, чтобы сошлось число"
+    b: "4 — посторонний под просто добавится к трём"
+    c: "3, но Deployment пересоздаст все поды заново"
+    d: "4 — и Deployment перестанет управлять своими подами"
+  answer: a
+  explanation: |
+    Принадлежность к контроллеру вычисляется **каждый тик** по совпадению селектора,
+    а не фиксируется при создании. ReplicaSet видит четыре подходящих пода вместо трёх
+    и убирает лишний — причём необязательно чужой, выбор идёт по внутренним правилам.
+    Обратная операция работает так же: снял метку — под осиротел, и контроллер
+    немедленно создал ему замену.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/"
+
+- id: k8s-labels-selectors-005
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как «заморозить» больной под в проде для разбора, не останавливая сервис?
+  answer: |
+    Снять с него selector-метку (`kubectl label pod <name> app-`). Под выпадет
+    из Service и из-под контроля ReplicaSet, тот создаст замену, а больной экземпляр
+    останется живым и нетронутым.
+  explanation: |
+    Приём работает ровно потому, что принадлежность вычисляется по метке в реальном
+    времени. Он бьёт сразу в две цели: под перестаёт получать трафик и перестаёт быть
+    кандидатом на удаление. Альтернатива — удалить под — уничтожает всё состояние,
+    ради которого разбор и затевался.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/"
+
+- id: k8s-labels-selectors-006
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему `spec.selector` у Deployment нельзя изменить после создания?
+  answer: |
+    Он иммутабелен. Смена селектора оторвала бы контроллер от его текущих подов:
+    старые осиротели бы, новые создались с нуля — то есть неуправляемый даунтайм.
+    Единственный путь — создать новый Deployment.
+  explanation: |
+    Это защита от операции, у которой нет безопасного исхода: Kubernetes не умеет
+    атомарно «переподписать» существующие поды на новый селектор. Отсюда практический
+    вывод — selector-метки выбираются один раз и делаются минимальными и стабильными
+    (`app: web`), а всё изменчивое живёт в других метках.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-labels-selectors-007
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    `EndpointSlice` сервиса пуст, поды при этом здоровы. Первая гипотеза?
+  answer: |
+    Разъехались селектор Service и метки подов — опечатка или лишняя метка в одном
+    из двух мест. Вторая по частоте причина — поды не проходят readiness.
+  explanation: |
+    Kubernetes здесь принципиально молчалив: селектор, который ничему не соответствует,
+    полностью валиден — может быть, поды появятся позже. Ошибки не будет нигде, будет
+    просто пустота. Проверяется мгновенно: `kubectl get pods -l <селектор из Service>` —
+    если вывод пуст, вопрос закрыт.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-labels-selectors-008
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под оброс контейнером, которого нет в манифесте. Кто его добавил?
+  answer: |
+    Mutating admission webhook — он вклинивается между авторизацией и записью в etcd
+    и может изменять объект. Так работают инъекции sidecar'ов у service mesh
+    и агентов секретов, обычно по метке или аннотации namespace.
+  explanation: |
+    Отсюда важное следствие: то, что лежит в etcd, может отличаться от того, что ты
+    применил, — сравнивать надо `kubectl get -o yaml`, а не свой файл. Вторая половина
+    механизма, validating webhook, объект не меняет, а только выносит вердикт да/нет.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/"
+
+# --- cluster-dns: junior/middle ---
+
+- id: k8s-cluster-dns-001
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Откуда под знает адрес DNS-сервера кластера?
+  answer: |
+    `/etc/resolv.conf` внутрь пода пишет **kubelet** при запуске. Туда попадает ClusterIP
+    сервиса `kube-dns`, список `search`-доменов и опция `ndots`.
+  explanation: |
+    Из образа этот файл не берётся и приложением не настраивается — поэтому «поправить
+    DNS в Dockerfile» бессмысленно. Настройка меняется через `dnsPolicy` и `dnsConfig`
+    в спеке пода. Важно и то, что сервис `kube-dns` имеет фиксированный ClusterIP:
+    иначе поды не знали бы, куда обращаться при пересоздании CoreDNS.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-002
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как выглядит полное DNS-имя сервиса внутри кластера?
+  answer: |
+    `<service>.<namespace>.svc.cluster.local`. Например `payments.prod.svc.cluster.local`.
+  explanation: |
+    Из структуры имени видно устройство пространства имён: сервисы одного namespace
+    не конфликтуют с сервисами другого, потому что namespace входит в имя. Короткая
+    форма работает только благодаря `search`-доменам в `resolv.conf`, и она всегда
+    относительна namespace **спрашивающего** пода.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-003
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое CoreDNS с точки зрения кластера?
+  answer: |
+    Обычный Deployment из нескольких подов в `kube-system`, стоящий за Service с
+    фиксированным ClusterIP. Он следит за объектами Service и Pod через apiserver
+    и отвечает на запросы по ним.
+  explanation: |
+    Отсюда двойственность: с одной стороны, это рядовая нагрузка, которая может упасть,
+    вытесниться или упереться в лимиты; с другой — от неё зависит **всё** в кластере,
+    потому что приложения ходят друг к другу по именам. Поэтому CoreDNS мониторят
+    как критичный компонент, а не как обычный под.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/coredns/"
+
+- id: k8s-cluster-dns-004
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Под из namespace `staging` обращается к `payments` и попадает не туда.
+    Что произошло?
+  answer: |
+    Короткое имя резолвится относительно namespace **спрашивающего**: из `staging`
+    оно превратилось в `payments.staging.svc.cluster.local`. Для обращения в другой
+    namespace нужно как минимум `payments.prod`.
+  explanation: |
+    Это следствие `search`-списка в `resolv.conf`, первым элементом которого стоит
+    собственный namespace пода. Опасность в том, что при наличии одноимённого сервиса
+    рядом ошибки не будет вообще — запрос молча уйдёт не в тот контур. Поэтому
+    кросс-namespace обращения пишут явным FQDN.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-005
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает опция `ndots:5` и почему из-за неё растёт нагрузка на DNS?
+  answer: |
+    Имена, содержащие меньше пяти точек, сначала проверяются по всем `search`-доменам
+    и только потом как абсолютные. Для `api.github.com` (две точки) это означает
+    четыре бесполезных запроса перед правильным.
+  explanation: |
+    Значение выбрано ради удобства коротких имён внутри кластера, а расплачиваются
+    за него внешние вызовы. Заметно это на сервисах, которые часто ходят в интернет:
+    лишние запросы дают и задержку, и лишнюю нагрузку на CoreDNS. Лечится точкой
+    в конце имени (`api.github.com.`) или собственным `ndots` в `dnsConfig` пода.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-006
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    CoreDNS полностью недоступен. Что произойдёт с уже установленными
+    TCP-соединениями между сервисами?
+  options:
+    a: "Останутся живыми: резолв нужен только при установке соединения"
+    b: "Разорвутся сразу — маршрутизация внутри кластера идёт через DNS"
+    c: "Останутся живыми, но балансировка перестанет работать"
+    d: "Разорвутся по истечении TTL DNS-записи"
+  answer: a
+  explanation: |
+    Имя превращается в IP один раз, перед подключением; дальше пакеты ходят по адресам,
+    и DNS в этом не участвует. Поэтому симптом падения CoreDNS специфический: старые
+    соединения работают, а любая новая попытка подключиться падает с ошибкой резолва.
+    Разделять «имя → IP» и «IP → под» — разные слои — тут принципиально.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-007
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что вернёт DNS-запрос к headless-сервису?
+  answer: |
+    Список A-записей — IP всех готовых подов, а не один ClusterIP. Для StatefulSet
+    дополнительно доступны персональные имена вида `web-0.<service>.<ns>.svc.cluster.local`.
+  explanation: |
+    Так DNS становится механизмом обнаружения участников: клиент сам видит все
+    экземпляры и решает, к какому идти. На этом строятся клиентская балансировка gRPC
+    и кластеризация БД, где нужно отличать primary от реплик. У обычного сервиса
+    такой возможности нет — он всегда отвечает одним виртуальным адресом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-008
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему внутри кластера обращаются по имени сервиса, а не по его ClusterIP?
+  answer: |
+    ClusterIP выдаётся при создании Service и меняется при его пересоздании, а имя
+    стабильно. Захардкоженный адрес переживёт ровно до первого пересоздания сервиса.
+  explanation: |
+    Симптом при этом крайне неприятный: приложение долго работает, а после безобидного
+    `kubectl delete svc && apply` начинает стучаться в никуда — соединение просто виснет,
+    потому что старый адрес больше никому не принадлежит. Имя же резолвится заново
+    при каждом подключении.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+# --- ingress: junior/middle ---
+
+- id: k8s-ingress-001
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем Ingress отличается от ingress-controller?
+  answer: |
+    Ingress — это **правило**, объект в etcd: какой домен и путь ведут в какой сервис.
+    Ingress-controller — под-исполнитель (обычно nginx или подобное), который следит
+    за этими объектами и превращает их в свою конфигурацию.
+  explanation: |
+    Разделение объясняет самый частый симптом: Ingress создался, `kubectl get ingress`
+    его показывает, а ничего не работает и колонка `ADDRESS` пуста — контроллера
+    в кластере просто нет. Правило без исполнителя остаётся текстом в базе.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-002
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен Ingress, если есть Service типа LoadBalancer?
+  answer: |
+    Экономика и возможности: каждый LoadBalancer-сервис — это отдельный балансировщик
+    облака с отдельным IP и отдельным счётом. Ingress даёт **один** вход на десятки
+    доменов плюс маршрутизацию по путям, TLS-терминацию и заголовки.
+  explanation: |
+    Разница ещё и в слое: Service работает на L4 и видит только адреса и порты, а Ingress
+    на L7 и читает домен и путь. Всё, что требует понимания HTTP — раздача по путям,
+    редиректы, единый сертификат на домен — на L4 невыразимо в принципе.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-003
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что задаёт `ingressClassName` в манифесте Ingress?
+  answer: |
+    Какой именно контроллер должен обработать это правило. В кластере их может быть
+    несколько (внешний и внутренний nginx, облачный контроллер), и каждый берёт
+    только свой класс.
+  explanation: |
+    Без указания класса правило может не подобрать никто — и симптом будет тот же,
+    что при полном отсутствии контроллера: объект есть, `ADDRESS` пуст. В кластере
+    может быть класс по умолчанию, помеченный аннотацией, но полагаться на него
+    в манифестах — источник сюрпризов при переезде между кластерами.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-004
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где должен лежать TLS-секрет, на который ссылается Ingress?
+  answer: |
+    В **том же namespace**, что и сам Ingress, и быть типа `kubernetes.io/tls`
+    с ключами `tls.crt` и `tls.key`.
+  explanation: |
+    Ограничение namespace здесь — граница безопасности: иначе любой Ingress мог бы
+    прочитать чужой приватный ключ. Практическое следствие — при нескольких namespace
+    один и тот же wildcard-сертификат приходится размножать, чем обычно занимается
+    отдельный контроллер репликации секретов.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-005
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Куда ingress-controller отправляет запрос — на ClusterIP сервиса или на IP пода?
+  answer: |
+    Напрямую на **IP подов**, которые он берёт из `EndpointSlice`. ClusterIP
+    и kube-proxy при этом не участвуют.
+  explanation: |
+    Отсюда два следствия. Первое: балансирует контроллер сам, на L7, то есть по запросам,
+    а не по соединениям — поэтому за Ingress gRPC размазывается по репликам нормально.
+    Второе: составом upstream управляет readiness подов, и обновляется он на лету,
+    без перезагрузки nginx.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/"
+
+- id: k8s-ingress-006
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    От Ingress прилетает `502`, а не `404`. О чём это говорит?
+  options:
+    a: "Правило нашлось, но upstream не ответил или ответил мусором"
+    b: "Правило не нашлось: не тот домен или путь"
+    c: "Сертификат не подошёл к запрошенному домену"
+    d: "Ingress-controller не установлен в кластере"
+  answer: a
+  explanation: |
+    Код ошибки указывает на слой, где всё сломалось, и это экономит половину диагностики.
+    `404` от nginx означает, что запрос дошёл, но не подошёл ни к одному правилу —
+    проблема в `host`, `path` или классе. `502` означает, что правило сработало
+    и контроллер пошёл в upstream — значит смотреть надо в поды: readiness, порт,
+    приложение.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-007
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как тридцать HTTPS-доменов на одном IP выбирают нужный сертификат, если TLS
+    устанавливается **раньше**, чем сервер видит HTTP-заголовки?
+  answer: |
+    По SNI: имя домена клиент передаёт открытым текстом в `ClientHello`, ещё
+    до шифрования. Контроллер по нему выбирает сертификат, и только потом,
+    внутри установленного TLS, читает `Host` и маршрутизирует.
+  explanation: |
+    Без SNI один IP мог бы обслуживать только один HTTPS-сайт — исторически так и было.
+    Порядок здесь важен и на собесе: сначала SNI выбирает **сертификат**, затем
+    заголовок `Host` выбирает **правило**. Это два разных имени в двух разных местах,
+    и они могут не совпасть.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-008
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Браузер показывает `Fake Certificate` при заходе на домен через nginx-ingress.
+    Что это значит?
+  answer: |
+    Что для запрошенного домена nginx не нашёл подходящего TLS-секрета и отдал
+    свой самоподписанный дефолтный сертификат. Обычно секрета нет, он в другом
+    namespace или домен в `spec.tls` не совпадает с запрошенным.
+  explanation: |
+    Отдавать заглушку, а не рвать соединение — сознательное поведение: так проблема
+    выглядит как ошибка сертификата в браузере, а не как «сайт недоступен», и её проще
+    диагностировать. Если сертификаты выписывает cert-manager, смотреть надо на объекты
+    `Certificate` и `Order` — секрет появляется только после успешной валидации.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-009
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сайт за Cloudflare в режиме Flexible уходит в `ERR_TOO_MANY_REDIRECTS`. Почему?
+  answer: |
+    Cloudflare ходит в origin по HTTP, а nginx-ingress по умолчанию редиректит HTTP
+    на HTTPS. Cloudflare получает редирект, снова идёт по HTTP — цикл. Лечится
+    отключением `ssl-redirect` или переводом Cloudflare в режим Full.
+  explanation: |
+    Корень в том, что TLS здесь терминируется **дважды**: браузер → Cloudflare
+    и Cloudflare → origin, и это два независимых сертификата и два независимых решения
+    про схему. Origin не видит, что клиент пришёл по HTTPS, и честно пытается его
+    туда отправить.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-010
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Аннотация в Ingress написана с опечаткой в ключе. Что произойдёт?
+  answer: |
+    Ничего — ни ошибки, ни предупреждения. Аннотации не валидируются: контроллер просто
+    не найдёт ожидаемый ключ и применит поведение по умолчанию.
+  explanation: |
+    Это цена того, что аннотации — свободное поле для расширений: apiserver не знает,
+    какие ключи понимает конкретный контроллер, и проверить их не может. Отсюда
+    практика — сверять ключи с документацией **своего** контроллера и проверять
+    результат, а не факт применения манифеста.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/"
+
+- id: k8s-ingress-011
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ingress умеет маршрутизировать не-HTTP трафик, например Postgres или SMTP?
+  answer: |
+    Нет. Ingress API описывает только HTTP и HTTPS. Проброс произвольного TCP или UDP
+    делается нестандартными средствами конкретного контроллера или через
+    Service типа LoadBalancer.
+  explanation: |
+    Ограничение вытекает из модели: правила Ingress состоят из `host` и `path`,
+    а этих понятий у обычного TCP нет. Именно эта негибкость — одна из причин появления
+    Gateway API, где транспорт и протокол описываются явно и расширяемо.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-012
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что Gateway API даёт такого, чего не даёт Ingress?
+  answer: |
+    Разделение ролей и типизацию: инфраструктурная команда владеет `GatewayClass`
+    и `Gateway`, а команды приложений — своими `HTTPRoute`. Возможности (заголовки,
+    веса, зеркалирование, не-HTTP протоколы) описаны полями API, а не аннотациями.
+  explanation: |
+    Ingress упёрся в собственную простоту: всё, что выходило за host и path, уезжало
+    в аннотации, а те у каждого контроллера свои и не переносятся между реализациями.
+    Gateway API — официальный преемник, но Ingress не объявлен устаревшим и в проде
+    его всё ещё большинство.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/gateway/"
+
+- id: k8s-ingress-013
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ingress отдаёт `503` — не `502` и не `404`. О чём это обычно говорит?
+  answer: |
+    Правило нашлось, но у сервиса **нет ни одного готового бэкенда**: `EndpointSlice`
+    пуст. Поды не прошли readiness, не запустились или разъехались метки.
+  explanation: |
+    Три кода складываются в удобную лестницу: `404` — не нашлось правило,
+    `503` — правило есть, а слать некуда, `502` — послали, но ответ не получили.
+    Первый уводит в манифест Ingress, второй в состав endpoints, третий в сам под.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
