@@ -226,10 +226,47 @@ b, strong { font-weight: 600; }
   padding: 40px 24px; text-align: center; color: var(--ink-2);
 }
 .empty .big { font-size: 17px; color: var(--ink); margin-bottom: 6px; }
-.done { text-align: center; padding: 32px 20px; }
-.done .num {
-  font-family: "IBM Plex Mono", monospace; font-size: 40px;
+.done {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow);
+  padding: 26px 20px 22px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.score { text-align: center; }
+.score .pct {
+  font-family: "IBM Plex Mono", monospace; font-size: 46px; line-height: 1;
   color: var(--accent); font-variant-numeric: tabular-nums;
+}
+.score .of {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px;
+  color: var(--ink-3); margin-top: 6px;
+}
+.tally { display: flex; gap: 10px; }
+.tally div {
+  flex: 1; text-align: center; padding: 11px 8px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-2);
+}
+.tally .n {
+  display: block; font-family: "IBM Plex Mono", monospace;
+  font-size: 24px; line-height: 1.2; font-variant-numeric: tabular-nums;
+}
+.tally .ok { color: var(--know); }
+.tally .bad { color: var(--dunno); }
+.tally .cap {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3);
+}
+.missed { display: flex; flex-direction: column; gap: 7px; }
+.missed .lbl {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--ink-3);
+}
+.missed ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
+.missed li { font-size: 14.5px; color: var(--ink-2); }
+.missed .who {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  color: var(--dunno); display: block;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -286,7 +323,8 @@ b, strong { font-weight: 600; }
   if (!Array.isArray(filters.levels) || !filters.levels.length) filters.levels = ["junior", "middle", "senior"];
   var progress = load(KEY_P, {}) || {};
 
-  var queue = [], pos = 0, revealed = false, picked = null, sessionSeen = 0;
+  var queue = [], pos = 0, revealed = false, picked = null;
+  var stats = { right: 0, wrong: 0, missed: [] };
 
   var $stat = document.getElementById("stat");
   var $domains = document.getElementById("domains");
@@ -322,6 +360,7 @@ b, strong { font-weight: 600; }
     pool.sort(function (a, b) { return (box(a) - box(b)) || (a._r - b._r); });
     queue = pool;
     pos = 0; revealed = false; picked = null;
+    stats = { right: 0, wrong: 0, missed: [] };
     save(KEY_F, filters);
     render();
   }
@@ -479,7 +518,7 @@ b, strong { font-weight: 600; }
       var b = box(c);
       progress[c.id] = known ? Math.min(b + 1, 4) : 0;
       save(KEY_P, progress);
-      sessionSeen++;
+      if (known) stats.right++; else { stats.wrong++; stats.missed.push(c); }
     }
     pos++; revealed = false; picked = null;
     render();
@@ -501,18 +540,17 @@ b, strong { font-weight: 600; }
     }
 
     if (pos >= total) {
-      $stage.innerHTML = '<div class="done"><div class="num">' + sessionSeen + "</div>" +
-        "<div>вопросов за подход</div></div>";
-      $actions.appendChild(button("Ещё раз", "заново по этой теме", "primary", function () {
-        sessionSeen = 0; rebuild();
-      }));
-      $stat.textContent = "круг пройден";
+      renderSummary();
       return;
     }
 
     var c = queue[pos];
     $stage.appendChild(renderCard(c));
-    $stat.textContent = (pos + 1) + " / " + total;
+    $stat.innerHTML = (pos + 1) + " / " + total +
+      (stats.right || stats.wrong
+        ? ' &nbsp;<span style="color:var(--know)">' + stats.right +
+          '</span> / <span style="color:var(--dunno)">' + stats.wrong + "</span>"
+        : "");
 
     if (!revealed) {
       $actions.appendChild(button("Показать ответ", "пробел", "primary", reveal));
@@ -520,6 +558,68 @@ b, strong { font-weight: 600; }
       $actions.appendChild(button("Не знаю", "1", "dunno", function () { grade(false); }));
       $actions.appendChild(button("Знаю", "2", "know", function () { grade(true); }));
     }
+  }
+
+  function plain(html) {
+    var d = document.createElement("div");
+    d.innerHTML = html;
+    return (d.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function renderSummary() {
+    var done = stats.right + stats.wrong;
+    var pct = done ? Math.round((stats.right / done) * 100) : 0;
+    var missed = stats.missed.slice();
+
+    var el = document.createElement("div");
+    el.className = "done";
+
+    var score = document.createElement("div");
+    score.className = "score";
+    score.innerHTML = '<div class="pct">' + pct + '%</div>' +
+      '<div class="of">' + done + (done === 1 ? " вопрос" : " вопросов") + " за подход</div>";
+    el.appendChild(score);
+
+    var tally = document.createElement("div");
+    tally.className = "tally";
+    tally.innerHTML =
+      '<div><span class="n ok">' + stats.right + '</span><span class="cap">знаю</span></div>' +
+      '<div><span class="n bad">' + stats.wrong + '</span><span class="cap">не знаю</span></div>';
+    el.appendChild(tally);
+
+    if (missed.length) {
+      var box_ = document.createElement("div");
+      box_.className = "missed";
+      var lbl = document.createElement("div");
+      lbl.className = "lbl";
+      lbl.textContent = "что не знаешь";
+      box_.appendChild(lbl);
+      var ol = document.createElement("ol");
+      missed.forEach(function (c) {
+        var li = document.createElement("li");
+        var who = document.createElement("span");
+        who.className = "who";
+        who.textContent = c.subtopic + " · " + c.difficulty + " · " + c.id;
+        li.appendChild(who);
+        li.appendChild(document.createTextNode(plain(c.prompt)));
+        ol.appendChild(li);
+      });
+      box_.appendChild(ol);
+      el.appendChild(box_);
+    }
+
+    $stage.appendChild(el);
+    $stat.textContent = "подход закончен";
+
+    if (missed.length) {
+      $actions.appendChild(button("Разобрать ошибки", missed.length + " шт.", "primary", function () {
+        queue = missed;
+        pos = 0; revealed = false; picked = null;
+        stats = { right: 0, wrong: 0, missed: [] };
+        render();
+      }));
+    }
+    $actions.appendChild(button("Ещё раз", "весь набор", missed.length ? "" : "primary", rebuild));
   }
 
   document.addEventListener("keydown", function (e) {
