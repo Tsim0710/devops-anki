@@ -1,0 +1,163 @@
+# networks / linux-netns
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: networks-linux-netns-001
+  domain: networks
+  subtopic: linux-netns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое network namespace?
+  answer: |
+    Изолированный сетевой стек внутри одного ядра: свои интерфейсы, свои IP,
+    своя таблица маршрутов, свои правила файрвола и свой набор портов.
+  explanation: |
+    Это тот самый механизм, на котором стоят контейнеры: изоляция обеспечивается
+    ядром, а не виртуальной машиной. Отсюда и объяснение, почему два контейнера
+    могут слушать «один и тот же» порт 80 без конфликта — пространства портов у них
+    разные, а ядро одно.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-002
+  domain: networks
+  subtopic: linux-netns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое veth-пара?
+  answer: |
+    Виртуальный патч-корд из двух концов: то, что вошло в один, выходит из другого.
+    Один конец кладут в namespace, второй оставляют на хосте — так изолированный
+    стек получает связь с внешним миром.
+  explanation: |
+    Пара всегда создаётся целиком и работает только вдвоём — отсюда и название.
+    Именно так контейнер подключается к мосту хоста: его конец внутри namespace,
+    парный конец подключён в bridge. Поэтому в `ip a` на хосте видны интерфейсы
+    с именами вроде `veth1a2b3c` — это половинки от контейнеров.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-003
+  domain: networks
+  subtopic: linux-netns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Создал veth-пару и назначил адреса, но пинг не идёт. Что забыл?
+  answer: |
+    Поднять интерфейсы: `ip link set ... up` **на обоих** концах, включая loopback
+    внутри namespace. Адрес без поднятого линка не работает.
+  explanation: |
+    Наличие адреса и состояние линка — независимые вещи, и это первая же грабля
+    при ручной сборке сети. Проверяется мгновенно: в выводе `ip a` интерфейс будет
+    в состоянии `DOWN`. ARP при этом заработает сам, никакой дополнительной
+    настройки соседства не требуется.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-004
+  domain: networks
+  subtopic: linux-netns
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    В namespace есть адрес `10.0.0.2/24` и поднятый интерфейс. Соседа по подсети
+    видно, наружу трафика нет. Чего не хватает?
+  options:
+    a: "Маршрута по умолчанию: адрес даёт связь только внутри своей подсети"
+    b: "Второго адреса на интерфейсе"
+    c: "Правила MASQUERADE внутри namespace"
+    d: "Включённого ARP на интерфейсе"
+  answer: a
+  explanation: |
+    Адрес с маской описывает только **свою** подсеть — для всего остального нужен
+    маршрут, куда отдавать пакеты. Это то же самое разделение, что «IP-адрес
+    не равно маршрут»: назначение адреса даёт связность в пределах сегмента,
+    а выход за него всегда требует отдельного решения. MASQUERADE тоже понадобится,
+    но на хосте, а не внутри namespace, и уже после появления маршрута.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-005
+  domain: networks
+  subtopic: linux-netns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `net.ipv4.ip_forward=1`?
+  answer: |
+    Разрешает хосту пересылать пакеты, предназначенные не ему, — то есть превращает
+    его из конечного узла в роутер. По умолчанию такие пакеты просто отбрасываются.
+  explanation: |
+    Это рубильник, без которого не работает ни один сценарий с транзитом: контейнерные
+    сети, VPN-шлюз, NAT-маршрутизатор. Симптом при выключенном форвардинге ровный
+    и молчаливый — пакеты доходят до хоста и исчезают, а на самом хосте всё
+    пингуется прекрасно.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-006
+  domain: networks
+  subtopic: linux-netns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает правило `MASQUERADE` и чем оно отличается от обычного SNAT?
+  answer: |
+    Это SNAT, который подставляет **текущий** адрес исходящего интерфейса, а не
+    заданный явно. Нужен там, где внешний адрес заранее неизвестен или меняется —
+    на DHCP-клиентах, домашних роутерах, узлах облака.
+  explanation: |
+    Ценой удобства становится небольшая дополнительная работа на каждый пакет
+    и сброс трансляций при смене адреса интерфейса. Там, где адрес статичен,
+    предпочитают явный SNAT. В обоих случаях обратный путь обеспечивает conntrack,
+    поэтому правило всегда работает в паре с таблицей соединений.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-007
+  domain: networks
+  subtopic: linux-netns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем запускать `tcpdump` внутри namespace, а не на хосте?
+  answer: |
+    Потому что namespace — это отдельный сетевой стек: на хосте видно только то,
+    что дошло до его интерфейсов. Трафик внутри контейнера или между парой veth
+    ловится через `ip netns exec <ns> tcpdump` либо `nsenter`.
+  explanation: |
+    Отсюда типичная потеря времени: снимают дамп на узле, видят «пакетов нет»
+    и делают вывод, что приложение молчит, — хотя оно прекрасно общается внутри
+    своего namespace. Правило то же, что с интерфейсом: сначала определить,
+    где именно должен пройти пакет, и только потом ставить туда наблюдение.
+  ref: "sources/networks.md#M13"
+
+- id: networks-linux-netns-008
+  domain: networks
+  subtopic: linux-netns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `docker exec ... netstat` иногда невозможен, а порты посмотреть надо?
+  answer: |
+    В минимальном образе нет сетевых утилит. Выход — войти в **сетевой namespace**
+    контейнера своими инструментами: `nsenter -t <pid> -n ss -ltnp` с хоста.
+  explanation: |
+    Приём работает потому, что namespace принадлежит ядру, а не образу: подключиться
+    к нему можно любым процессом с нужными правами, и утилиты берутся с хоста.
+    Это же объясняет, как устроен `kubectl debug --target` в Kubernetes — тот же
+    механизм, только обёрнутый в API.
+  ref: "sources/networks.md#M13"

@@ -1,0 +1,164 @@
+# networks / container-networking
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: networks-container-networking-001
+  domain: networks
+  subtopic: container-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из чего складывается сеть контейнера в режиме bridge?
+  answer: |
+    Свой network namespace + veth-пара, один конец которой подключён в мост `docker0`
+    на хосте. Контейнер получает адрес из подсети моста, а наружу выходит
+    через NAT хоста.
+  explanation: |
+    Ничего специфически «контейнерного» здесь нет — это те же namespace, veth и мост,
+    которые можно собрать руками командами `ip`. Понимание этого сразу объясняет
+    и адресацию контейнеров, и почему их адреса недоступны с других машин:
+    подсеть моста локальна для хоста.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-002
+  domain: networks
+  subtopic: container-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что на самом деле делает `-p 8080:80`?
+  answer: |
+    Создаёт правило DNAT: пакеты, пришедшие на порт 8080 хоста, переписываются
+    на адрес контейнера и порт 80. Плюс правило форвардинга, чтобы транзит был разрешён.
+  explanation: |
+    Это ровно то же самое, что проброс порта на роутере, — и отсюда следует характер
+    ошибок. Если приложение внутри контейнера слушает `127.0.0.1`, публикация порта
+    не поможет: трансляция отработает, а отдавать пакет будет некому. Слушать надо
+    на `0.0.0.0`.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-003
+  domain: networks
+  subtopic: container-networking
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Почему обращение к контейнеру по имени работает не всегда?
+  answer: |
+    Встроенный DNS-резолвер работает только в **пользовательских** сетях. В сети
+    по умолчанию `bridge` разрешения имён нет, там контейнеры видят друг друга
+    только по IP.
+  explanation: |
+    Отсюда практическое правило: под каждый набор связанных сервисов создают
+    отдельную сеть — `compose` делает это автоматически, поэтому там имена работают
+    «сами собой». Побочная выгода не менее важна: пользовательская сеть заодно
+    изолирует группу контейнеров от остальных на том же хосте.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-004
+  domain: networks
+  subtopic: container-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие сетевые драйверы бывают и когда какой нужен?
+  answer: |
+    `bridge` — по умолчанию, свой стек и NAT. `host` — контейнер берёт сетевой стек
+    хоста, без изоляции и без публикации портов. `none` — сети нет вовсе.
+    `overlay` — общая сеть на несколько хостов. `macvlan` — свой MAC и адрес
+    прямо в физической сети.
+  explanation: |
+    Выбор — это выбор степени изоляции против прямоты доступа. `host` убирает NAT
+    и его накладные расходы ценой конфликта портов с хостом и потери изоляции;
+    `macvlan` нужен, когда контейнер должен выглядеть обычным устройством сети,
+    например для унаследованных систем, различающих клиентов по MAC.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-005
+  domain: networks
+  subtopic: container-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как overlay-сеть связывает контейнеры на разных хостах?
+  answer: |
+    Инкапсуляцией: кадр контейнера заворачивается в UDP-пакет между хостами
+    (обычно VXLAN) и распаковывается на той стороне. Для контейнеров это выглядит
+    как один общий сегмент.
+  explanation: |
+    Плата всегда одна и та же — обёртка съедает MTU, порядка пятидесяти байт на пакет.
+    Если MTU внутри не уменьшен, крупные пакеты не пройдут, и получится знакомый
+    симптом «мелкое ходит, крупное виснет». Ровно та же механика и та же грабля —
+    в overlay-сетях Kubernetes.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-006
+  domain: networks
+  subtopic: container-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем сеть контейнера в Docker отличается от сетевой модели Kubernetes?
+  answer: |
+    В Docker контейнер по умолчанию за NAT, и снаружи доступен только через публикацию
+    порта. В Kubernetes у каждого пода **свой маршрутизируемый адрес**, и поды
+    общаются напрямую, без NAT и без проброса.
+  explanation: |
+    Разница принципиальна для приложений: без NAT адрес источника доходит до получателя
+    неизменным, что нужно для обнаружения сервисов, аудита и mTLS. Плата — расход
+    адресов и требование к сети уметь доставлять пакеты между pod-подсетями, чем
+    и занимается CNI.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-007
+  domain: networks
+  subtopic: container-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Контейнер в режиме `host` не может подняться: порт занят. Почему это ожидаемо?
+  answer: |
+    Потому что в этом режиме сетевого namespace у контейнера нет — он использует стек
+    хоста и претендует на **тот же** порт. Два таких контейнера с одним портом
+    несовместимы, как несовместимы два процесса на хосте.
+  explanation: |
+    Это оборотная сторона отказа от изоляции ради производительности. Отсюда и область
+    применения: агенты мониторинга, сетевые компоненты, всё, что должно видеть сеть
+    хоста, — а не обычные приложения. В Kubernetes то же самое даёт `hostNetwork: true`
+    с тем же ограничением на планирование.
+  ref: "sources/networks.md#M14"
+
+- id: networks-container-networking-008
+  domain: networks
+  subtopic: container-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение в контейнере видит адрес источника, принадлежащий мосту, а не реальному
+    клиенту. Почему?
+  answer: |
+    Из-за SNAT на выходе с хоста: при публикации порта пакет проходит трансляцию,
+    и источником становится адрес хоста в сети моста. Реальный адрес теряется
+    на сетевом уровне.
+  explanation: |
+    Отсюда та же задача, что с балансировщиками: если приложению нужен настоящий IP —
+    для ограничения по адресам, аудита или геолокации, — его передают выше по стеку
+    заголовком `X-Forwarded-For` или PROXY protocol. Пытаться вытащить его из сетевого
+    уровня после трансляции бессмысленно: информации там уже нет.
+  ref: "sources/networks.md#M14"
