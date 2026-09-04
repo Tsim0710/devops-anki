@@ -1,0 +1,356 @@
+# k8s / bootstrap
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-bootstrap-001
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `kubeadm init`?
+  answer: |
+    Генерирует PKI (несколько независимых CA), пишет kubeconfig'и, раскладывает
+    манифесты static pod'ов для apiserver, controller-manager, scheduler и etcd,
+    дожидается их подъёма и создаёт bootstrap-токен для присоединения узлов.
+  explanation: |
+    Ключевой приём здесь — static pods: они разрывают проблему курицы и яйца.
+    Компоненты control plane сами живут в контейнерах, но запустить их через API
+    невозможно, пока API не поднят, — поэтому kubelet запускает их напрямую с диска,
+    не спрашивая никого.
+  ref: "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/"
+
+- id: k8s-bootstrap-002
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему свежий узел после `kubeadm join` остаётся в состоянии `NotReady`?
+  answer: |
+    Потому что не установлен CNI. Kubelet сообщает, что сеть подов не готова,
+    и узел не принимает нагрузку до появления сетевого плагина.
+  explanation: |
+    Это не поломка, а незавершённая установка: Kubernetes сознательно не поставляет
+    сеть в комплекте, а лишь задаёт требования к ней. Проверяется мгновенно —
+    в `kubectl describe node` условие `Ready` будет с сообщением про неинициализированную
+    сеть. В облаке к этому добавляется второй кандидат: taint от cloud-controller-manager,
+    который снимается после инициализации узла.
+  ref: "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-join/"
+
+- id: k8s-bootstrap-003
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько узлов должно быть в кластере etcd и почему нечётное число?
+  answer: |
+    Нечётное: 3 для прода, 5 для крупного. Кворум — это большинство, `(n/2)+1`,
+    и чётное число узлов даёт ту же отказоустойчивость, что и предыдущее нечётное,
+    но при большей стоимости записи.
+  explanation: |
+    Считается легко: из трёх узлов кворум равен двум, значит переживается отказ одного.
+    Из четырёх кворум равен трём — переживается тоже один. Четвёртый узел не добавил
+    надёжности, зато каждая запись теперь требует подтверждения от большего числа
+    участников. Отсюда и общее правило: etcd масштабируют ради надёжности, а не
+    ради производительности.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-004
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что теряется при потере etcd без бэкапа?
+  answer: |
+    Всё состояние кластера: объекты, секреты, RBAC, конфигурация. Восстановить это
+    неоткуда — узлы и запущенные контейнеры про объекты ничего не знают.
+  explanation: |
+    etcd — единственная точка невозврата в кластере: любой другой компонент
+    переустанавливается, а состояние — нет. Отсюда два обязательных требования:
+    снапшоты по расписанию (`etcdctl snapshot save`) и **регулярная проверка
+    восстановления** — непроверенный бэкап статистически часто оказывается нерабочим
+    именно в тот момент, когда нужен.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-005
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке обновляется кластер и почему именно так?
+  answer: |
+    Сначала control plane, потом узлы, по одной минорной версии за раз.
+    Причина — правила version skew: kubelet может отставать от apiserver,
+    но не может быть новее.
+  explanation: |
+    Порядок вытекает из совместимости API: новый kubelet может обратиться к apiserver
+    с полем, которого тот ещё не знает. Отсюда же запрет прыгать через минорную версию —
+    гарантии совместимости даются только для соседних релизов, и перепрыгивание
+    выводит кластер в непроверенное состояние.
+  ref: "https://kubernetes.io/docs/setup/release/version-skew-policy/"
+
+- id: k8s-bootstrap-006
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `cordon` отличается от `drain`?
+  answer: |
+    `cordon` только помечает узел как непланируемый: новые поды туда не сядут,
+    существующие остаются. `drain` дополнительно **выселяет** уже работающие поды,
+    соблюдая PodDisruptionBudget.
+  explanation: |
+    Разделение даёт двухшаговое обслуживание: сначала перекрыть приток и посмотреть,
+    как система себя чувствует, потом освобождать. `drain` при этом использует API
+    вытеснения, а не грубое удаление, — поэтому он и уважает PDB, и поэтому же может
+    зависнуть, если бюджет не позволяет убрать под.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"
+
+- id: k8s-bootstrap-007
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    `kubectl` внезапно перестал работать с ошибкой `x509: certificate has expired`.
+    Что произошло?
+  options:
+    a: "Истёк срок сертификатов kubeadm — они выдаются на год"
+    b: "Кластер потерял связь с etcd"
+    c: "Сломался CNI, и apiserver недоступен по сети"
+    d: "Был отозван доступ через RBAC"
+  answer: a
+  explanation: |
+    Сертификаты, которые генерирует `kubeadm`, живут год, и обновляются они при
+    штатном апгрейде кластера. Кластер, который год не трогали, в какой-то день просто
+    перестаёт слушаться — и это одна из немногих поломок, наступающих строго
+    по календарю. Отличать её просто: сообщение прямо называет причину.
+    Клиентский сертификат kubelet при этом ротируется автоматически.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/"
+
+- id: k8s-bootstrap-008
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где проходит граница ответственности в managed-кластере?
+  answer: |
+    Провайдер отвечает за control plane: apiserver, etcd, их обновление, бэкапы и HA.
+    Ты отвечаешь за узлы, нагрузки, сеть внутри кластера, политики, права и данные
+    приложений.
+  explanation: |
+    Граница объясняет, что можно требовать, а что нет: восстановление etcd — забота
+    провайдера, а вот пропавший PVC или неудачный выкат — целиком твоя. Она же
+    объясняет отсутствие некоторых ручек: флаги apiserver и admission-плагины лежат
+    на его стороне. Практический вывод — managed берут по умолчанию, если нет причин
+    обратного.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-bootstrap-009
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему `kubectl delete pod kube-apiserver-node1` не удаляет apiserver?
+  answer: |
+    Это static pod: kubelet запускает его по файлу на узле, а в API виден лишь
+    mirror pod — зеркало. Удаление зеркала приводит к тому, что kubelet создаёт
+    его заново.
+  explanation: |
+    Так и задумано: компоненты control plane не должны зависеть от собственной
+    работоспособности. Чтобы действительно остановить apiserver, нужно убрать
+    его манифест из `/etc/kubernetes/manifests` на узле. Побочный эффект приятный —
+    случайной командой control plane не снести.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/"
+
+- id: k8s-bootstrap-010
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что нужно сделать перед `drain` узла, чтобы обновление не сломало сервисы?
+  answer: |
+    Убедиться, что у нагрузок есть PodDisruptionBudget и достаточно реплик, чтобы
+    выселение не оставило сервис без бэкендов. И что реплики не привязаны жёстко
+    к этому узлу.
+  explanation: |
+    PDB — это одновременно и защита, и главный источник зависших drain'ов: слишком
+    строгий бюджет блокирует обслуживание навсегда. Поэтому обновление узлов идёт
+    по одному, с проверкой между шагами: так видно, что сервисы пережили первый узел,
+    прежде чем трогать второй.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"
+
+- id: k8s-bootstrap-011
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт HA control plane из трёх узлов и чего он не даёт?
+  answer: |
+    Даёт переживание отказа одного узла: кворум etcd сохраняется, apiserver доступен
+    через балансировщик. Не даёт производительности — контроллеры и scheduler
+    работают в единственном экземпляре благодаря leader election.
+  explanation: |
+    Путаница между отказоустойчивостью и масштабированием здесь стоит денег: три узла
+    берут ради «мощнее», а получают «надёжнее». Горизонтально масштабируется только
+    приём запросов apiserver'ом, поскольку он stateless; всё, что принимает решения,
+    осознанно сделано одиночным во избежание гонок.
+  ref: "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/"
+
+- id: k8s-bootstrap-012
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Восстановились из снапшота etcd, а кластер «помнит» старое состояние.
+    Что это значит?
+  answer: |
+    Снапшот вернул состояние на момент бэкапа, а реальный мир ушёл вперёд: на узлах
+    работают поды, которых в восстановленном etcd нет, в облаке живут диски
+    и балансировщики, созданные позже.
+  explanation: |
+    Восстановление etcd — это не машина времени для кластера, а откат только его
+    «памяти». Дальше контроллеры начнут приводить мир к устаревшему представлению:
+    удалять «лишние» объекты и пересоздавать «недостающие». Поэтому восстановление
+    планируют как отдельную процедуру со сверкой внешних ресурсов, а не как
+    одну команду.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-013
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    etcd потерял кворум. В каком состоянии кластер и что делать?
+  answer: |
+    Кластер становится доступен только на чтение: запись в etcd невозможна, значит
+    никакие изменения не применяются. Запущенные поды продолжают работать.
+    Выход — вернуть отсутствующие узлы или восстановиться из снапшота.
+  explanation: |
+    Поведение вытекает из консенсуса: без большинства участников etcd не может
+    гарантировать согласованность записи и честно отказывается писать, вместо того
+    чтобы рискнуть расхождением. Отсюда практическое следствие для дежурного:
+    «кластер не принимает изменения, но всё работает» — характерная подпись
+    именно кворума, а не сети или прав.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-014
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему PKI кластера — это несколько независимых CA, а не один?
+  answer: |
+    Чтобы разграничить доверие: отдельный CA для клиентов apiserver, отдельный для
+    etcd, отдельный для front-proxy. Сертификат, выданный для одной подсистемы,
+    не годится для другой.
+  explanation: |
+    Один общий CA означал бы, что любой валидный сертификат кластера открывает доступ
+    ко всему, включая прямую запись в etcd мимо apiserver — то есть мимо всей
+    авторизации и аудита. Разделение ограничивает радиус поражения при компрометации
+    ключа и объясняет, почему в `/etc/kubernetes/pki` лежит не одна пара файлов,
+    а целый набор.
+  ref: "https://kubernetes.io/docs/setup/best-practices/certificates/"
+
+- id: k8s-bootstrap-015
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Апгрейд кластера сломался на середине: часть узлов новой версии, часть старой.
+    Насколько это опасно?
+  answer: |
+    Само по себе состояние штатное — политика version skew допускает отставание
+    kubelet от apiserver на несколько минорных версий, и кластер продолжает работать.
+    Опасно застревать в нём надолго: поведение узлов расходится, а следующий апгрейд
+    из смешанного состояния усложняется.
+  explanation: |
+    Именно ради этой безопасной середины апгрейд и делают по одному узлу: система
+    спроектирована так, чтобы жить в промежуточном состоянии, пока идёт обновление.
+    Опасны обратные ситуации — kubelet новее apiserver и прыжок через минорную
+    версию: обе выходят за рамки гарантий совместимости.
+  ref: "https://kubernetes.io/docs/setup/release/version-skew-policy/"
+
+- id: k8s-bootstrap-016
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке думать при восстановлении кластера после катастрофы?
+  answer: |
+    Сначала — что можно пересоздать из кода: узлы, компоненты, приложения из git.
+    Потом — что восстанавливается только из бэкапа: etcd. Потом — данные приложений:
+    PV и внешние базы, у которых свой цикл резервного копирования.
+  explanation: |
+    Порядок выстроен по невосполнимости: чем меньше вариантов восстановления,
+    тем раньше о ресурсе надо думать. Отсюда и практический критерий зрелости —
+    кластер описан как код, а невосполнимым остаётся ровно etcd и данные,
+    и для обоих есть проверенная процедура восстановления, а не только бэкап.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-017
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    etcd перешёл в режим только чтения из-за размера базы. Что произошло и что делать?
+  answer: |
+    Сработал лимит на размер хранилища (по умолчанию порядка 2 ГБ) — etcd поднимает
+    аварийный сигнал и запрещает запись. Лечится сжатием истории ревизий,
+    дефрагментацией и снятием сигнала; лимит при необходимости поднимается флагом.
+  explanation: |
+    Особенность в том, что удаление объектов **само по себе места не освобождает**:
+    старые ревизии живут до compaction, а освободившееся после него место остаётся
+    за файлом до дефрагментации. Поэтому «мы же почистили Job'ы, почему база
+    не уменьшилась» — штатное поведение, а не поломка. Отсюда и профилактика:
+    ограничивать историю Job и событий, не хранить в кластере крупные объекты.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"

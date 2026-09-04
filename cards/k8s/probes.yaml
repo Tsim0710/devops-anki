@@ -1,0 +1,387 @@
+# k8s / probes
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-probes-001
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит с подом, когда его `readinessProbe` начинает падать?
+  answer: |
+    Под **исключается из endpoints** своего Service — трафик на него больше не идёт.
+    Контейнер при этом **не перезапускается** и продолжает работать.
+  explanation: |
+    `readinessProbe` отвечает на вопрос «можно ли давать этому поду трафик», а не
+    «жив ли он». Поэтому актор здесь — endpoints-контроллер, а не kubelet: он убирает
+    адрес пода из `EndpointSlice`, и `kube-proxy` перестаёт балансировать на него.
+    Разделение нужно ровно для того, чтобы под мог временно отказаться от трафика
+    (прогрев кеша, переподключение к БД) и не быть за это убитым.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-002
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен `startupProbe`, если уже есть `initialDelaySeconds` у liveness?
+  answer: |
+    `startupProbe` **глушит liveness и readiness до своего первого успеха** — приложению
+    даётся столько времени на старт, сколько нужно, без ослабления liveness после старта.
+  explanation: |
+    `initialDelaySeconds` — это одна фиксированная задержка, и её приходится подбирать под
+    худший случай старта. Тогда упавшее в рантайме приложение будет висеть мёртвым ровно
+    столько же. `startupProbe` разводит эти два режима: `failureThreshold × periodSeconds`
+    задаёт щедрый бюджет **только на старт**, а после успеха включается обычный liveness
+    с коротким периодом.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-003
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    `livenessProbe` провалилась `failureThreshold` раз подряд. Что делает kubelet и
+    меняется ли при этом IP пода?
+  answer: |
+    Kubelet **убивает контейнер** и перезапускает его по `restartPolicy` прямо на том же
+    узле; растёт `restartCount`, повторные падения уходят в `CrashLoopBackOff`.
+    **IP пода не меняется** — пересоздаётся контейнер, а не под.
+  explanation: |
+    Актор здесь kubelet, а не scheduler: перепланирования не происходит, `spec.nodeName`
+    остаётся прежним, sandbox (pause-контейнер) с сетевым namespace живёт дальше — отсюда
+    и сохранение IP. Отсюда же типичная ошибка на собесе: «под перезапустился» и «под
+    пересоздался» — разные события. Первое видно в `restartCount`, второе — в смене имени
+    пода и его IP.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-probes-004
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: interview
+  type: mcq
+  verified: false
+  prompt: |
+    Приложение отдаёт `200` на `/healthz` (liveness) и `503` на `/ready` (readiness).
+    Что произойдёт с подом?
+  options:
+    a: "Контейнер перезапустится, трафик продолжит идти"
+    b: "Контейнер продолжит работать, но трафик на него идти перестанет"
+    c: "Под будет вытеснен с узла и перепланирован на другой"
+    d: "Под перейдёт в `CrashLoopBackOff`"
+  answer: b
+  explanation: |
+    Liveness отвечает «жив», значит kubelet контейнер не трогает. Readiness отвечает «не
+    готов», значит endpoints-контроллер убирает под из `EndpointSlice`. Это ровно та пара
+    сигналов, которую путают чаще всего: liveness управляет **жизнью контейнера**,
+    readiness — **потоком трафика**, и они независимы. Вытеснение с узла (c) — это вообще
+    другой механизм (taints/eviction), пробы его не вызывают.
+  ref: "Вопрос с собеса: «чем liveness отличается от readiness, если оба HTTP-пробы»"
+
+- id: k8s-probes-005
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему проверять доступность внешней БД внутри `readinessProbe` — плохая идея?
+  answer: |
+    Потому что при недоступности БД **все реплики разом** выпадают из endpoints, Service
+    остаётся без бэкендов, и сервис отдаёт `503` даже на те запросы, которым БД не нужна.
+    Локальная деградация превращается в полный отказ.
+  explanation: |
+    Readiness — это утверждение пода о **себе**, а не о мире вокруг. Проверка общей
+    зависимости делает пробу коррелированной: один общий сбой снимает с балансировки
+    сразу весь Deployment, и вдобавок закрывает путь к health-эндпоинтам, по которым
+    диагностируют инцидент. Вдобавок так теряется деградация: часть ручек могла бы
+    продолжать работать. Правильный контур — readiness проверяет только собственную
+    готовность процесса, а недоступность БД отражается в метриках и алертах.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-006
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Приложение прогревается 90 секунд. Заданы только:
+
+    ```yaml
+    livenessProbe:
+      httpGet: { path: /healthz, port: 8080 }
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 3
+    ```
+
+    Что произойдёт при первом запуске пода?
+  options:
+    a: "Под нормально стартует: kubelet ждёт готовности приложения"
+    b: "Под уйдёт в `CrashLoopBackOff`, так и не успев прогреться"
+    c: "Проба будет падать, но контейнер доживёт до готовности и продолжит работать"
+    d: "Kubelet автоматически увеличит `initialDelaySeconds` после первого рестарта"
+  answer: b
+  explanation: |
+    Бюджет на старт равен `initialDelaySeconds + failureThreshold × periodSeconds`
+    = 10 + 3 × 10 = 40 секунд, а прогрев занимает 90. На 40-й секунде kubelet убивает
+    контейнер, отсчёт начинается заново — и так по кругу, с растущим backoff. Приложение
+    в принципе не может доехать до готовности. Лечится не раздуванием
+    `initialDelaySeconds` (это ослабило бы liveness навсегда), а отдельным `startupProbe`
+    с большим `failureThreshold`.
+  ref: "Вопрос с собеса: «под в CrashLoopBackOff, в логах приложение стартует нормально»"
+
+- id: k8s-probes-007
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какими четырьмя способами kubelet может выполнить пробу?
+  answer: |
+    `httpGet` (код 200–399 = успех), `exec` (exit code 0 = успех), `tcpSocket`
+    (соединение установилось = успех) и `grpc` (стандартный health-протокол gRPC).
+  explanation: |
+    Выбор механизма — это выбор того, **что именно** ты считаешь признаком здоровья.
+    `tcpSocket` проверяет только что порт слушает: зависшее приложение с открытым сокетом
+    такую пробу пройдёт. `httpGet` спрашивает у самого приложения. `exec` даёт полную
+    свободу, но стоит форка процесса на каждую проверку.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-008
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    На каком уровне манифеста объявляются пробы — на поде или на контейнере?
+  answer: |
+    На **контейнере**. У каждого контейнера в поде свои `livenessProbe`,
+    `readinessProbe` и `startupProbe`.
+  explanation: |
+    Это прямо следует из того, кто исполняет последствия: liveness убивает **контейнер**,
+    а не под, поэтому и настройка живёт там же. Отсюда же вытекает поведение
+    многоконтейнерного пода — провал пробы у sidecar рестартит sidecar, а основной
+    контейнер продолжает работать.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-009
+  domain: k8s
+  subtopic: probes
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие значения по умолчанию у `periodSeconds`, `timeoutSeconds`, `failureThreshold`
+    и `initialDelaySeconds`?
+  answer: |
+    `periodSeconds: 10`, `timeoutSeconds: 1`, `failureThreshold: 3`,
+    `initialDelaySeconds: 0`.
+  explanation: |
+    Знать их нужно из-за `timeoutSeconds: 1` — это самый неожиданный дефолт. Ручка
+    `/healthz`, которая под нагрузкой отвечает за 1.2 секунды, считается **провалившейся**,
+    хотя приложение живо. Дальше три таких провала подряд — и liveness убивает
+    здоровый контейнер ровно в тот момент, когда сервису и так тяжело.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-010
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под провалил readiness. Он исчезает из `EndpointSlice` или остаётся там?
+  answer: |
+    **Остаётся**, но с `conditions.ready: false`. Из списка он не удаляется — меняется
+    его состояние, и kube-proxy перестаёт заводить на него правила.
+  explanation: |
+    Это важно для отладки: `kubectl get endpointslice` покажет под, и по одному факту
+    его присутствия нельзя делать вывод «трафик идёт». Смотреть надо именно на `ready`.
+    Заодно отсюда работает `publishNotReadyAddresses` у headless-сервисов — адрес есть,
+    просто помечен неготовым.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/"
+
+- id: k8s-probes-011
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `successThreshold` у liveness и startup нельзя поставить больше 1?
+  answer: |
+    Kubernetes это запрещает: для liveness и startup допустимо только `successThreshold: 1`.
+    Больше единицы можно задать лишь у readiness.
+  explanation: |
+    Асимметрия намеренная. Для «жив» и «стартовал» задержка подтверждения означала бы,
+    что контейнер считается мёртвым дольше, чем он мёртв на самом деле — это только
+    вредит. А вот для трафика осторожность оправдана: `successThreshold: 3` у readiness
+    не даёт вернуть нагрузку на флапающий под после единственного удачного ответа.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-012
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `exec`-проба дороже остальных на плотно набитом узле?
+  answer: |
+    Каждая проверка — это **запуск процесса внутри контейнера**, каждые `periodSeconds`,
+    у каждого контейнера. Сотня подов с exec-пробой раз в 10 секунд даёт постоянный
+    поток форков и заметный расход CPU на узле.
+  explanation: |
+    `httpGet` и `tcpSocket` kubelet делает сам, из своего процесса, сетевым запросом —
+    это дешёвая операция. `exec` идёт через container runtime и поднимает процесс
+    в namespace контейнера. Отсюда практическое правило: exec берут, когда приложение
+    физически не умеет отдать HTTP-ручку, а не по умолчанию.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-013
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    В поде два контейнера: `app` и `log-shipper`. У `log-shipper` провалилась
+    `livenessProbe`. Что произойдёт?
+  options:
+    a: "Перезапустится только контейнер `log-shipper`, `app` продолжит работать"
+    b: "Перезапустится весь под, оба контейнера"
+    c: "Под будет пересоздан контроллером на другом узле"
+    d: "Под целиком выпадет из endpoints, но перезапуска не будет"
+  answer: a
+  explanation: |
+    Пробы объявляются на контейнере, и последствия у них контейнерные: kubelet убивает
+    и перезапускает именно тот контейнер, чья проба провалилась. Под при этом живёт
+    дальше, его IP и sandbox сохраняются, растёт только `restartCount` конкретного
+    контейнера. Вариант (d) описывает readiness, а не liveness.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-probes-014
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение стартует за 2 секунды, но раз в несколько дней зависает намертво.
+    Какую пробу и с какими параметрами ставить?
+  answer: |
+    `livenessProbe` с коротким `periodSeconds` и небольшим `failureThreshold` —
+    зависание должно обнаруживаться быстро. `startupProbe` здесь не нужен: старт быстрый.
+  explanation: |
+    Параметры проб задаются не «на всякий случай», а из двух чисел: сколько длится
+    легитимный старт и как быстро надо реагировать на зависание. Когда эти числа
+    конфликтуют (медленный старт + быстрая реакция), их разводят через `startupProbe`.
+    Когда не конфликтуют — лишняя проба только добавляет мест, где можно ошибиться.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-015
+  domain: k8s
+  subtopic: probes
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужна `readinessProbe` у пода, который уже прошёл `startupProbe` и стабильно
+    работает?
+  answer: |
+    Чтобы под мог **временно** отказаться от трафика в рантайме: переподключение к БД,
+    прогрев кеша, переполненная очередь запросов, graceful shutdown.
+  explanation: |
+    Readiness — не одноразовый стартовый гейт, kubelet опрашивает её всю жизнь пода.
+    Это единственный штатный способ сказать «я жив, но сейчас не обслуживай меня»
+    без рестарта и потери состояния. Если readiness рассматривать как «проверку при
+    старте», её обычно ставят один раз и лишают смысла.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-probes-016
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Выкат намертво встал: новые поды не становятся ready, старые не гасятся.
+    Как связаны readiness и `maxUnavailable: 0`?
+  answer: |
+    `maxUnavailable: 0` запрещает уменьшать число готовых подов, а Deployment считает
+    готовность по readiness. Если новый под её не проходит, гасить старый нельзя —
+    и выкат стоит, пока не сработает `progressDeadlineSeconds`.
+  explanation: |
+    Комбинация выглядит максимально безопасной и именно поэтому опасна: строгая
+    readiness плюс нулевая недоступность превращают любую ошибку готовности
+    в бессрочную заморозку вместо честного падения. Автоотката при этом не происходит —
+    выкат просто помечается провалившимся и остаётся в половинчатом состоянии,
+    с подами двух версий одновременно.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-probes-017
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем нативная `grpc`-проба отличается от вызова `grpc_health_probe` через `exec`?
+  answer: |
+    Нативная выполняется самим kubelet по стандартному протоколу gRPC Health Checking —
+    без запуска процессов и без лишнего бинарника в образе. `exec` с `grpc_health_probe`
+    делает то же самое, но ценой форка на каждую проверку и дополнительной зависимости.
+  explanation: |
+    Практическая разница видна на плотных узлах: сотни exec-проб дают заметный расход
+    CPU, которого у нативной пробы нет вовсе. Второй аргумент — безопасность образа:
+    distroless-образ без лишних бинарников невозможно проверить через exec в принципе,
+    и раньше это было главной причиной тащить в него отдельный инструмент.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+
+- id: k8s-probes-018
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у пробы есть собственный `terminationGracePeriodSeconds`, если он уже есть у пода?
+  answer: |
+    Чтобы зависший контейнер, убиваемый по liveness, гасился **быстро**, а штатное
+    завершение пода при этом сохраняло длинный grace period для корректного слива
+    соединений.
+  explanation: |
+    Два случая требуют противоположного поведения: при выкате приложение надо аккуратно
+    дождаться, при зависании — прибить немедленно, потому что ждать от него уже нечего.
+    Без раздельной настройки приходилось выбирать одно число на оба сценария, и обычно
+    выбирали длинное — из-за чего зависший под ещё минуту занимал место и держал
+    соединения.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"

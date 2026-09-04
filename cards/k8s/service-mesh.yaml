@@ -1,0 +1,244 @@
+# k8s / service-mesh
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-service-mesh-001
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит service mesh?
+  answer: |
+    Data plane — прокси (обычно Envoy) рядом с каждой нагрузкой, через который идёт
+    весь трафик. Control plane — компонент, который эти прокси настраивает
+    и раздаёт им сертификаты.
+  explanation: |
+    Разделение то же, что в Ingress: правило и исполнитель. Ключевая идея mesh в том,
+    что прокси перехватывает трафик **прозрачно** — приложение продолжает ходить
+    по обычным адресам и не знает, что его трафик кто-то обрабатывает.
+    Отсюда и главный аргумент: возможности добавляются без правки кода.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-002
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что mesh даёт без изменения кода приложения?
+  answer: |
+    Взаимный TLS между сервисами, устойчивость (ретраи, таймауты, circuit breaking),
+    управление трафиком (canary, зеркалирование, разбиение по весам) и единую
+    телеметрию — метрики и трейсы по всем вызовам.
+  explanation: |
+    Ценность именно в том, что это одинаково работает для всех сервисов независимо
+    от языка: иначе каждую из этих возможностей пришлось бы реализовывать в библиотеке
+    для Go, для Java, для Python — и поддерживать три разные реализации ретраев.
+    Mesh переносит эту логику из приложения в инфраструктуру.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-003
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как sidecar-прокси попадает в под?
+  answer: |
+    Его добавляет **mutating admission webhook** при создании пода. Включается обычно
+    меткой на namespace, манифест приложения не меняется.
+  explanation: |
+    Отсюда два практических следствия. Первое: включение mesh требует пересоздания
+    подов — существующие webhook не трогает. Второе: в git один контейнер, в кластере
+    два, и при разборе смотреть надо на фактический объект. Тот же механизм стоит
+    за инжекцией агентов секретов и наблюдаемости.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-service-mesh-004
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен режим mTLS `PERMISSIVE` и почему нельзя сразу включить `STRICT`?
+  answer: |
+    `PERMISSIVE` принимает и зашифрованный, и обычный трафик — это переходный режим.
+    `STRICT` требует mTLS от всех, и включённый до того, как прокси появились у всех
+    участников, он мгновенно рвёт связность.
+  explanation: |
+    Внедрение идёт по одному namespace, и пока часть сервисов без sidecar, требовать
+    от них mTLS невозможно — им нечем его установить. Отсюда стандартная лестница:
+    включить инъекцию, пересоздать поды, убедиться по телеметрии, что весь трафик
+    уже шифруется, и только потом переключиться в `STRICT`.
+  ref: "https://kubernetes.io/docs/concepts/security/"
+
+- id: k8s-service-mesh-005
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Job с sidecar'ом mesh не завершается. Почему и как чинить?
+  answer: |
+    Прокси не завершается сам, а под считается законченным только когда закончились все
+    контейнеры. Чинится нативным sidecar-контейнером (init с `restartPolicy: Always`)
+    или явной командой прокси на выход после основного контейнера.
+  explanation: |
+    Это тот же класс проблемы, что с любым долгоживущим помощником в Job, просто здесь
+    он приезжает автоматически и незаметно — через webhook. Отсюда практика отключать
+    инъекцию для Job и CronJob аннотацией, если mesh им не нужен: половина сюрпризов
+    с зависшими задачами именно отсюда.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/"
+
+- id: k8s-service-mesh-006
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Mesh включили, и NetworkPolicy перестала работать как ожидалось. Почему?
+  answer: |
+    Потому что они смотрят на разные вещи: NetworkPolicy фильтрует по IP и меткам
+    на уровне сети, а mesh шифрует трафик и терминирует соединения в прокси — источником
+    для политики становится sidecar, а не приложение.
+  explanation: |
+    Два слоя контроля доступа, настроенные независимо, дают либо дыры, либо ложные
+    блокировки. Разумный подход — разделить роли: NetworkPolicy как грубый периметр
+    (кто вообще может достучаться), авторизация mesh как тонкое правило (какой сервис
+    к какому методу). Или взять решение, где оба слоя реализует один компонент.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-service-mesh-007
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем ambient-режим (sidecarless) отличается от классического sidecar?
+  answer: |
+    Прокси не добавляется в каждый под: трафик перехватывается компонентом уровня узла,
+    а L7-обработка выносится в отдельные шлюзы. Поды остаются нетронутыми.
+  explanation: |
+    Это ответ на главные издержки sidecar-модели: расход памяти на каждый под,
+    необходимость пересоздавать все поды при обновлении mesh и зависшие Job'ы.
+    Плата — другая модель отладки: трафик обрабатывается не «внутри пода», и привычные
+    приёмы вроде чтения логов sidecar'а рядом с приложением перестают работать.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-008
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Нужен mTLS между тремя сервисами и базовые метрики. Разумное решение?
+  options:
+    a: "Лёгкий mesh вроде Linkerd либо возможности уже стоящего CNI"
+    b: "Istio с полным набором компонентов — стандарт индустрии"
+    c: "Свой прокси-sidecar, написанный под задачу"
+    d: "Ничего не нужно: TLS настраивается в приложениях"
+  answer: a
+  explanation: |
+    Правильный ответ на «нужен ли mesh» чаще «нет», а если да — то самый простой
+    из подходящих. Полноценный mesh приносит control plane, sidecar в каждом поде,
+    рост latency, обновления с пересозданием подов и новый слой отладки. Для трёх
+    сервисов и одной задачи эта цена несоразмерна; вариант (d) формально работает,
+    но требует править код и управлять сертификатами вручную.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-009
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Mesh, Ingress и Gateway API — как они соотносятся?
+  answer: |
+    Ingress и Gateway API — про **вход снаружи** (north-south). Mesh — про трафик
+    **между сервисами внутри** кластера (east-west). Они не заменяют друг друга,
+    хотя у mesh обычно есть и собственный входной шлюз.
+  explanation: |
+    Разделение по направлению трафика сразу отвечает на вопрос «что брать»: если задача
+    выставить сайт наружу, mesh не нужен вовсе. Если нужны mTLS и ретраи между
+    десятком внутренних сервисов, Ingress тут бесполезен. Gateway API при этом
+    постепенно становится общим языком для обоих направлений.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/gateway/"
+
+- id: k8s-service-mesh-010
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какова честная цена внедрения sidecar-mesh?
+  answer: |
+    Дополнительный контейнер на каждый под (память и CPU), два лишних сетевых хопа
+    и рост latency, обновление mesh с пересозданием **всех** подов, новый слой,
+    в котором надо уметь отлаживать, и зависимость от его control plane.
+  explanation: |
+    Про эту цену забывают, потому что внедрение выглядит бесплатным — код не меняется,
+    достаточно метки на namespace. Проявляется она позже: на счёте за память,
+    на p99 и на первом обновлении mesh, которое оказывается операцией масштаба
+    всего кластера. Поэтому mesh берут под несколько задач сразу, а не ради одной.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-011
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как mesh даёт сервису криптографическую идентичность и чем она лучше сетевой?
+  answer: |
+    Control plane выдаёт каждому воркоаду короткоживущий сертификат, привязанный
+    к его ServiceAccount. Идентичность становится свойством **сервиса**, а не адреса:
+    IP можно подделать или переиспользовать, сертификат — нет.
+  explanation: |
+    Отсюда возможность строить авторизацию в терминах «сервис A может вызывать метод X
+    сервиса B», что невыразимо в сетевых политиках по адресам. Это же практический
+    фундамент zero-trust внутри кластера: доверие перестаёт следовать из факта
+    нахождения в одной сети.
+  ref: "https://kubernetes.io/docs/concepts/security/service-accounts/"
+
+- id: k8s-service-mesh-012
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    После внедрения mesh выросла latency. Где искать причину, кроме самих прокси?
+  answer: |
+    В ретраях и таймаутах: настроенные по умолчанию повторы могут умножать нагрузку
+    при деградации, а таймауты mesh — обрывать запросы раньше, чем это делало
+    приложение. Плюс лимиты sidecar'ов, если их не задали явно и прокси троттлится.
+  explanation: |
+    Самый коварный сценарий — ретрай-шторм: медленный сервис получает повторы от всех
+    вызывающих, нагрузка растёт кратно, и деградация усиливает сама себя. Поэтому
+    ретраи в mesh включают осознанно, с ограничением бюджета повторов, а не оставляют
+    дефолт «потому что устойчивость».
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"

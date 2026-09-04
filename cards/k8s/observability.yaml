@@ -1,0 +1,429 @@
+# k8s / observability
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-observability-001
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `metrics-server` отличается от Prometheus?
+  answer: |
+    `metrics-server` — узкий компонент кластера: держит **текущее** потребление CPU
+    и памяти в памяти, без истории, и питает `kubectl top` и HPA. Prometheus — полноценная
+    система мониторинга с историей, запросами и алертами.
+  explanation: |
+    Это два разных крана, и один не заменяет другой: HPA по умолчанию ходит
+    в `metrics.k8s.io`, который отдаёт именно metrics-server, поэтому установка
+    Prometheus сама по себе автоскейлинг не чинит. И наоборот, metrics-server не годится
+    для расследования вчерашнего инцидента — истории у него нет вовсе.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"
+
+- id: k8s-observability-002
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что показывает `kube-state-metrics` и чем это отличается от потребления ресурсов?
+  answer: |
+    **Состояние объектов** API: сколько реплик желаемо и сколько доступно, в какой фазе
+    поды, сколько рестартов, когда истекает Job. Потребление CPU и памяти он не измеряет
+    вообще.
+  explanation: |
+    Три источника отвечают на три разных вопроса: kubelet (через cAdvisor) — «сколько
+    ест», kube-state-metrics — «в каком состоянии объекты», приложение — «что происходит
+    в бизнес-логике». Большинство полезных алертов про кластер строится именно
+    на втором: растущий `restartCount` или расхождение желаемых и готовых реплик.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-003
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Prometheus работает по push или по pull?
+  answer: |
+    По **pull**: он сам ходит по HTTP на эндпоинт `/metrics` каждой цели с заданным
+    интервалом. Приложение никуда ничего не отправляет.
+  explanation: |
+    Из модели вытекают практические следствия: недоступность цели сама по себе является
+    сигналом (метрика `up`), а приложению не нужно знать адрес мониторинга. Обратная
+    сторона — короткоживущие задачи вроде Job могут завершиться между опросами
+    и остаться незамеченными; для них существует отдельный Pushgateway.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-004
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое golden signals?
+  answer: |
+    Четыре сигнала, описывающие здоровье сервиса с точки зрения пользователя: **latency**
+    (сколько ждать), **traffic** (сколько запросов), **errors** (доля ошибок),
+    **saturation** (насколько заполнены ресурсы).
+  explanation: |
+    Ценность набора в том, что он смещает мониторинг с внутренностей на наблюдаемый
+    эффект: пользователю безразлична загрузка CPU, ему важно, отвечает ли сервис
+    и быстро ли. Отсюда правило алертов — алертить на симптом (растёт latency,
+    растут ошибки), а не на причину (высокий CPU), потому что причин у симптома
+    десятки, а страдает пользователь одинаково.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-005
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как Prometheus узнаёт о новых подах, если они появляются и исчезают постоянно?
+  answer: |
+    Через service discovery: он подписан на apiserver и получает актуальный список
+    подов, сервисов и эндпоинтов. В экосистеме оператора цели описываются объектами
+    `ServiceMonitor` и `PodMonitor`.
+  explanation: |
+    Без этого мониторинг в кластере был бы невозможен: статический список целей протух
+    бы после первого же выката. Отсюда типичный симптом «поставил ServiceMonitor,
+    метрик нет» — он не совпал метками ни с одним сервисом, либо оператор настроен
+    искать мониторы только в определённых namespace.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-006
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему CPU throttling не виден в `kubectl top`?
+  answer: |
+    Потому что `top` показывает **потребление**, а троттлинг — это принудительное
+    ограничение: контейнер упёрся в лимит и потребляет ровно столько, сколько ему
+    разрешено. Цифра выглядит нормальной. Нужна метрика
+    `container_cpu_cfs_throttled_seconds_total`.
+  explanation: |
+    Отсюда классический тупик: приложение тормозит, `top` зелёный, ошибок нет.
+    Наблюдаемость здесь требует не «сколько используется», а «сколько раз хотели
+    больше и не дали» — принципиально иной вопрос. Это общий урок: отсутствие
+    аномалии в метрике часто означает, что метрика не про то.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-observability-007
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое cardinality метрики и почему высокая cardinality убивает Prometheus?
+  answer: |
+    Cardinality — число уникальных комбинаций меток. Каждая комбинация это отдельный
+    временной ряд со своим хранением в памяти. Метка с неограниченным набором значений
+    (ID запроса, email, полный URL) порождает миллионы рядов.
+  explanation: |
+    Взрыв происходит нелинейно: метки перемножаются, и три поля по сто значений дают
+    миллион рядов из одной метрики. Prometheus держит индекс активных рядов в памяти,
+    поэтому итог — OOM, а не постепенное замедление. Правило простое: в метку идёт
+    только то, у чего конечный и небольшой набор значений.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-008
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему логи нужно централизовать, а не читать через `kubectl logs`?
+  answer: |
+    Потому что логи живут вместе с подом: удалили под — логи исчезли, а хранится
+    только один предыдущий запуск. Плюс `kubectl logs` не умеет искать по десяти
+    репликам и по вчерашнему дню.
+  explanation: |
+    Особенно жестоко это работает в инциденте: под, который упал и был пересоздан,
+    уносит с собой ровно те логи, ради которых всё и затевалось. Централизация
+    нужна раньше, чем кажется — фактически с первого прода. `stern` и подобные
+    инструменты помогают смотреть несколько подов сразу, но проблему хранения
+    не решают.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-009
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему логи приложения в кластере пишут в stdout, а не в файл?
+  answer: |
+    Потому что сборщик логов забирает поток stdout через container runtime — это
+    стандартный контракт. Файл внутри контейнера ему не виден и исчезнет вместе с подом.
+  explanation: |
+    Модель следует принципу «контейнер не хранит состояние»: ротация, хранение
+    и доставка логов — не задача приложения. Запись в файл вдобавок съедает диск узла
+    (`emptyDir` или, хуже, слой контейнера) и может уронить узел по нехватке места —
+    отказ, который выглядит как проблема кластера, а не приложения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-010
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что обязательно мониторить в самом кластере, а не в приложениях?
+  answer: |
+    Доступность control plane и etcd (задержки записи, размер базы), узлы (`NotReady`,
+    давление по памяти и диску), CoreDNS, число рестартов и `Pending`-подов, истечение
+    сертификатов, заполнение PV.
+  explanation: |
+    Общее у этого списка одно: отказ любого пункта проявляется в приложениях как
+    что-то совершенно другое и уводит расследование в сторону. Перегруженный CoreDNS
+    выглядит как медленная база, полный диск узла — как падающее приложение,
+    просроченный сертификат — как внезапная потеря доступа к кластеру.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-011
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Какой алерт полезнее дежурному инженеру?
+  options:
+    a: "Доля ответов 5xx на checkout превысила 2% в течение 5 минут"
+    b: "CPU на узле node-7 превысил 85%"
+    c: "Число подов в namespace prod изменилось"
+    d: "Средняя загрузка памяти по кластеру выросла на 10%"
+  answer: a
+  explanation: |
+    Алертить нужно на симптом, который чувствует пользователь, а не на причину. Высокий
+    CPU — нормальное состояние работающей системы: он либо ни к чему не приводит,
+    либо его последствия и так видны в latency и ошибках. Алерты на причины дают поток
+    ложных срабатываний, а от него дежурный перестаёт реагировать вообще — и пропускает
+    настоящий инцидент.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-012
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему по средней latency нельзя судить о здоровье сервиса?
+  answer: |
+    Среднее прячет хвост: при девяноста быстрых запросах и десяти по десять секунд
+    среднее выглядит приемлемо, а десять процентов пользователей ждут вечность.
+    Нужны перцентили — p95 и p99.
+  explanation: |
+    Хвост распределения — это и есть жалобы: пользователь ощущает свой запрос,
+    а не среднее по системе. Перцентили ещё и лучше показывают деградацию: p99 растёт
+    первым, когда начинают заполняться очереди и пулы соединений, задолго до того,
+    как сдвинется среднее.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-013
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение тормозит, а все дашборды зелёные. Что это обычно означает?
+  answer: |
+    Что измеряется не то узкое место. Типичные слепые зоны: CPU throttling, ожидание
+    внешней зависимости, исчерпанный пул соединений, потери и ретраи DNS, очередь
+    внутри приложения.
+  explanation: |
+    Инфраструктурные метрики описывают ресурсы, а тормозит обычно **ожидание**: поток,
+    стоящий в очереди за соединением к базе, не потребляет ни CPU, ни памяти и выглядит
+    идеально здоровым. Отсюда ценность трассировки — она показывает, где именно
+    в цепочке вызовов ушло время, вместо того чтобы гадать по графикам ресурсов.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-014
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что дают распределённые трейсы, чего не дают метрики и логи?
+  answer: |
+    Путь **одного конкретного запроса** через все сервисы с временем на каждом шаге.
+    Метрики отвечают агрегатами, логи — событиями одного сервиса; ни те, ни другие
+    не связывают шаги в цепочку.
+  explanation: |
+    Как только сервисов больше двух, вопрос «где ушли те самые три секунды» перестаёт
+    иметь ответ в метриках: каждый сервис по отдельности выглядит быстрым. Трейс
+    показывает и последовательность, и параллельность вызовов — и часто вскрывает
+    не медленный сервис, а лишние повторные обращения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/system-traces/"
+
+- id: k8s-observability-015
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем логам структурированный формат вместо свободного текста?
+  answer: |
+    Чтобы по ним можно было искать и агрегировать: JSON с полями `level`, `trace_id`,
+    `pod`, `user_id` фильтруется запросом, а строка текста — только регулярным
+    выражением, которое ломается при первом изменении формата.
+  explanation: |
+    В кластере это не стилистика, а необходимость: логи десятков реплик смешиваются
+    в один поток, и без поля с именем пода невозможно понять, болеют все или одна.
+    Поле с идентификатором трассировки при этом сшивает логи с трейсами и превращает
+    три отдельных инструмента в один связный контур.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-016
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Prometheus съел всю память узла и упал. Что искать в первую очередь?
+  answer: |
+    Взрыв cardinality: новую метку с неограниченным набором значений или новую цель,
+    отдающую тысячи рядов. Проверяется через `topk` по числу рядов на метрику
+    и на job.
+  explanation: |
+    Причина почти никогда не в объёме данных за длительный период — исторические
+    блоки лежат на диске. В памяти живёт индекс **активных** рядов, поэтому падение
+    обычно совпадает по времени с выкатом, который добавил метку. Отсюда и профилактика:
+    лимиты на число рядов со стороны scrape-конфигурации, чтобы одно приложение
+    не унесло мониторинг всего кластера.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-017
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `container_memory_usage_bytes` — плохая метрика для алерта на нехватку памяти?
+  answer: |
+    Она включает страничный кеш, который ядро освободит при необходимости. Приложение,
+    активно читающее файлы, покажет потребление у самого лимита, будучи совершенно
+    здоровым. Для алертов берут `working_set` — то, что реально нельзя отдать.
+  explanation: |
+    Различие принципиально ещё и потому, что именно `working_set` использует kubelet,
+    решая, кого убивать по OOM. То есть алерт на `usage` будет срабатывать тогда,
+    когда ничего не грозит, и молчать, когда под действительно близок к смерти —
+    худшая из возможных комбинаций.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"
+
+- id: k8s-observability-018
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое SLI, SLO и error budget и как это меняет работу дежурного?
+  answer: |
+    SLI — измеримый показатель качества (доля успешных запросов). SLO — целевое значение
+    (99.9%). Error budget — разрешённая доля отказов, вытекающая из SLO. Дежурного
+    поднимают, когда бюджет расходуется слишком быстро, а не на каждое отклонение.
+  explanation: |
+    Подход решает главную болезнь алертинга — усталость от ложных срабатываний: алерт
+    на скорость сжигания бюджета молчит, пока пользователи не страдают, и срабатывает
+    рано, когда страдают. Второй эффект организационный: исчерпанный бюджет —
+    объективный аргумент притормозить выкаты и заняться надёжностью.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-019
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Prometheus в поде хранит данные и переживает рестарт. Какие с этим проблемы
+    в долгую?
+  answer: |
+    Локальное хранилище ограничено диском узла и не реплицируется: потеря PV означает
+    потерю истории. Плюс один экземпляр не масштабируется горизонтально. Для длительного
+    хранения ставят Thanos, Mimir или подобное с выгрузкой блоков в объектное хранилище.
+  explanation: |
+    Архитектурно Prometheus задуман как локальный и простой — надёжность и долгое
+    хранение сознательно вынесены наружу. Отсюда типичная эволюция: сначала один
+    экземпляр с retention на пару недель, затем боль при расследовании старых инцидентов,
+    затем слой долговременного хранения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-020
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему сбор логов делают DaemonSet'ом, а не sidecar'ом в каждом поде?
+  answer: |
+    Один агент на узел читает файлы логов всех контейнеров из каталога узла: меньше
+    накладных расходов, единая конфигурация, ничего не нужно менять в манифестах
+    приложений. Sidecar добавляет контейнер к каждому поду и умножает расход памяти.
+  explanation: |
+    Sidecar остаётся оправданным в частных случаях: приложение пишет в файл и его
+    нельзя переучить на stdout, либо нужен свой парсинг для одной нагрузки. Общее
+    правило — инфраструктурная функция, привязанная к узлу, живёт в DaemonSet;
+    в под она переезжает, только когда требует контекста самого приложения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-021
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем методология RED отличается от USE и когда применять каждую?
+  answer: |
+    RED — про **сервисы**: Rate (запросы в секунду), Errors (доля ошибок),
+    Duration (время ответа). USE — про **ресурсы**: Utilization (загрузка),
+    Saturation (очередь), Errors (аппаратные ошибки).
+  explanation: |
+    Разделение отвечает на вопрос, что мерить у объекта: у HTTP-сервиса нет «очереди»
+    в смысле USE, а у диска нет «доли ошибочных ответов» в смысле RED. На практике
+    RED даёт алерты (страдает ли пользователь), а USE — объяснение (какой ресурс
+    стал узким местом), поэтому дашборд обычно содержит оба слоя.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"

@@ -1,0 +1,309 @@
+# k8s / kubelet-runtime
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-kubelet-runtime-001
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое CRI и зачем он появился?
+  answer: |
+    Container Runtime Interface — API, по которому **kubelet разговаривает с любым
+    container runtime**. Благодаря ему Kubernetes не зависит от конкретной реализации:
+    containerd, CRI-O и другие подключаются одинаково.
+  explanation: |
+    До CRI поддержка Docker была вкомпилена в kubelet, и добавление нового runtime
+    означало правку ядра Kubernetes. Именно этот слой позволил в 1.24 убрать
+    dockershim — прослойку, переводившую CRI в язык Docker, — не сломав ничего,
+    кроме кластеров, которые за годы так и не переехали.
+  ref: "https://kubernetes.io/docs/concepts/architecture/cri/"
+
+- id: k8s-kubelet-runtime-002
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Kubernetes убрал поддержку Docker. Перестанут ли работать образы, собранные
+    через `docker build`?
+  answer: |
+    Нет. Образы соответствуют стандарту **OCI**, и containerd их прекрасно запускает.
+    Убрали не формат образов, а прослойку `dockershim`, через которую kubelet
+    разговаривал с демоном Docker.
+  explanation: |
+    Путаница возникает из-за того, что словом «Docker» называют три разные вещи: формат
+    образа (стандартизован в OCI), инструмент сборки (продолжает работать) и демон
+    как runtime (вот его и убрали). Разделять их полезно и на собесе, и в жизни:
+    большинство паник вокруг этой новости было именно из-за смешения понятий.
+  ref: "https://kubernetes.io/docs/concepts/architecture/cri/"
+
+- id: k8s-kubelet-runtime-003
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие три спецификации входят в OCI?
+  answer: |
+    `image-spec` — как устроен образ; `runtime-spec` — как запускается контейнер
+    из распакованного образа; `distribution-spec` — как образы отдаются и забираются
+    из реестра.
+  explanation: |
+    Разделение объясняет, почему компоненты экосистемы взаимозаменяемы: собрать образ
+    можно чем угодно (`docker build`, Kaniko, Buildah), хранить в любом реестре,
+    запускать любым runtime — все стороны следуют одним и тем же спецификациям.
+    Именно поэтому «сборка» и «запуск» в Kubernetes — независимые задачи разных
+    инструментов.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-004
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какое значение `imagePullPolicy` по умолчанию?
+  answer: |
+    `IfNotPresent` — если тег указан явно. Но если тег `latest` или не указан вовсе,
+    по умолчанию берётся `Always`.
+  explanation: |
+    Это правило объясняет классическую путаницу «почему у одного пода новый образ,
+    а у другого старый». С фиксированным тегом узел, у которого образ уже есть,
+    заново его не тянет — а перезаписанный в реестре тег с тем же именем до него
+    не доедет. Отсюда практика пинить теги, а лучше digest: тогда имя однозначно
+    определяет содержимое.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-005
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    `ImagePullBackOff`. Куда смотреть первым делом?
+  answer: |
+    В события пода: там написана конкретная причина — `not found` (нет такого образа
+    или тега), `unauthorized` (нет доступа к приватному реестру), таймаут (реестр
+    недоступен с узла).
+  explanation: |
+    Три причины ведут в три разных места: опечатка в манифесте, отсутствующий
+    `imagePullSecret`, сетевая доступность реестра с узла. Различать важно ещё
+    и потому, что тянет образ **kubelet**, а не приложение: проверять доступ надо
+    с узла и от имени его конфигурации, а не из своего терминала.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-006
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему все контейнеры пода видят один и тот же IP и общий localhost?
+  answer: |
+    Потому что сетевой namespace принадлежит **pause-контейнеру** (sandbox), а прикладные
+    контейнеры подключаются к уже существующему namespace, а не создают свои.
+  explanation: |
+    Механика объясняет и порядок запуска, и живучесть адреса: sandbox создаётся первым,
+    CNI настраивает сеть именно ему, и пока он жив — IP пода не меняется, сколько бы
+    раз ни перезапускались прикладные контейнеры. Отсюда же следует, почему два
+    контейнера пода не могут слушать один порт: пространство портов у них общее.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-kubelet-runtime-007
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Через какие этапы containerd проводит образ от реестра до запущенного контейнера?
+  answer: |
+    Скачивает слои и манифест в **content store** (по хешам), распаковывает их
+    в **snapshotter** (готовая файловая система), затем создаёт контейнер поверх
+    снапшота с writable-слоем.
+  explanation: |
+    Разделение объясняет две наблюдаемые вещи. Первая — экономия: одинаковые слои
+    разных образов лежат в content store в одном экземпляре, поэтому второй похожий
+    образ тянется почти мгновенно. Вторая — расход диска на узле: место занимают
+    и скачанные слои, и распакованные снапшоты, и именно поэтому узлы регулярно
+    упираются в `DiskPressure` и запускают сборку мусора по образам.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-008
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где правильнее держать `imagePullSecrets` — в каждом поде или в ServiceAccount?
+  answer: |
+    В ServiceAccount namespace'а: тогда секрет автоматически применяется ко всем подам,
+    которые под ним запускаются, и его не нужно дублировать в каждом манифесте.
+  explanation: |
+    Практическая выгода в эксплуатации: смена кредов реестра — правка одного объекта
+    вместо ревизии всех манифестов. Плюс исчезает целый класс инцидентов, когда новый
+    Deployment забыли снабдить секретом и он падает в `ImagePullBackOff` уже в проде.
+    Важно помнить, что секрет обязан лежать **в том же namespace**, что и под.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/"
+
+- id: k8s-kubelet-runtime-009
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    «На одном узле работает, на другом нет» при одинаковом манифесте. Гипотезы?
+  answer: |
+    Разные версии образа в локальном кеше узлов (перезаписанный тег), разные версии
+    ядра или runtime, разная конфигурация kubelet, отсутствие доступа к реестру
+    с конкретного узла, разное железо в пуле.
+  explanation: |
+    Манифест одинаков — значит различие приходит с уровня узла, и это резко сужает
+    поиск. Самая частая из причин именно первая: тег указывает на разное содержимое
+    на разных машинах, потому что `IfNotPresent` не перетягивает уже имеющийся образ.
+    Проверяется сравнением `imageID` в статусе подов: он содержит digest.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-010
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает kubelet, обнаружив нехватку места на диске узла?
+  answer: |
+    Запускает сборку мусора: удаляет неиспользуемые образы и завершённые контейнеры.
+    Если не помогает — вешает на узел состояние `DiskPressure` и начинает вытеснять
+    поды.
+  explanation: |
+    Отсюда неочевидная связь: приложение, активно пишущее в `emptyDir` или в слой
+    контейнера, способно вызвать вытеснение **чужих** подов с того же узла. Место
+    на узле — общий ресурс, и по умолчанию его никто не квотирует, в отличие от CPU
+    и памяти. Ограничить можно через `ephemeral-storage` в requests и limits.
+  ref: "https://kubernetes.io/docs/concepts/architecture/garbage-collection/"
+
+- id: k8s-kubelet-runtime-011
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Кто физически запускает контейнер при создании пода?
+  options:
+    a: "kubelet просит container runtime по CRI, тот запускает"
+    b: "kube-scheduler после выбора узла"
+    c: "kube-controller-manager через ReplicaSet"
+    d: "apiserver, записав объект в etcd"
+  answer: a
+  explanation: |
+    Цепочка ответственности здесь строгая, и её путают постоянно: scheduler только
+    проставляет `nodeName`, controller-manager только создаёт объекты, apiserver только
+    хранит. Единственный компонент, который действительно доходит до запуска процессов,
+    это kubelet — и делает он это не сам, а через runtime по CRI. Понимание этой
+    границы сразу говорит, чьи логи читать при отказе.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-kubelet-runtime-012
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем пинить образ по digest, если тег и так указан явно?
+  answer: |
+    Тег — изменяемая ссылка: его можно перезаписать в реестре, и одно и то же имя
+    начнёт означать другое содержимое. Digest — хеш содержимого, он неизменен
+    по определению.
+  explanation: |
+    Разница проявляется в двух местах. Воспроизводимость: откат на «ту же версию»
+    через тег не гарантирует того же образа, если тег переписали. Безопасность:
+    компрометация реестра позволяет подменить содержимое под известным тегом, а digest
+    такую подмену делает невозможной. Ценой становится менее читаемый манифест,
+    который обычно генерирует CI.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-013
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `imagePullPolicy: Always` в проде — спорное решение?
+  answer: |
+    Каждый запуск пода идёт в реестр за манифестом. Недоступность реестра превращается
+    в невозможность **перезапустить** уже работающие сервисы — то есть внешняя система
+    становится точкой отказа кластера в самый неподходящий момент.
+  explanation: |
+    Ирония в том, что политика ставится ради надёжности выката. Правильное решение
+    той же задачи — неизменяемые теги или digest: тогда одно имя всегда означает
+    один образ, перетягивать нечего, и локальный кеш узла становится преимуществом,
+    а не источником расхождений.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-014
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт runtime вроде gVisor или Kata Containers и когда он оправдан?
+  answer: |
+    Дополнительную границу изоляции: gVisor перехватывает системные вызовы в
+    пользовательском пространстве, Kata запускает контейнер в лёгкой виртуальной машине.
+    Оправданы там, где выполняется **недоверенный** код.
+  explanation: |
+    Обычные контейнеры делят ядро с узлом, поэтому уязвимость в ядре пробивает всю
+    изоляцию сразу — для мультитенантности с чужим кодом этого мало. Подключаются такие
+    runtime через `RuntimeClass`, то есть выбираются на уровне пода. Плата —
+    производительность и совместимость: не все системные вызовы поддерживаются.
+  ref: "https://kubernetes.io/docs/concepts/containers/runtime-class/"
+
+- id: k8s-kubelet-runtime-015
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему нельзя собирать образы внутри кластера, монтируя сокет container runtime?
+  answer: |
+    Доступ к сокету runtime эквивалентен root на узле: через него можно запустить
+    привилегированный контейнер, смонтировать корень узла и получить всё остальное.
+    Для сборки без такого доступа существуют Kaniko, Buildah и BuildKit
+    в непривилегированном режиме.
+  explanation: |
+    Опасность усугубляется контекстом: сборка почти всегда выполняет код из репозитория,
+    то есть потенциально недоверенный, и делает это на узле с чужими нагрузками.
+    Отсюда правило — сборочные джобы либо выносят из кластера, либо запускают
+    инструментами, которым сокет runtime не нужен вовсе.
+  ref: "https://kubernetes.io/docs/concepts/security/"

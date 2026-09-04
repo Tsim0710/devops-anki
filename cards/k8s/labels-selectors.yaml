@@ -1,0 +1,204 @@
+# k8s / labels-selectors
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-labels-selectors-001
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем label отличается от annotation?
+  answer: |
+    По label **ищут и выбирают** — это индексируемый ключ, по которому работают
+    селекторы. Annotation ищут нельзя: это прицепленные данные для людей и инструментов.
+  explanation: |
+    Разница не стилистическая, а функциональная: селекторы Service, Deployment и
+    `kubectl get -l` работают только с labels. Проверочный вопрос при выборе:
+    «я буду по этому что-то выбирать?» Да — label. Нет, это просто данные для
+    cert-manager или ingress-контроллера — annotation.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/"
+
+- id: k8s-labels-selectors-002
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие ограничения у селектора Service по сравнению с селектором Deployment?
+  answer: |
+    Селектор Service понимает **только равенство** (`app: web`). Deployment и другие
+    контроллеры умеют ещё и множественные выражения: `matchExpressions` с `In`, `NotIn`,
+    `Exists`, `DoesNotExist`.
+  explanation: |
+    Ограничение историческое, но живое: попытка описать в Service выбор «всё, кроме
+    canary» просто не выразима, и разделять трафик приходится дополнительной меткой
+    вроде `track: stable`. Знать это полезно, чтобы не искать несуществующий синтаксис.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/"
+
+- id: k8s-labels-selectors-003
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие метки принято ставить для верхнеуровневой идентификации приложения?
+  answer: |
+    Рекомендованный набор `app.kubernetes.io/*`: `name`, `instance`, `version`,
+    `component`, `part-of`, `managed-by`.
+  explanation: |
+    Смысл соглашения — чтобы чужие инструменты (дашборды, оператор, сборщик метрик)
+    понимали твой кластер без настройки. Важно не путать эти метки с selector-метками
+    контроллера: `version` меняется при каждом релизе, и селектор по нему сломался бы
+    при первом же выкате.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/"
+
+- id: k8s-labels-selectors-004
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    У Deployment 3 реплики. Ты навесил его selector-метку на посторонний под вручную.
+    Сколько подов останется?
+  options:
+    a: "3 — Deployment удалит лишний под, чтобы сошлось число"
+    b: "4 — посторонний под просто добавится к трём"
+    c: "3, но Deployment пересоздаст все поды заново"
+    d: "4 — и Deployment перестанет управлять своими подами"
+  answer: a
+  explanation: |
+    Принадлежность к контроллеру вычисляется **каждый тик** по совпадению селектора,
+    а не фиксируется при создании. ReplicaSet видит четыре подходящих пода вместо трёх
+    и убирает лишний — причём необязательно чужой, выбор идёт по внутренним правилам.
+    Обратная операция работает так же: снял метку — под осиротел, и контроллер
+    немедленно создал ему замену.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/"
+
+- id: k8s-labels-selectors-005
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как «заморозить» больной под в проде для разбора, не останавливая сервис?
+  answer: |
+    Снять с него selector-метку (`kubectl label pod <name> app-`). Под выпадет
+    из Service и из-под контроля ReplicaSet, тот создаст замену, а больной экземпляр
+    останется живым и нетронутым.
+  explanation: |
+    Приём работает ровно потому, что принадлежность вычисляется по метке в реальном
+    времени. Он бьёт сразу в две цели: под перестаёт получать трафик и перестаёт быть
+    кандидатом на удаление. Альтернатива — удалить под — уничтожает всё состояние,
+    ради которого разбор и затевался.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/"
+
+- id: k8s-labels-selectors-006
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему `spec.selector` у Deployment нельзя изменить после создания?
+  answer: |
+    Он иммутабелен. Смена селектора оторвала бы контроллер от его текущих подов:
+    старые осиротели бы, новые создались с нуля — то есть неуправляемый даунтайм.
+    Единственный путь — создать новый Deployment.
+  explanation: |
+    Это защита от операции, у которой нет безопасного исхода: Kubernetes не умеет
+    атомарно «переподписать» существующие поды на новый селектор. Отсюда практический
+    вывод — selector-метки выбираются один раз и делаются минимальными и стабильными
+    (`app: web`), а всё изменчивое живёт в других метках.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-labels-selectors-007
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    `EndpointSlice` сервиса пуст, поды при этом здоровы. Первая гипотеза?
+  answer: |
+    Разъехались селектор Service и метки подов — опечатка или лишняя метка в одном
+    из двух мест. Вторая по частоте причина — поды не проходят readiness.
+  explanation: |
+    Kubernetes здесь принципиально молчалив: селектор, который ничему не соответствует,
+    полностью валиден — может быть, поды появятся позже. Ошибки не будет нигде, будет
+    просто пустота. Проверяется мгновенно: `kubectl get pods -l <селектор из Service>` —
+    если вывод пуст, вопрос закрыт.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-labels-selectors-008
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под оброс контейнером, которого нет в манифесте. Кто его добавил?
+  answer: |
+    Mutating admission webhook — он вклинивается между авторизацией и записью в etcd
+    и может изменять объект. Так работают инъекции sidecar'ов у service mesh
+    и агентов секретов, обычно по метке или аннотации namespace.
+  explanation: |
+    Отсюда важное следствие: то, что лежит в etcd, может отличаться от того, что ты
+    применил, — сравнивать надо `kubectl get -o yaml`, а не свой файл. Вторая половина
+    механизма, validating webhook, объект не меняет, а только выносит вердикт да/нет.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/"
+
+- id: k8s-labels-selectors-009
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем field selector отличается от label selector и почему по произвольному полю
+    фильтровать нельзя?
+  answer: |
+    Label selector работает по меткам, которые индексируются apiserver. Field selector
+    фильтрует по полям объекта, но поддерживается лишь для **немногих** полей
+    (`metadata.name`, `metadata.namespace`, `status.phase` у подов и т.п.).
+  explanation: |
+    Ограничение архитектурное: индексов по произвольным полям в хранилище нет,
+    а фильтрация без индекса означала бы вычитывание всех объектов на каждый запрос.
+    Отсюда практический вывод — то, по чему предстоит **выбирать**, кладут в метки
+    заранее; попытка потом отфильтровать по полю внутри `spec` упрётся в отсутствие
+    такой возможности.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+
+- id: k8s-labels-selectors-010
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в selector-метки нельзя класть версию приложения?
+  answer: |
+    Потому что `spec.selector` у Deployment иммутабелен: меняющаяся при каждом релизе
+    метка сделала бы селектор либо неверным, либо неизменяемым тупиком. Версия живёт
+    в обычных метках вроде `app.kubernetes.io/version`.
+  explanation: |
+    Разделение ролей: selector-метки — это **идентичность нагрузки**, они выбираются
+    один раз и остаются минимальными и стабильными. Всё изменчивое (версия, ревизия,
+    коммит) — это метаданные для людей и инструментов. Ошибка здесь обнаруживается
+    при первом же выкате и лечится только созданием нового Deployment.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"

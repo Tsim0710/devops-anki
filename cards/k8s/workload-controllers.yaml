@@ -1,0 +1,443 @@
+# k8s / workload-controllers
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-workload-controllers-001
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как устроена цепочка Deployment → ReplicaSet → Pod: кто за что отвечает?
+  answer: |
+    Deployment управляет версиями: на каждое изменение pod-template он создаёт новый ReplicaSet
+    и перекладывает реплики между старым и новым. ReplicaSet держит **заданное число
+    подов**. Поды запускает kubelet.
+  explanation: |
+    Разделение нужно именно ради выката: чтобы катиться без даунтайма и уметь
+    откатываться, кто-то должен одновременно держать две версии. Эту роль играет
+    Deployment, а ReplicaSet остаётся тупым счётчиком «должно быть N штук» и понятия
+    не имеет ни про версии, ни про rollout.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-002
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему ReplicaSet не пишут руками, хотя он умеет держать реплики?
+  answer: |
+    Потому что он не умеет катиться: смена образа в ReplicaSet не обновит уже работающие
+    поды и не даст откатиться. Deployment добавляет ровно это.
+  explanation: |
+    ReplicaSet следит только за числом подов, а не за их содержимым. Чтобы применить
+    новую версию, пришлось бы удалять поды руками — то есть с даунтаймом и без пути
+    назад. Голый ReplicaSet осмыслен разве что в учебных целях; в проде его создаёт
+    Deployment и он же им управляет.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/"
+
+- id: k8s-workload-controllers-003
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем DaemonSet отличается от Deployment по способу задания числа реплик?
+  answer: |
+    У DaemonSet числа реплик **нет**: он держит по одному поду на каждом подходящем узле.
+    Добавили узел — под приедет туда сам, убрали узел — под исчезнет вместе с ним.
+  explanation: |
+    Это ровно та модель, которая нужна инфраструктурным агентам: CNI, сборщик логов,
+    node-exporter, CSI-драйвер. Они привязаны к узлу, а не к нагрузке, поэтому
+    «сколько реплик» — неправильный вопрос. Множество узлов сужается через
+    `nodeSelector`, `affinity` и tolerations.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/"
+
+- id: k8s-workload-controllers-004
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что StatefulSet даёт поду такого, чего не даёт Deployment?
+  answer: |
+    Стабильную идентичность: предсказуемое имя с порядковым номером (`web-0`, `web-1`),
+    **свой** PVC, привязанный к этому имени, персональную DNS-запись в headless-сервисе
+    и упорядоченные запуск и остановку.
+  explanation: |
+    Всё это нужно там, где реплики не взаимозаменяемы: у базы данных `web-0` — это
+    конкретный участник кластера со своими данными, а не «одна из трёх». В Deployment
+    поды анонимны, имена случайны, том общий или отсутствует, порядок запуска не
+    определён — для stateful-нагрузки это неприемлемо.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-005
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем Job отличается от CronJob?
+  answer: |
+    Job запускает поды до успешного завершения **один раз**. CronJob — это контроллер
+    над Job: по расписанию он штампует новые объекты Job, каждый из которых работает
+    самостоятельно.
+  explanation: |
+    Отсюда важное следствие для отладки: CronJob сам ничего не запускает, он только
+    создаёт Job'ы. Проблема «задача не отработала» ищется в порождённом Job и его подах,
+    а не в CronJob. Оттуда же берётся мусор в кластере: каждое срабатывание оставляет
+    объект, и без ограничения истории они копятся.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-006
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько ReplicaSet существует у Deployment во время выката и после него?
+  answer: |
+    Во время выката — минимум два: старый, у которого реплики убывают, и новый,
+    у которого прибывают. После выката старый остаётся с нулём реплик.
+  explanation: |
+    Именно поэтому откат мгновенный: старый ReplicaSet никуда не делся, у него полностью
+    сохранён pod-template, и `rollout undo` просто снова поднимает ему реплики — ничего
+    не пересобирается и не скачивается заново. Сколько таких пустых ReplicaSet
+    сохраняется, задаёт `revisionHistoryLimit`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-007
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что задают `maxSurge` и `maxUnavailable` и какие у них значения по умолчанию?
+  answer: |
+    `maxSurge` — сколько подов можно поднять **сверх** желаемого числа; `maxUnavailable` —
+    сколько можно недосчитаться в процессе. По умолчанию оба `25%`.
+  explanation: |
+    Вдвоём они задают ширину окна выката, то есть компромисс между скоростью и запасом
+    ёмкости. `maxUnavailable: 0` означает «сначала подними новый под, только потом гаси
+    старый» — безопасно, но требует свободных ресурсов в кластере. Оба в ноль
+    одновременно поставить нельзя: выкат не сможет сдвинуться с места.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-008
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    В `rollout history` пять ревизий. Ты делаешь `kubectl rollout undo --to-revision=1`.
+    Какой номер получит результат?
+  options:
+    a: "6 — номера ревизий только растут"
+    b: "1 — ревизия возвращается на своё место"
+    c: "5 — текущая ревизия перезаписывается"
+    d: "0 — счётчик сбрасывается"
+  answer: a
+  explanation: |
+    Откат — это не перемотка истории, а **новое изменение**, просто с уже известным
+    содержимым: Deployment снова активирует старый ReplicaSet и присваивает этому
+    событию следующий номер. История строго монотонна, поэтому по номеру нельзя судить
+    о содержимом ревизии — только `rollout history --revision=N` покажет, что там внутри.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-009
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Когда `strategy: Recreate` обязателен вместо RollingUpdate?
+  answer: |
+    Когда две версии приложения не могут работать одновременно: том с
+    `ReadWriteOnce`, который не отдать двум подам сразу; несовместимая миграция схемы БД;
+    эксклюзивная блокировка или лицензия.
+  explanation: |
+    RollingUpdate по определению держит старую и новую версию рядом — это его смысл.
+    Если сосуществование невозможно, выкат встанет намертво (новый под не получит том)
+    либо, хуже, две версии подерутся за общий ресурс. `Recreate` честно гасит всё
+    старое до запуска нового, платя за это даунтаймом.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-010
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Предыдущий запуск CronJob ещё работает, наступило время следующего.
+    Чем управляется поведение?
+  answer: |
+    Полем `concurrencyPolicy`: `Allow` (по умолчанию) — запустить параллельно;
+    `Forbid` — пропустить новый запуск; `Replace` — убить текущий и запустить новый.
+  explanation: |
+    Дефолт `Allow` опасен именно для тех задач, ради которых берут CronJob: бэкап,
+    миграция, рассылка. Если задача иногда идёт дольше интервала, копии начинают
+    наслаиваться, соревноваться за один ресурс и дублировать побочные эффекты.
+    Для всего, что имеет побочный эффект, ставят `Forbid`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-011
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Минутный CronJob за месяц оставил в кластере десятки тысяч объектов.
+    Чем это ограничивают?
+  answer: |
+    Полями `successfulJobsHistoryLimit` (по умолчанию 3) и `failedJobsHistoryLimit`
+    (по умолчанию 1) — сколько завершённых Job хранить. Плюс `ttlSecondsAfterFinished`
+    на самом Job для автоудаления по времени.
+  explanation: |
+    Каждый Job тянет за собой поды, а всё это лежит в etcd — единственном хранилище
+    состояния кластера. Раздутый etcd замедляет apiserver, то есть вообще всё.
+    Дефолты выглядят безобидно, но их легко обнулить: `successfulJobsHistoryLimit: 0`
+    в шаблоне — и история не хранится совсем.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-012
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Удалил StatefulSet — PVC его подов остались. Это баг?
+  answer: |
+    Нет, поведение по умолчанию: тома переживают удаление контроллера, чтобы данные
+    не пропали вместе с манифестом. Удалять PVC надо осознанно и руками.
+  explanation: |
+    Логика в том, что StatefulSet — описание нагрузки, а PVC — заявка на данные, и
+    вторые дороже первого: пересоздашь StatefulSet с тем же именем — поды подхватят
+    свои прежние тома. Обратная сторона — тихо копящиеся оплачиваемые диски после
+    удалённых нагрузок. Управлять этим можно через
+    `persistentVolumeClaimRetentionPolicy`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-013
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Задеплоил DaemonSet, а на control-plane узлах подов нет. Почему?
+  answer: |
+    На control-plane узлах стоит taint `node-role.kubernetes.io/control-plane:NoSchedule`.
+    Нужен явный `toleration` в pod-template DaemonSet.
+  explanation: |
+    Taint — это отказ узла принимать поды, и DaemonSet никакого иммунитета к нему
+    не имеет. Для мониторинга и сбора логов покрытие control-plane обычно как раз нужно,
+    поэтому у таких чартов toleration прописан по умолчанию. Проверяется симптом
+    мгновенно: `desired` в статусе DaemonSet будет меньше числа узлов.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"
+
+- id: k8s-workload-controllers-014
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в Job нельзя указать `restartPolicy: Always`?
+  answer: |
+    Потому что Job обязан завершиться, а `Always` означает «перезапускать даже после
+    успеха» — задача никогда бы не закончилась. API отклоняет такой манифест;
+    допустимы только `OnFailure` и `Never`.
+  explanation: |
+    Разница между `OnFailure` и `Never` в том, **что** повторяется при падении:
+    `OnFailure` перезапускает контейнер в том же поде, `Never` оставляет под в `Failed`,
+    и Job создаёт новый под. Второе удобнее для разбора — упавшие поды остаются
+    на месте вместе с логами.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/job/"
+
+- id: k8s-workload-controllers-015
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    `kubectl rollout status` висит и не завершается. Куда смотреть?
+  answer: |
+    Новые поды не становятся ready. Причины по частоте: не проходит `readinessProbe`,
+    не тянется образ (`ImagePullBackOff`), нет ресурсов для планирования (`Pending`),
+    упирается в квоту namespace. Через `progressDeadlineSeconds` (по умолчанию 600)
+    выкат помечается провалившимся.
+  explanation: |
+    Deployment продвигает выкат только по готовности новых подов, поэтому «завис
+    rollout» — это всегда симптом, а не причина: проблема в конкретном поде. Смотреть
+    надо не на Deployment, а на новый ReplicaSet и его поды. Важно, что откат
+    автоматически **не** происходит — по истечении дедлайна выкат просто останавливается
+    в текущем состоянии.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-016
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `podManagementPolicy: Parallel` у StatefulSet и когда это допустимо?
+  answer: |
+    Отключает порядок: поды создаются и удаляются одновременно, а не строго
+    по номерам с ожиданием готовности предыдущего. Допустимо там, где реплики
+    не зависят друг от друга при старте.
+  explanation: |
+    Дефолтный `OrderedReady` нужен базам с выборами лидера и последовательной
+    инициализацией, но за это платят временем: кластер из десяти реплик поднимается
+    в десять шагов, и один зависший под блокирует всех, кто за ним. Если стабильные
+    имена и тома нужны, а порядок нет — `Parallel` убирает это узкое место.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-017
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как выкатить новую версию StatefulSet только на часть реплик?
+  answer: |
+    Через `updateStrategy.rollingUpdate.partition: N` — обновятся только поды
+    с порядковым номером **больше или равным** N. Остальные останутся на старой версии
+    до снижения partition.
+  explanation: |
+    Это встроенная канарейка для stateful-нагрузки: поставил `partition: 4` при пяти
+    репликах — обновился только `web-4`, посмотрел на него, опустил partition до нуля.
+    Работает именно благодаря порядковым именам: у Deployment такого механизма нет,
+    поды там анонимны, и канарейку приходится делать вторым Deployment.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-018
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `podFailurePolicy` дополняет `backoffLimit` в Job?
+  answer: |
+    `backoffLimit` считает **все** падения одинаково. `podFailurePolicy` разбирает
+    их по причине: по коду выхода или по условию пода можно решить прекратить Job
+    немедленно либо, наоборот, не засчитывать попытку.
+  explanation: |
+    Разница важна для долгих задач: под, вытесненный с узла по preemption, — это
+    не ошибка приложения, но `backoffLimit` съедает на нём попытку, и многочасовой
+    расчёт падает из-за инфраструктуры. И наоборот, код выхода, означающий неверные
+    входные данные, нет смысла ретраить шесть раз — правильнее сразу остановиться.
+  ref: "https://kubernetes.io/docs/tasks/job/pod-failure-policy/"
+
+- id: k8s-workload-controllers-019
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Контроллер CronJob лежал два часа. Что произойдёт с пропущенными запусками?
+  answer: |
+    Он попробует запустить пропущенное, ограничившись окном `startingDeadlineSeconds`.
+    Если пропущено больше сотни запусков и дедлайн не задан, CronJob вообще перестанет
+    запускаться и пожалуется в события.
+  explanation: |
+    Поведение спроектировано против лавины: минутный CronJob после двухчасового простоя
+    иначе стартовал бы сто двадцать задач разом и добил бы кластер. Практический вывод —
+    `startingDeadlineSeconds` задают осознанно: короткое окно означает «пропущенное
+    неактуально», отсутствие поля — риск полного залипания расписания.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-020
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `minReadySeconds` у Deployment?
+  answer: |
+    Требует, чтобы новый под оставался готовым **непрерывно** заданное число секунд,
+    прежде чем считаться доступным и позволить выкату двигаться дальше.
+  explanation: |
+    Без него достаточно одного успешного ответа readiness — и выкат едет дальше,
+    а под, который проходит пробу и падает через три секунды, успевает раскатиться
+    на все реплики. `minReadySeconds` добавляет в критерий готовности время,
+    и это самый дешёвый способ поймать приложение, которое умирает не сразу.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-021
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как сделать ручную канарейку штатными средствами Deployment?
+  answer: |
+    `kubectl rollout pause` после старта выката: часть подов уже новой версии,
+    остальные старой, и состояние заморожено. Посмотрел метрики — `rollout resume`
+    или `rollout undo`.
+  explanation: |
+    Приём работает потому, что во время выката живут два ReplicaSet, и пауза просто
+    останавливает перекладывание реплик между ними. Ограничение существенное:
+    доля трафика определяется долей подов, задать «5% на новую версию» нельзя —
+    для этого нужен L7-слой, то есть Ingress с весами, mesh или Argo Rollouts.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-workload-controllers-022
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `activeDeadlineSeconds` у Job отличается от `backoffLimit`?
+  answer: |
+    `backoffLimit` считает **число попыток**, `activeDeadlineSeconds` ограничивает
+    **общее время** работы Job. По истечении дедлайна Job прекращается независимо
+    от того, сколько попыток осталось.
+  explanation: |
+    Два ограничителя закрывают разные сценарии отказа: попытки ловят падающую задачу,
+    дедлайн — зависшую. Задача, которая не падает, а просто никогда не заканчивается,
+    для `backoffLimit` невидима вовсе: попытка одна, она всё ещё идёт. Дедлайн при этом
+    имеет приоритет и прекращает Job насовсем, без новых попыток.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/job/"

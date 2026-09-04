@@ -1,0 +1,306 @@
+# k8s / rbac
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-rbac-001
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что описывает Role и что описывает RoleBinding?
+  answer: |
+    Role — **что** можно делать: набор глаголов (`get`, `list`, `create`) над набором
+    ресурсов. RoleBinding — **кому и где**: связывает Role с пользователем, группой
+    или ServiceAccount в конкретном namespace.
+  explanation: |
+    Права никогда не висят на человеке напрямую — между ними всегда стоит роль.
+    Отсюда самая частая ошибка новичка: написали Role, обрадовались, а Binding забыли,
+    и прав не появилось. Отсюда же удобство: чтобы отозвать доступ, достаточно убрать
+    субъект из Binding, не трогая описание прав.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-002
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем ClusterRole отличается от Role, кроме зоны действия?
+  answer: |
+    ClusterRole умеет то, что Role не может в принципе: права на **кластерные** ресурсы
+    (узлы, namespace, PV, CRD) и на подресурсы вроде `nodes/proxy`. Такие объекты
+    не принадлежат ни одному namespace, поэтому Role их не выражает.
+  explanation: |
+    Отсюда рабочий дефолт, который путает всех при первой встрече: **ClusterRole
+    в паре с RoleBinding**. Роль описана один раз глобально, а привязка даёт права
+    только в одном namespace. Так не приходится копировать одинаковые Role в каждый
+    namespace, и при этом никто не получает лишнего.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-003
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Есть ли в Kubernetes объект User?
+  answer: |
+    Нет. Пользователей как объектов не существует — их нельзя создать, перечислить
+    или удалить. Есть только способ доказать личность (сертификат, токен, OIDC),
+    из которого apiserver берёт имя, и RBAC, привязывающий права к этому имени.
+    А вот ServiceAccount — настоящий объект в API.
+  explanation: |
+    Отсюда неочевидное следствие: `kubectl get users` не существует, и узнать список
+    людей с доступом можно только через внешнюю систему или через разбор всех Binding.
+    Отсюда же вопрос «как отозвать доступ уволившемуся» — не «удалить пользователя»,
+    а отозвать сертификат или убрать его группу из OIDC.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
+
+- id: k8s-rbac-004
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое ServiceAccount и как он попадает в под?
+  answer: |
+    Это identity **процесса в поде**. kubelet монтирует в контейнер короткоживущий
+    токен, которым приложение представляется apiserver. Не указан явно — используется
+    `default` из namespace.
+  explanation: |
+    В RBAC такой субъект записывается жёстким форматом
+    `system:serviceaccount:<namespace>:<имя>`, и ошибка в нём — частая причина
+    необъяснимого `Forbidden`. Практика — отдельный SA на каждое приложение
+    с минимальными правами, а не общий `default`, у которого права имеют свойство
+    накапливаться незаметно.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/"
+
+- id: k8s-rbac-005
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Роль запрещает `delete pods`, другая привязка разрешает. Что победит?
+  options:
+    a: "Разрешение: модель RBAC чисто разрешающая, запретов в ней нет"
+    b: "Запрет: явное запрещение всегда сильнее разрешения"
+    c: "Победит правило из более узкой области — из namespace, а не из кластера"
+    d: "Запрос будет отклонён как противоречивый"
+  answer: a
+  explanation: |
+    В RBAC нет глагола «запретить» — роль может только разрешать, а итоговые права это
+    объединение всех привязок субъекта. Формулировка «роль запрещает» некорректна
+    в принципе: роль просто не упоминает действие. Отсюда практическое следствие —
+    урезать доступ нужно, убирая привязки, а не добавляя новые; проверять же итог
+    удобно через `kubectl auth can-i`.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-006
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем отличаются ответы `Unauthorized` и `Forbidden` от apiserver?
+  answer: |
+    `401 Unauthorized` — не прошла аутентификация: тебя не опознали, сертификат
+    или токен невалиден. `403 Forbidden` — опознали, но RBAC не разрешает эту операцию.
+  explanation: |
+    Разница сразу указывает, где чинить: первый случай — kubeconfig, протухший
+    сертификат, неправильный контекст; второй — Role и Binding. В тексте `403`
+    apiserver обычно называет и субъект, и ресурс, и глагол — то есть готовый рецепт,
+    какую роль дописать.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authorization/"
+
+- id: k8s-rbac-007
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как быстро проверить, есть ли у субъекта конкретное право?
+  answer: |
+    `kubectl auth can-i <глагол> <ресурс>` — для себя;
+    `kubectl auth can-i list secrets --as=system:serviceaccount:prod:app -n prod` —
+    от имени другого субъекта.
+  explanation: |
+    Ответ даёт сам apiserver по своим правилам, поэтому он учитывает все привязки разом,
+    включая унаследованные от групп. Читать десяток YAML и складывать права в голове
+    не нужно и опасно — легко пропустить `ClusterRoleBinding`, который выдаёт права
+    во всех namespace сразу.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authorization/"
+
+- id: k8s-rbac-008
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Role и RoleBinding созданы, права всё равно не работают. Две типовые причины?
+  answer: |
+    Binding создан **не в том namespace** (он действует только в своём) или
+    в `subjects` указано неточное имя субъекта — чаще всего ServiceAccount без
+    полного формата или с другим namespace.
+  explanation: |
+    Обе ошибки молчаливые: apiserver принимает Binding, ссылающийся на несуществующий
+    субъект, потому что субъект может появиться позже — и `User` вообще не объект,
+    проверить его нечем. Поэтому единственный надёжный способ убедиться — не читать
+    манифесты, а спросить `kubectl auth can-i --as=...`.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-009
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Почему право `list secrets` в namespace — это фактически доступ ко всем секретам?
+  answer: |
+    Потому что `list` возвращает объекты **целиком**, вместе с данными. Отдельного
+    права «видеть имена, но не содержимое» в RBAC нет.
+  explanation: |
+    Это ломает интуицию: `list` кажется безобидным «посмотреть список», как `ls`.
+    На деле разрешение читать секреты в namespace эквивалентно выдаче всех паролей
+    и токенов этого namespace, включая токены ServiceAccount, через которые можно
+    получить и чужие права. Отсюда правило — `secrets` в ролях перечисляют поимённо
+    через `resourceNames`.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-010
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем ставить `automountServiceAccountToken: false`?
+  answer: |
+    Чтобы в под не монтировался токен ServiceAccount. Приложению, которое не ходит
+    в API Kubernetes, он не нужен, а его наличие даёт злоумышленнику при взломе
+    готовые учётные данные к кластеру.
+  explanation: |
+    По умолчанию токен монтируется **всем** подам, включая nginx и статику, которым он
+    заведомо не нужен. Это классическая точка эскалации: пробили приложение — получили
+    токен — пошли в apiserver с правами его SA. Флаг ставится на уровне пода
+    или самого ServiceAccount.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/"
+
+- id: k8s-rbac-011
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему права принято вешать на группу, а не на конкретного человека?
+  answer: |
+    Потому что группа приходит из внешней системы (OIDC, сертификат), и управление
+    доступом сводится к членству в ней. Иначе на каждого нового сотрудника нужен
+    новый Binding, а на уволившегося — ревизия всех манифестов.
+  explanation: |
+    Особенно это важно из-за того, что объекта User не существует: «удалить
+    пользователя» в кластере нельзя, отзыв доступа происходит там, где выдаются
+    удостоверения. Привязка к группе делает кластер согласованным с этим фактом —
+    убрали человека из группы в SSO, и права исчезли везде разом.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-012
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасна связка ClusterRole + ClusterRoleBinding?
+  answer: |
+    Она даёт права **во всех namespace сразу**, включая будущие. Легко получить
+    случайный кластер-админ, когда хотелось выдать доступ к одному окружению.
+  explanation: |
+    Разница с парой ClusterRole + RoleBinding ровно в области действия, а выглядят
+    манифесты почти одинаково — отличается одно слово в `kind`. Поэтому при ревизии
+    прав начинают именно с `kubectl get clusterrolebindings`: там обычно и находится
+    забытый доступ, выданный «на время отладки».
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-013
+  domain: k8s
+  subtopic: rbac
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему пользователь не может создать роль с правами шире собственных?
+  answer: |
+    Это защита от эскалации привилегий: apiserver проверяет, что создаваемая роль
+    не выходит за пределы прав автора. Обойти проверку можно только имея явные глаголы
+    `escalate` или `bind`.
+  explanation: |
+    Без такой проверки право `create roles` в своём namespace автоматически означало бы
+    право стать в нём администратором — достаточно выписать роль на всё и привязать
+    её себе. Отсюда же следует, почему глаголы `escalate` и `bind` считаются
+    администраторскими: выдавая их, ты фактически выдаёшь право раздавать любые права.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-014
+  domain: k8s
+  subtopic: rbac
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как отозвать доступ к кластеру у уволившегося сотрудника?
+  answer: |
+    Убрать его из группы в SSO или отозвать сертификат — то есть там, где выдаются
+    удостоверения. Внутри кластера удалять нечего: объекта User не существует,
+    а RBAC-привязки описывают права группы, а не человека.
+  explanation: |
+    Это следствие того, что аутентификацию Kubernetes делегирует наружу. Клиентские
+    сертификаты здесь худший вариант: отозвать их без перевыпуска CA нельзя, поэтому
+    их выписывают с коротким сроком или не используют для людей вовсе. При OIDC
+    отзыв мгновенный и централизованный — это главный практический аргумент за него.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
+
+- id: k8s-rbac-015
+  domain: k8s
+  subtopic: rbac
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое агрегированные ClusterRole и где ты их уже видел?
+  answer: |
+    ClusterRole с `aggregationRule`: её правила собираются автоматически из всех ролей
+    с подходящими метками. Встроенные `view`, `edit`, `admin` устроены именно так.
+  explanation: |
+    Механизм решает задачу расширяемости: оператор, добавляющий свой CRD, вешает
+    на маленькую роль метку — и права на новый тип автоматически попадают всем,
+    у кого есть `edit`. Без агрегации каждая установка оператора требовала бы правки
+    встроенных ролей. Обратная сторона — права `edit` со временем незаметно
+    расширяются установленными в кластер компонентами.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"

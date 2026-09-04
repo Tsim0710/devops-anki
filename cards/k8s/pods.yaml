@@ -1,0 +1,347 @@
+# k8s / pods
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-pods-001
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что контейнеры внутри одного пода делят между собой?
+  answer: |
+    Сетевой namespace (общий IP, общий localhost, общий диапазон портов), IPC-namespace
+    и тома, которые примонтированы обоим. **Файловые системы у них раздельные.**
+  explanation: |
+    Из общего сетевого namespace следуют два практических вывода: контейнеры в поде
+    ходят друг к другу по `localhost`, и два контейнера **не могут слушать один порт** —
+    будет конфликт. Раздельные файловые системы — причина, по которой обмен файлами
+    между контейнерами требует явного общего тома, обычно `emptyDir`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-002
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Перечисли фазы пода (`status.phase`) и что означает каждая.
+  answer: |
+    `Pending` — принят, но не все контейнеры запущены (ждёт планирования или тянет образ);
+    `Running` — назначен на узел, хотя бы один контейнер работает;
+    `Succeeded` — все контейнеры завершились с кодом 0 и перезапуска не будет;
+    `Failed` — все завершились, хотя бы один с ненулевым кодом;
+    `Unknown` — состояние получить не удалось (обычно узел недоступен).
+  explanation: |
+    Фаза — это грубая сводка, а не диагноз, и на ней часто останавливаются зря.
+    `Running` не значит «работает»: под с контейнером в `CrashLoopBackOff` тоже
+    в фазе `Running`. Настоящая причина всегда в `status.containerStatuses` и в событиях,
+    которые видно через `kubectl describe pod`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-003
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие значения бывают у `restartPolicy` и какое из них по умолчанию?
+  answer: |
+    `Always` (по умолчанию), `OnFailure`, `Never`. Политика задаётся на **поде**
+    и применяется ко всем его контейнерам.
+  explanation: |
+    Политика неявно связана с типом нагрузки: у Deployment всегда `Always`, потому что
+    сервис обязан работать всегда; у Job допустимы только `OnFailure` и `Never`, потому что
+    задача обязана завершиться — с `Always` она бы перезапускалась вечно после успеха.
+    Kubernetes это прямо запрещает при создании Job.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-004
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как выполняются init-контейнеры относительно основных?
+  answer: |
+    Строго **последовательно и до** основных: каждый должен завершиться с кодом 0,
+    только тогда запускается следующий. Основные контейнеры не стартуют, пока не
+    отработали все init.
+  explanation: |
+    Отсюда их типичное применение: дождаться миграции БД, скачать конфиг, проверить
+    доступность зависимости. И отсюда же типичный симптом — под навсегда в `Init:0/2`,
+    когда init ждёт того, чего никогда не будет. Упавший init перезапускается
+    по `restartPolicy` пода, поэтому с `Never` под сразу уходит в `Failed`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/init-containers/"
+
+- id: k8s-pods-005
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что за контейнер `pause` и зачем он в каждом поде?
+  answer: |
+    Инфраструктурный контейнер (sandbox), который **держит namespace'ы пода** — прежде
+    всего сетевой. Он ничего не делает, только ждёт.
+  explanation: |
+    Именно `pause` объясняет, почему IP пода переживает рестарт контейнера: приложение
+    убили и подняли заново, а sandbox с сетевым namespace никто не трогал. Если бы
+    namespace принадлежал прикладному контейнеру, каждый рестарт менял бы адрес пода.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-006
+  domain: k8s
+  subtopic: pods
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Контейнер упал и перезапустился. Как посмотреть логи именно упавшего запуска?
+  answer: |
+    `kubectl logs <pod> --previous` (можно `-p`), при нескольких контейнерах —
+    с `-c <container>`.
+  explanation: |
+    Обычный `kubectl logs` показывает **текущий** запуск, а он у только что
+    перезапущенного контейнера почти пустой — причина падения осталась в предыдущем.
+    Это первая команда при разборе `CrashLoopBackOff`. Хранится только один предыдущий
+    запуск: после второго рестарта логи первого уже недоступны.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/"
+
+- id: k8s-pods-007
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Что на самом деле означает `CrashLoopBackOff`?
+  answer: |
+    Что контейнер уже несколько раз падал, и kubelet **ждёт перед очередным
+    перезапуском**. Задержка растёт экспоненциально: 10s, 20s, 40s и так далее
+    до потолка в 5 минут.
+  explanation: |
+    Это состояние ожидания, а не причина падения — искать надо в логах предыдущего
+    запуска и в exit code, а не в самом статусе. Backoff существует, чтобы битый под
+    не жёг ресурсы узла бесконечным циклом рестартов. Успешная работа контейнера
+    сбрасывает счётчик задержки.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-008
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означают exit codes `137` и `143` у контейнера?
+  answer: |
+    Оба вида `128 + номер сигнала`. `137` = 128 + 9 (SIGKILL) — чаще всего OOMKilled
+    или истёкший grace period. `143` = 128 + 15 (SIGTERM) — штатное завершение
+    по сигналу остановки.
+  explanation: |
+    Различать их нужно, потому что это два противоположных диагноза: `143` — под гасили
+    штатно (выкат, drain, масштабирование), и это норма; `137` — процесс убили
+    принудительно, и это почти всегда либо превышение memory-limit, либо приложение,
+    не успевшее умереть за `terminationGracePeriodSeconds`. Подтверждение OOM ищется
+    в `status.containerStatuses[].lastState.terminated.reason`.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+
+- id: k8s-pods-009
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как определяется QoS-класс пода?
+  answer: |
+    `Guaranteed` — у **каждого** контейнера заданы и requests, и limits по CPU и памяти,
+    и они равны. `BestEffort` — не задано вообще ничего. `Burstable` — всё остальное.
+  explanation: |
+    Класс не выставляется руками, он выводится из requests и limits — и определяет
+    порядок вытеснения при нехватке памяти на узле: первыми выгоняют `BestEffort`,
+    последними `Guaranteed`. Отсюда типичная ошибка: limits проставили только одному
+    контейнеру из двух, и весь под остался `Burstable`.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/"
+
+- id: k8s-pods-010
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Контейнер стабильно упирается в свои `limits` по CPU и по памяти.
+    Что с ним происходит?
+  options:
+    a: "И то и другое приводит к перезапуску контейнера"
+    b: "CPU — троттлинг, память — контейнер убивают (OOMKilled)"
+    c: "CPU — контейнер убивают, память — троттлинг аллокаций"
+    d: "Оба лимита мягкие: под просто вытеснят на другой узел"
+  answer: b
+  explanation: |
+    CPU — ресурс сжимаемый: у процесса можно отобрать такты, и он просто станет медленнее,
+    поэтому cgroups его троттлят. Память отобрать нельзя — уже выделенные страницы
+    не отдать обратно, поэтому единственный способ соблюсти лимит это убить процесс.
+    Практическое следствие: симптом превышения CPU-лимита — рост latency без единой
+    ошибки в логах, и по логам его не найти.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-pods-011
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит с подом от момента `kubectl delete pod` до его исчезновения?
+  answer: |
+    Под помечается на удаление и параллельно: адрес снимается из endpoints; выполняется
+    хук `preStop`; контейнерам шлётся `SIGTERM`; по истечении
+    `terminationGracePeriodSeconds` (по умолчанию 30) — `SIGKILL`.
+  explanation: |
+    Ключевое слово здесь — **параллельно**: снятие из endpoints и отправка SIGTERM
+    не синхронизированы между собой, распространение правил по узлам занимает время.
+    Поэтому под может получить запросы уже после SIGTERM. Отсюда стандартный приём —
+    `preStop: sleep 5`, который даёт правилам разъехаться до того, как приложение
+    начнёт закрываться.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-012
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кто перезапускает контейнер, а кто пересоздаёт под — и в чём разница для меня?
+  answer: |
+    Контейнер перезапускает **kubelet** на том же узле: под, его имя и IP сохраняются,
+    растёт `restartCount`. Под пересоздаёт **контроллер** (ReplicaSet и подобные):
+    появляется новый объект с новым именем и новым IP.
+  explanation: |
+    Сам под себя не воскрешает — удали под, созданный вручную, и он исчезнет навсегда.
+    Различать эти два события важно при разборе инцидента: `restartCount: 47` означает
+    падающее приложение, а вереница подов с новыми именами — что их выселяет узел
+    или пересоздаёт выкат. Ищутся они в разных местах: первое в статусе пода,
+    второе в событиях.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-013
+  domain: k8s
+  subtopic: pods
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Когда два контейнера действительно должны жить в одном поде, а когда это ошибка?
+  answer: |
+    Должны — когда они неразрывны: делят том или localhost и не имеют смысла по
+    отдельности (sidecar с логами, прокси, адаптер метрик). Ошибка — когда их просто
+    удобно катить вместе: у пода один жизненный цикл и одно масштабирование на всех.
+  explanation: |
+    Под — это единица планирования и масштабирования. Запихнув в него фронт и бэкенд,
+    ты получаешь их обязательно на одном узле, в одинаковом количестве реплик и
+    с общим рестартом. Проверочный вопрос: «нужно ли мне когда-нибудь скейлить их
+    по-разному?» Ответ «да» — это два Deployment, а не один под.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-pods-014
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: [theory, core]
+  type: basic
+  verified: false
+  prompt: |
+    Job с sidecar'ом никогда не завершается. Как это чинится нативным sidecar'ом
+    и с какой версии он стабилен?
+  answer: |
+    Нативный sidecar — это init-контейнер с `restartPolicy: Always`. Такой контейнер
+    не мешает Job завершиться: завершение считается по основному контейнеру.
+    Стабилен с **1.33**, доступен начиная с 1.28.
+  explanation: |
+    Обычный второй контейнер в Job удерживает под в работе бесконечно: под считается
+    завершённым, только когда закончились **все** его контейнеры, а прокси или сборщик
+    метрик закончиться не собирается. Нативный sidecar решает и вторую задачу — порядок:
+    он гарантированно стартует до основного контейнера и гасится после него.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/"
+
+- id: k8s-pods-015
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли изменить потолок задержки между рестартами контейнера, если
+    пятиминутный `CrashLoopBackOff` слишком долгий?
+  answer: |
+    Да, через конфигурацию kubelet: `crashLoopBackOff.maxContainerRestartPeriod`
+    в диапазоне от `1s` до `300s`. Настройка **пер-узел**, не пер-под.
+  explanation: |
+    Дефолт остаётся прежним: старт с 10s, удвоение, потолок 300s. Важно, что ручка
+    живёт у kubelet, а не в манифесте пода — то есть в managed-кластере её может
+    не быть вовсе, и разные узлы одного кластера могут вести себя по-разному.
+    Если заданный потолок меньше 10s, с него же начинается и первая задержка.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-016
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Kubelet на узле перезапустился. Что произойдёт с работающими подами?
+  answer: |
+    Ничего: контейнеры запущены container runtime'ом и от kubelet не зависят.
+    Поднявшись, kubelet заново узнаёт состояние у runtime и продолжает следить
+    за уже работающими контейнерами.
+  explanation: |
+    Разделение ответственности здесь принципиально: kubelet — управляющий агент,
+    а не родитель процессов. Отсюда же следует, что во время его отсутствия
+    не работают пробы, не обновляется status и не монтируются новые тома —
+    кластер про такой узел ничего не знает и через несколько минут пометит его
+    `NotReady`, начав выселять поды, хотя они живы.
+  ref: "https://kubernetes.io/docs/concepts/architecture/nodes/"
+
+- id: k8s-pods-017
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как ведёт себя хук `postStart` относительно основного процесса контейнера?
+  answer: |
+    Он запускается **асинхронно** с точкой входа контейнера — порядок не гарантирован.
+    Но статус контейнера не станет `Running`, пока хук не завершится.
+  explanation: |
+    Отсюда два практических следствия. Первое: `postStart` нельзя использовать как
+    «инициализация до старта приложения» — для этого есть init-контейнеры, где порядок
+    гарантирован. Второе: зависший хук держит контейнер вне `Running` и выглядит как
+    необъяснимо медленный старт пода, при том что приложение внутри уже работает.
+  ref: "https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/"

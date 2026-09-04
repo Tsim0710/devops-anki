@@ -1,0 +1,447 @@
+# k8s / pod-security
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-pod-security-001
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое контейнер с точки зрения ядра Linux?
+  answer: |
+    Обычный процесс, изолированный namespace'ами (PID, network, mount, user) и
+    ограниченный cgroups. **Ядро у него общее с узлом** — своей ОС внутри нет.
+  explanation: |
+    Из этого вытекает вся модель безопасности контейнеров: изоляция обеспечивается
+    ядром, а не виртуализацией, поэтому уязвимость в ядре пробивает её насквозь.
+    Отсюда же самый практический вывод: root внутри контейнера — это тот же uid 0
+    снаружи, и при выходе за периметр он остаётся root'ом на узле.
+  ref: "https://kubernetes.io/docs/concepts/security/"
+
+- id: k8s-pod-security-002
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `runAsNonRoot: true`?
+  answer: |
+    Запрещает запуск контейнера от uid 0: kubelet проверяет пользователя образа
+    и отказывается стартовать контейнер, если тот root. Конкретный uid задаётся
+    отдельно через `runAsUser`.
+  explanation: |
+    Проверка происходит **до запуска**, поэтому нарушение видно как отказ старта
+    (`CreateContainerConfigError`), а не как поломка в рантайме. Важная тонкость:
+    флаг проверяет, но не меняет — если в образе не создан непривилегированный
+    пользователь, нужен ещё и `runAsUser`, иначе под просто не поднимется.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-003
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `readOnlyRootFilesystem: true`?
+  answer: |
+    Делает корневую файловую систему контейнера доступной только на чтение. Всё, куда
+    приложению нужно писать, монтируется явно — обычно `emptyDir` в `/tmp` и каталоги
+    кеша.
+  explanation: |
+    Смысл не в защите файлов, а в ограничении злоумышленника: скачать и запустить
+    полезную нагрузку внутрь контейнера становится некуда. Побочная польза
+    архитектурная — флаг заставляет явно перечислить все точки записи, что превращает
+    контейнер в честно неизменяемый артефакт.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-004
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `capabilities: drop: ["ALL"]`?
+  answer: |
+    Отобрать у процесса все привилегии Linux capabilities. Нужные возвращаются точечно
+    через `add` — например `NET_BIND_SERVICE`, чтобы слушать порт ниже 1024.
+  explanation: |
+    Capabilities дробят всемогущество root'а на десятки отдельных прав, и контейнеру
+    почти никогда не нужно ни одного из них. Подход «отобрать всё, вернуть требуемое»
+    работает лучше выборочного отбора, потому что список привилегий велик и меняется
+    от версии ядра к версии.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-005
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие три уровня описывают Pod Security Standards?
+  answer: |
+    `privileged` — без ограничений; `baseline` — запрещены известные способы выхода
+    из контейнера (privileged, hostNetwork, hostPath, опасные capabilities);
+    `restricted` — жёсткий профиль: non-root, drop ALL, seccomp, без повышения привилегий.
+  explanation: |
+    Стандарты появились на замену удалённым PodSecurityPolicy и намеренно сведены
+    к трём готовым профилям вместо конструктора: PSP давали бесконечную гибкость,
+    в которой почти все ошибались. `baseline` задуман как разумный минимум,
+    `restricted` — как цель, к которой стоит идти.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
+
+- id: k8s-pod-security-006
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как включается Pod Security Admission и какие у него три режима?
+  answer: |
+    Лейблами на namespace: `pod-security.kubernetes.io/<режим>=<уровень>`. Режимы —
+    `enforce` (отклонять), `audit` (пропускать, писать в аудит), `warn` (пропускать,
+    предупреждать в ответе kubectl).
+  explanation: |
+    Три режима существуют ради безопасного внедрения: сначала вешаешь `warn` и `audit`,
+    смотришь, что бы сломалось, чинишь нагрузки и только потом включаешь `enforce`.
+    Попытка включить `enforce` сразу на живом namespace обычно кончается тем, что
+    выкат встаёт в самый неудобный момент.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-admission/"
+
+- id: k8s-pod-security-007
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Включили `enforce: restricted` на namespace с работающим Deployment,
+    который не проходит профиль. Что произойдёт сразу?
+  options:
+    a: "Ничего: работающие поды не трогают, сломается следующий выкат или рестарт"
+    b: "Все поды немедленно будут удалены как нарушающие политику"
+    c: "Поды продолжат работать, но потеряют лишние привилегии на лету"
+    d: "Deployment откатится на предыдущую ревизию автоматически"
+  answer: a
+  explanation: |
+    PSA — это admission-контроль: он проверяет объекты **на входе**, а к уже
+    существующим подам не применяется. Отсюда коварство: кластер выглядит здоровым
+    ровно до первого события, требующего создать под, — выката, скейла, переезда
+    с узла. И тогда `READY 0/3` появляется без всякой связи с недавним изменением лейбла.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-admission/"
+
+- id: k8s-pod-security-008
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какова сеть кластера по умолчанию с точки зрения доступа между подами?
+  answer: |
+    Полностью открытой: любой под может обратиться к любому другому в любом namespace.
+    Ограничения появляются только с NetworkPolicy — и только если CNI их поддерживает.
+  explanation: |
+    Это осознанный выбор в пользу работоспособности из коробки, но он же делает
+    «namespace изолирует» самым частым заблуждением. Практическое следствие: скомпрометированный
+    под во второстепенном сервисе по умолчанию имеет сетевой доступ к базе, к API
+    кластера и ко всему остальному.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-009
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    По чему NetworkPolicy отбирает источники трафика — по IP или по меткам?
+  answer: |
+    По **меткам**: селекторы подов и namespace. Работа с адресами есть только
+    в `ipBlock` и предназначена для внешних сетей, а не для подов кластера.
+  explanation: |
+    Иначе и быть не может: IP пода эфемерен и меняется при каждом пересоздании, правило
+    по адресу протухло бы за минуты. Метки же переживают пересоздание, потому что
+    приезжают из pod-template. Следствие — политики надо читать вместе с метками подов,
+    и опечатка в селекторе даёт молчаливую дыру: правило есть, а не совпадает ни с чем.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-010
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Написал `deny-all` политику, а поды всё равно общаются. Почему?
+  answer: |
+    Либо CNI не поддерживает NetworkPolicy (объект создался и игнорируется), либо
+    политика закрывает только одно направление: `ingress` и `egress` независимы,
+    и правило без секции `egress` исходящий трафик не трогает.
+  explanation: |
+    Обе причины молчаливые, и это худший вид отказа в безопасности: политика есть,
+    ревью пройдено, ограничений нет. Первую проверяют по документации своего CNI —
+    у Flannel поддержки нет вовсе. Вторую видно в самом манифесте:
+    в `policyTypes` должны быть перечислены оба направления.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-011
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Закрыл egress политикой — приложение перестало видеть базу, причём не сразу
+    с ошибкой соединения. Что забыли?
+  answer: |
+    Разрешить DNS: обращения к CoreDNS идут по UDP и TCP на порт 53 в `kube-system`.
+    Без этого приложение не резолвит имя и падает по таймауту резолва,
+    а не по отказу соединения.
+  explanation: |
+    Это самая частая ошибка при закрытии egress, и симптом сбивает с толку: кажется,
+    что политика отрезала базу, хотя до попытки соединения дело даже не доходит.
+    Отличить легко — `nslookup` из пода не отвечает вовсе. Поэтому в любой набор
+    egress-правил разрешение DNS кладут первым.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-012
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке работают mutating и validating admission webhooks?
+  answer: |
+    Сначала **mutating** — они могут изменить объект (дописать sidecar, проставить
+    метки, подставить значения). Затем схема, затем **validating** — они только
+    выносят вердикт да или нет, менять объект уже нельзя.
+  explanation: |
+    Порядок обязателен по смыслу: валидировать нужно то, что реально уедет в etcd,
+    а mutating к этому моменту всё уже дописали. Отсюда практический вывод для отладки
+    политик: проверять надо не свой манифест, а результат — `kubectl get -o yaml`,
+    потому что отклонён может быть объект, которого ты не писал.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-pod-security-013
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как Istio или подобный оператор дописывает sidecar в чужой под?
+  answer: |
+    Mutating admission webhook: он перехватывает создание пода и добавляет контейнер
+    в спеку. Обычно включается меткой на namespace, поэтому владелец приложения свой
+    манифест не меняет вовсе.
+  explanation: |
+    Отсюда странный на первый взгляд эффект: в git один контейнер, в кластере два.
+    И отсюда же диагностическое правило — при расследовании смотреть фактический
+    объект, а не исходный манифест. Тот же механизм используют инжекторы секретов
+    и агенты наблюдаемости.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-pod-security-014
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение начало падать при записи в файл после включения профиля безопасности.
+    Что именно сломалось?
+  answer: |
+    Скорее всего `readOnlyRootFilesystem: true` без смонтированных каталогов для записи,
+    либо `runAsNonRoot` — файлы в образе принадлежат root'у, а процесс теперь другой uid.
+  explanation: |
+    Оба случая одинаково выглядят как «приложение сломалось после безобидной правки»,
+    хотя ломает их разное: в первом писать некуда, во втором нет прав. Различает
+    сообщение об ошибке — `read-only file system` против `permission denied`.
+    Второй случай лечится `fsGroup`, который меняет владельца смонтированных томов.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-015
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен сканер образов вроде Trivy в CI, если образ собран из официального базового?
+  answer: |
+    Официальный базовый образ стареет: уязвимости находят после релиза. Сканер
+    сверяет установленные пакеты и зависимости приложения с базами CVE на момент
+    сборки, а не на момент публикации базового образа.
+  explanation: |
+    Отсюда практика пересобирать образы регулярно, даже когда код не менялся: без этого
+    приложение годами едет на базовом слое из позапрошлого года. Сканирование в CI
+    ценно ещё и тем, что даёт точку принятия решения до выката, а не после —
+    когда уязвимый образ уже в проде.
+  ref: "https://kubernetes.io/docs/concepts/security/supply-chain-security/"
+
+- id: k8s-pod-security-016
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `failurePolicy: Fail` у admission webhook опасен для всего кластера?
+  answer: |
+    Тем, что при недоступности webhook'а apiserver **отклоняет** все подпадающие
+    под него запросы. Упавший под политики останавливает создание объектов
+    во всём кластере.
+  explanation: |
+    Самый неприятный вариант — самоблокировка: webhook перехватывает создание подов
+    в том числе в своём namespace, поэтому подняться заново он не может — для этого
+    нужен он сам. Отсюда два обязательных правила: исключать системные namespace
+    из области действия и держать webhook в нескольких репликах с PDB.
+    `failurePolicy: Ignore` безопаснее для доступности, но оставляет дыру в политике.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-pod-security-017
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `hostPath` на `/var/run/docker.sock` или на корень узла считается
+    эквивалентом root-доступа к машине?
+  answer: |
+    Потому что монтирование файловой системы узла даёт возможность читать и менять
+    её содержимое от имени процесса контейнера: подложить свой юнит systemd, прочитать
+    kubelet-сертификаты, запустить привилегированный контейнер через сокет runtime.
+  explanation: |
+    Это самый прямой путь выхода из контейнера, и он не требует никаких уязвимостей —
+    только разрешённый `hostPath`. Именно поэтому профиль `baseline` его ограничивает,
+    а `restricted` запрещает. Тот же аргумент объясняет, почему сборку образов внутри
+    кластера делают инструментами без доступа к сокету runtime.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
+
+- id: k8s-pod-security-018
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем PSA принципиально уступает Kyverno или Gatekeeper?
+  answer: |
+    PSA умеет только три фиксированных профиля безопасности пода и ничего больше.
+    Политики общего назначения проверяют что угодно: обязательные метки, разрешённые
+    реестры образов, запрет `latest`, лимиты на домены Ingress — и умеют не только
+    отклонять, но и дописывать объекты.
+  explanation: |
+    Разделение осмысленное: PSA встроен, не требует установки и закрывает самый
+    критичный класс рисков — выход из контейнера. Всё остальное — это уже правила
+    конкретной организации, которых ядро знать не может. Отсюда типичная связка:
+    PSA как базовый рубеж плюс движок политик для собственных требований.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-admission/"
+
+- id: k8s-pod-security-019
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `seccompProfile: RuntimeDefault` и почему это дёшево включить?
+  answer: |
+    Ограничивает набор системных вызовов, доступных контейнеру, профилем по умолчанию
+    от container runtime. Он отсекает десятки редких и опасных вызовов, которых
+    обычному приложению не требуется.
+  explanation: |
+    Дёшево потому, что профиль подобран так, чтобы не ломать типовые приложения:
+    в отличие от собственных seccomp-профилей, его не нужно составлять и отлаживать.
+    При этом он заметно сужает поверхность атаки на ядро — а ядро в контейнерной
+    модели общее, и именно оно является главной границей безопасности.
+  ref: "https://kubernetes.io/docs/tutorials/security/seccomp/"
+
+- id: k8s-pod-security-020
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `allowPrivilegeEscalation: false` и чем отличается от `runAsNonRoot`?
+  answer: |
+    Запрещает процессу получить больше привилегий, чем у его родителя, — то есть
+    отключает механику `setuid`-бинарников вроде `sudo`. `runAsNonRoot` запрещает
+    **стартовать** от root, но не мешает повысить привилегии позже.
+  explanation: |
+    Это два разных рубежа: первый про точку входа, второй про то, что можно сделать
+    после. Без запрета эскалации непривилегированный процесс, нашедший в образе
+    подходящий setuid-бинарник, поднимается до root внутри контейнера — а дальше уже
+    работают все остальные слои защиты. Профиль `restricted` требует обоих.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-021
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое ValidatingAdmissionPolicy и чем она лучше validating webhook?
+  answer: |
+    Декларативная политика, выполняемая **внутри apiserver**: правила пишутся на CEL,
+    внешний сервис не нужен. Стабильна с версии 1.30.
+  explanation: |
+    Она снимает главный операционный риск webhook'ов: нет пода, который может упасть
+    и с `failurePolicy: Fail` заблокировать весь кластер, нет сертификатов и сетевого
+    вызова на пути каждого запроса. Взамен есть ограничение — CEL выполняется
+    в процессе и не может ходить наружу, поэтому политики со сложной логикой или
+    обращением к внешним данным по-прежнему требуют webhook.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/"
+
+- id: k8s-pod-security-022
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт подпись образов и SBOM сверх сканирования на уязвимости?
+  answer: |
+    Подпись отвечает на вопрос «этот образ действительно собрал наш пайплайн»,
+    SBOM — «из чего он состоит». Сканер отвечает лишь «известны ли уязвимости
+    на момент проверки».
+  explanation: |
+    Три разных вопроса про один артефакт. Без подписи компрометация реестра позволяет
+    подменить содержимое под знакомым тегом, и никакой сканер этого не заметит.
+    Без SBOM появление новой уязвимости в библиотеке превращается в перебор всех
+    образов вручную, тогда как с ним это запрос к списку зависимостей. Проверку
+    подписи при этом включают на admission — иначе она остаётся необязательной.
+  ref: "https://kubernetes.io/docs/concepts/security/supply-chain-security/"

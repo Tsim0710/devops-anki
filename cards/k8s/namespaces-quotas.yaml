@@ -1,0 +1,325 @@
+# k8s / namespaces-quotas
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-namespaces-quotas-001
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что namespace даёт и чего он НЕ даёт?
+  answer: |
+    Даёт: область имён (объекты с одинаковыми именами не конфликтуют), область действия
+    RBAC и область действия квот. **Не даёт** сетевой изоляции, изоляции по узлам
+    и защиты от соседей по ресурсам.
+  explanation: |
+    Самое опасное заблуждение — считать namespace границей безопасности. Под из одного
+    namespace по умолчанию свободно ходит по сети в любой другой: сеть кластера плоская,
+    и режет её только NetworkPolicy. Namespace — это про организацию и права,
+    а изоляция строится отдельными механизмами.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-002
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие ресурсы вообще не принадлежат namespace?
+  answer: |
+    Узлы, PersistentVolume, StorageClass, ClusterRole и ClusterRoleBinding, CRD,
+    IngressClass, PriorityClass и сами namespace. Проверить —
+    `kubectl api-resources --namespaced=false`.
+  explanation: |
+    Логика проста: если объект описывает **кластер как целое** или его физические
+    ресурсы, он не может принадлежать одному namespace. Отсюда практическое следствие
+    для мультитенантности — команда, получившая полный доступ к своему namespace,
+    всё равно не может создать StorageClass или CRD, и это правильно: такие объекты
+    влияют на всех.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-003
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что ограничивает ResourceQuota?
+  answer: |
+    Суммарные `requests` и `limits` по CPU и памяти в namespace, объём запрошенного
+    хранилища и **количество объектов** — сколько подов, сервисов, PVC, секретов
+    можно создать.
+  explanation: |
+    Второй пункт недооценивают: ограничение числа объектов защищает не от перерасхода
+    железа, а от засорения etcd — забытым CronJob'ом, циклом создания секретов,
+    сбойным оператором. Квота на `services.loadbalancers` при этом защищает
+    непосредственно бюджет: каждый такой сервис — отдельный платный балансировщик.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-004
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает LimitRange?
+  answer: |
+    Задаёт для **отдельного** контейнера или пода значения по умолчанию (`default`,
+    `defaultRequest`) и допустимые границы (`min`, `max`). Работает при создании пода.
+  explanation: |
+    Разница с квотой в объекте регулирования: ResourceQuota считает сумму по namespace,
+    LimitRange разбирается с каждым подом поштучно. Поэтому один без другого работает
+    плохо: квота без LimitRange отвергает поды без requests, а LimitRange без квоты
+    не мешает создать их тысячу.
+  ref: "https://kubernetes.io/docs/concepts/policy/limit-range/"
+
+- id: k8s-namespaces-quotas-005
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    В namespace включили ResourceQuota на CPU и память. Что станет с подами,
+    у которых не заданы `requests` и `limits`?
+  options:
+    a: "Их перестанут создавать: без явных значений квоту не посчитать"
+    b: "Они создадутся, но получат класс BestEffort и будут вытесняться первыми"
+    c: "Они создадутся, kubelet подставит значения по умолчанию"
+    d: "Ничего не изменится: квота считает только фактическое потребление"
+  answer: a
+  explanation: |
+    Квота — это бухгалтерия броней: чтобы прибавить под к сумме namespace, нужно знать
+    его вклад, а у пода без requests его нет. Поэтому квота на compute-ресурс
+    **делает их обязательными** для всех новых подов. Именно поэтому ResourceQuota
+    и LimitRange ставят только парой: второй подставляет дефолты и снимает проблему.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-006
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Квота проверяется на admission или при планировании?
+  answer: |
+    На **admission**, то есть при создании объекта. Если под не проходит по квоте,
+    он вообще не появляется — его не будет даже в `Pending`.
+  explanation: |
+    Отсюда самый сбивающий с толку симптом: Deployment есть, подов ноль, событий
+    на подах нет и быть не может. Ошибка записана у ReplicaSet, который получил отказ.
+    Сравни с нехваткой ресурсов на узлах: там под создаётся и честно висит в `Pending` —
+    другой этаж, другое место поиска.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-007
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Указал у контейнера только `limits`, `requests` не указал. Что получится?
+  answer: |
+    `requests` автоматически приравняются к `limits`. Под получит класс `Guaranteed`
+    и забронирует ровно столько, сколько указано в потолке.
+  explanation: |
+    Умолчание работает в одну сторону и на этом ловит: указал только `requests` —
+    `limits` останутся пустыми (если их не задаст LimitRange), и контейнер сможет
+    съесть сколько угодно. То есть неполное описание ресурсов даёт либо избыточную
+    бронь и пустые узлы, либо отсутствие потолка и риск утащить узел.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-namespaces-quotas-008
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке применяются LimitRange, квота и планирование?
+  answer: |
+    Сначала admission: LimitRange подставляет дефолты и проверяет границы, затем
+    ResourceQuota считает сумму по namespace. Только после этого объект попадает
+    в etcd, и уже потом scheduler ищет для него узел.
+  explanation: |
+    Порядок объясняет, почему LimitRange обязан идти первым: квота считает уже
+    **дополненный** под, иначе объект без requests не прошёл бы. И он же объясняет,
+    почему квота ничего не знает о свободном месте на узлах: она работает на этаж выше,
+    с намерениями, а не с физикой.
+  ref: "https://kubernetes.io/docs/concepts/policy/limit-range/"
+
+- id: k8s-namespaces-quotas-009
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Квоту выставили на уже живой namespace, где поды без `requests`. Что произойдёт?
+  answer: |
+    Работающие поды продолжат работать — квота их не трогает. Но любой новый под
+    без requests будет отвергнут: сломается первый же выкат, рестарт или скейл.
+  explanation: |
+    Отложенность — главная опасность такой операции: изменение выглядит безобидно,
+    кластер зелёный, а поломка ждёт следующего деплоя, возможно через недели, и связь
+    с квотой к тому моменту уже неочевидна. Поэтому квоту вводят вместе с LimitRange
+    и проверяют, что все нагрузки namespace объявляют ресурсы.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-010
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Два Ingress в разных namespace объявляют один и тот же `host`. Что будет?
+  answer: |
+    Конфликт: правила попадут в конфигурацию одного контроллера, и поведение зависит
+    от его реализации — обычно выигрывает более старый объект, а второй молча
+    не работает.
+  explanation: |
+    Причина в асимметрии: `host` — это глобальное пространство имён DNS, а `backend`
+    ссылается на сервис локально. Namespace защищает от коллизий только имена объектов,
+    но не доменные имена. Ограничить, кто какие домены может занимать, штатным
+    Kubernetes нельзя — это делается политиками вроде Kyverno.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-namespaces-quotas-011
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем мягкая мультитенантность отличается от жёсткой?
+  answer: |
+    Мягкая — команды в одном кластере, разделённые namespace, RBAC, квотами
+    и NetworkPolicy: защищает от **ошибки** соседа. Жёсткая — защита от **злого умысла**,
+    и она требует отдельных кластеров либо изоляции на уровне ядра.
+  explanation: |
+    Граница проходит по общему ядру: контейнеры на одном узле делят ядро, и уязвимость
+    в нём обходит любые namespace и политики. Поэтому вопрос «изолируем команды или
+    недоверенный код» имеет два разных ответа, и подменять один другим — самая дорогая
+    ошибка в проектировании мультитенантности.
+  ref: "https://kubernetes.io/docs/concepts/security/multi-tenancy/"
+
+- id: k8s-namespaces-quotas-012
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему namespace лучше создавать декларативно из git, а не командой
+    `kubectl create ns`?
+  answer: |
+    Потому что namespace редко бывает пустым: с ним идут квота, LimitRange, RoleBinding,
+    NetworkPolicy, лейблы Pod Security Admission. Созданный руками namespace приезжает
+    без всего этого.
+  explanation: |
+    Голый namespace — это открытая дверь: без квот в него можно уложить весь кластер,
+    без лейблов PSA в нём разрешены привилегированные поды, без NetworkPolicy он
+    доступен по сети отовсюду. При этом внешне он выглядит совершенно нормально, что
+    и делает такие «временные» namespace живучими.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-013
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Namespace висит в `Terminating` и не удаляется. Как найти виновника?
+  answer: |
+    Посмотреть `kubectl get namespace <ns> -o yaml`: в `status.conditions` перечислено,
+    какие ресурсы не удалось вычистить. Обычно это CR мёртвого оператора или
+    недоступный agregated API-сервис.
+  explanation: |
+    Namespace удаляется только после уборки всего содержимого, а уборку CR делает
+    контроллер, которого может уже не быть. Соблазн снять финализатор руками велик
+    и опасен: он оставляет за собой сирот во внешних системах — облачные диски,
+    балансировщики, записи в DNS, за которые продолжает капать счёт.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-014
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли квотой ограничить, сколько узлов или какой процент кластера
+    достанется команде?
+  answer: |
+    Нет. ResourceQuota оперирует суммой броней в namespace и ничего не знает ни об
+    узлах, ни о размере кластера. Привязка нагрузки к конкретным машинам делается
+    через taints, tolerations и affinity, а не квотами.
+  explanation: |
+    Это два независимых измерения: квота отвечает «сколько тебе можно попросить»,
+    размещение — «где именно ты можешь оказаться». Команда с квотой на 100 ядер
+    получит их с любых узлов кластера, включая те, что предназначались другим.
+    Выделенные пулы под команду строятся taint'ами, а квота лишь ограничивает аппетит.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-015
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у ResourceQuota нужны `scopes`, например `PriorityClass`?
+  answer: |
+    Чтобы квота считала не все поды подряд, а только подпадающие под условие: например
+    отдельный лимит на поды с высоким приоритетом или на `BestEffort`. Одна общая сумма
+    не различает важное и фоновое.
+  explanation: |
+    Без разделения по scope команда может выбрать всю квоту фоновыми задачами, и на
+    критичный сервис места не останется — при том что формально лимит соблюдён.
+    Отдельная квота на высокий приоритет резервирует ёмкость под то, что действительно
+    должно работать, и заодно мешает раздавать высокий приоритет всем подряд.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-016
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему сумма квот всех namespace может спокойно превышать ёмкость кластера?
+  answer: |
+    Потому что квота ограничивает **право попросить**, а не наличие ресурсов.
+    Kubernetes не проверяет, обеспечены ли выданные квоты железом.
+  explanation: |
+    Это осознанный overcommit на организационном уровне: команды редко выбирают квоту
+    целиком, и раздача с запасом повышает утилизацию. Плата — отказ проявляется
+    не как понятное «превышена квота», а как поды в `Pending` без видимой причины,
+    когда все одновременно решили вырасти. Поэтому сумму квот отслеживают отдельно
+    от их соблюдения.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"

@@ -1,0 +1,371 @@
+# k8s / packaging-gitops
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-packaging-gitops-001
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что Helm делает помимо шаблонизации манифестов?
+  answer: |
+    Управляет **релизами**: хранит в кластере историю применённых версий, умеет
+    откатываться (`helm rollback`), знает, какие объекты принадлежат релизу, и удаляет
+    их при `helm uninstall`.
+  explanation: |
+    Именно менеджер релизов, а не шаблонизатор, отличает Helm от простого рендеринга
+    YAML. Он ведёт учёт принадлежности объектов — поэтому умеет то, чего не умеет
+    `kubectl apply`: удалить ровно то, что установил, включая объекты, исчезнувшие
+    из новой версии чарта.
+  ref: "https://helm.sh/docs/"
+
+- id: k8s-packaging-gitops-002
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем Kustomize принципиально отличается от Helm по подходу?
+  answer: |
+    Kustomize не шаблонизирует, а **патчит**: берёт валидный YAML-базис и накладывает
+    на него изменения для конкретного окружения. Helm генерирует YAML из текстового
+    шаблона с подстановками.
+  explanation: |
+    Отсюда следует главное различие в ощущениях: базис Kustomize всегда остаётся
+    корректным манифестом, который можно применить и прочитать, а шаблон Helm сам
+    по себе не YAML и вне рендеринга нечитаем. Отсюда же индустриальный расклад —
+    Kustomize для своих приложений, Helm для чужого софта, который поставляется
+    чартами.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"
+
+- id: k8s-packaging-gitops-003
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сформулируй четыре принципа GitOps.
+  answer: |
+    Желаемое состояние описано **декларативно**; оно версионируется и неизменяемо
+    (git); изменения **забираются** агентом автоматически; агент **непрерывно**
+    сверяет факт с желаемым и устраняет расхождения.
+  explanation: |
+    Четвёртый пункт и есть настоящее отличие от «деплоя из CI»: непрерывная сверка
+    означает, что ручное изменение в кластере будет замечено и откатано. Без него
+    получается обычный push-деплой, просто с манифестами в git — а это принципиально
+    более слабая гарантия.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-packaging-gitops-004
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть, что чарт реально сгенерирует, не применяя его в кластер?
+  answer: |
+    `helm template` — рендерит манифесты локально. `--debug` дополнительно показывает
+    итоговые значения. Для проверки против живого кластера — `helm install --dry-run`.
+  explanation: |
+    Это первое, что делают при разборе непонятного поведения чарта: между `values.yaml`
+    и объектом в кластере лежит слой текстовых подстановок, условий и циклов, и ошибка
+    почти всегда именно там. Смотреть надо на результат, а не на шаблон, — по той же
+    причине, по которой при разборе admission-политик смотрят на объект, а не
+    на манифест.
+  ref: "https://helm.sh/docs/helm/helm_template/"
+
+- id: k8s-packaging-gitops-005
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Чем pull-модель GitOps принципиально сильнее push-деплоя из CI?
+  options:
+    a: "Она непрерывно сверяет факт с git и чинит ручные изменения в кластере"
+    b: "Она быстрее выкатывает изменения после коммита"
+    c: "Она не требует хранить манифесты в репозитории"
+    d: "Она позволяет выкатывать без сборки образа"
+  answer: a
+  explanation: |
+    Push применяет изменение **разово**: сработал пайплайн, применил, забыл. Что
+    произошло с кластером между запусками, он не знает. Pull-агент живёт внутри
+    и сверяет состояние постоянно, поэтому ручная правка «на пять минут» будет
+    отменена. Побочная выгода — у CI больше нет кредов к кластеру: агент сам ходит
+    в git, а не наоборот.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-006
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Helm-релиз застрял в статусе `pending-upgrade`. Что произошло и что делать?
+  answer: |
+    Предыдущая операция прервалась, не сняв блокировку: упал pipeline, оборвался
+    таймаут, убили процесс. Helm считает релиз занятым. Лечится `helm rollback`
+    на последнюю успешную ревизию.
+  explanation: |
+    Состояние релиза Helm хранит в Secret'ах внутри namespace, и оно не самовосстанавливается —
+    в этом принципиальная разница с контроллером, который просто продолжил бы сверку
+    на следующем витке. Отсюда практический вывод: Helm императивен по природе,
+    и прерванная операция оставляет систему в подвешенном состоянии, требующем человека.
+  ref: "https://helm.sh/docs/helm/helm_rollback/"
+
+- id: k8s-packaging-gitops-007
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Kustomize-патч «не применился», при этом ошибки нет. Первая гипотеза?
+  answer: |
+    Патч не нашёл цель: не совпали `kind`, `name`, `namespace` или `apiVersion`
+    в селекторе патча. Несуществующая цель для Kustomize — не ошибка, он просто
+    ничего не делает.
+  explanation: |
+    Молчаливость здесь — самая дорогая черта инструмента: результат выглядит успешным,
+    а изменение потеряно. Проверяется единственным правильным способом — рендерингом
+    (`kubectl kustomize .`) и сравнением с ожидаемым. Это тот же класс ошибок,
+    что аннотация с опечаткой или селектор, не совпавший с метками: объект валиден,
+    смысла нет.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"
+
+- id: k8s-packaging-gitops-008
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Argo CD показывает приложение как `OutOfSync`, хотя в git ничего не меняли. Почему?
+  answer: |
+    Дрейф: объект в кластере отличается от манифеста. Чаще всего его изменил кто-то
+    другой — HPA правит `replicas`, mutating webhook дописал sidecar, оператор
+    проставил поля в `spec`, или кто-то поправил руками.
+  explanation: |
+    Argo CD сравнивает желаемое с фактическим, и «лишний» автор поля выглядит для него
+    как расхождение. Разбор всегда идёт от diff'а: он показывает конкретное поле,
+    а по полю понятен виновник. Лечится либо исключением поля из сравнения,
+    либо приведением git в соответствие с реальностью — но не отключением self-heal.
+  ref: "https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+
+- id: k8s-packaging-gitops-009
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как хранить секреты при GitOps, если в git их класть нельзя?
+  answer: |
+    Три подхода: шифровать в репозитории (SOPS, Sealed Secrets — в git лежит шифротекст);
+    держать ссылку на внешний менеджер (External Secrets, Vault); монтировать значения
+    напрямую в под через CSI-драйвер, не создавая объект Secret.
+  explanation: |
+    Общий принцип один: в git уезжает либо шифротекст, либо **ссылка**, но никогда
+    открытое значение. Различаются подходы тем, где живёт правда и что сломается
+    при отказе: у SOPS всё самодостаточно, но ротация ручная; у External Secrets
+    ротация автоматическая, но внешний менеджер становится зависимостью кластера.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"
+
+- id: k8s-packaging-gitops-010
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем в Argo CD нужны sync waves?
+  answer: |
+    Чтобы задать порядок применения объектов внутри одной синхронизации: сначала CRD
+    и namespace, потом операторы, потом приложения, которые от них зависят. Порядок
+    задаётся аннотацией с номером волны.
+  explanation: |
+    Без порядка часть объектов гарантированно не применится с первой попытки:
+    CR нельзя создать раньше его CRD, под — раньше namespace. Обычно это
+    самоисправляется на следующей сверке, но выглядит как мигающий `Degraded`
+    и мешает отличить реальную поломку от гонки при установке.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-packaging-gitops-011
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как разделяются роли CI и CD в правильном контуре?
+  answer: |
+    CI собирает и тестирует **артефакт** (образ) и записывает новую версию в манифест
+    или в git. CD применяет манифесты в кластер. Границей служит git-коммит,
+    а не запуск пайплайна.
+  explanation: |
+    Смешение ролей — источник двух типичных бед: у CI появляются админские креды
+    к прод-кластеру, и выкат становится непрослеживаемым, потому что «что сейчас
+    в кластере» знает только история пайплайнов. При разделении текущее состояние
+    всегда читается из git, а откат — это git revert, а не поиск нужной кнопки.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-012
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое app-of-apps в Argo CD?
+  answer: |
+    Приложение, содержимое которого — манифесты **других** Argo-приложений. Один корневой
+    объект разворачивает весь набор компонентов кластера, и добавление нового сводится
+    к коммиту в его репозиторий.
+  explanation: |
+    Паттерн решает бутстрап: без него каждое приложение приходится заводить руками,
+    то есть кластер перестаёт быть воспроизводимым из git. С ним поднятие нового
+    окружения — это установка Argo CD и одного корневого приложения. Обратная сторона —
+    корневой объект становится единой точкой, ошибка в которой задевает всё сразу.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-013
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что дают Argo Rollouts и Flagger сверх обычного RollingUpdate?
+  answer: |
+    Прогрессивную доставку: canary и blue-green с **автоматическим анализом метрик**.
+    Новая версия получает долю трафика, инструмент смотрит на ошибки и latency
+    и сам решает — продолжать выкат или откатить.
+  explanation: |
+    Штатный RollingUpdate знает только про готовность подов: приложение, которое
+    стартует и проходит readiness, но отдаёт пятисотки, будет успешно раскатано
+    на все реплики. Прогрессивная доставка добавляет недостающий критерий — как
+    новая версия ведёт себя **под реальным трафиком**, и делает откат автоматическим,
+    а не ручным.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-packaging-gitops-014
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Обновил чарт оператора, в новой версии у CRD появились поля — но в кластере
+    их нет. Почему `helm upgrade` их не добавил?
+  answer: |
+    Helm ставит CRD из каталога `crds/` **только при установке**. На `helm upgrade`
+    он их не трогает, и на `helm uninstall` не удаляет. Обновлять схему приходится
+    вручную, через `kubectl apply`.
+  explanation: |
+    Поведение намеренное и защитное: обновление CRD может сделать существующие CR
+    невалидными, а удаление CRD уносит вместе с ним все объекты этого типа — Helm
+    отказывается брать на себя такую операцию. Отсюда практика: схемы операторов
+    обновлять отдельным осознанным шагом и читать release notes, а не надеяться,
+    что `upgrade` приведёт кластер в нужное состояние целиком.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-packaging-gitops-015
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем плох образ по тегу `latest` в связке с GitOps?
+  answer: |
+    Тем, что манифест перестаёт описывать состояние: в git всё то же самое, а в кластере
+    может быть что угодно. Агент не видит расхождения — с его точки зрения всё
+    синхронизировано, — и воспроизвести прошлое состояние по git невозможно.
+  explanation: |
+    Это подрывает базовый принцип: git обязан быть источником правды о том, **что
+    именно** работает. С плавающим тегом откат перестаёт быть откатом, а расследование
+    инцидента упирается в вопрос «какой образ там был вчера», на который нет ответа.
+    Отсюда практика — CI записывает в манифест конкретный тег или digest.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-packaging-gitops-016
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему у Helm-чартов есть репутация «нечитаемой лапши» и что с этим делают?
+  answer: |
+    Потому что шаблоны текстовые: условия и циклы генерируют YAML на уровне строк,
+    а не структуры, и отступ становится частью логики. Чарт с десятком флагов
+    превращается в неотлаживаемое полотно.
+  explanation: |
+    Отсюда индустриальный расклад: чужой софт ставят чартом, потому что гибкость нужна
+    его автору, а своё описывают Kustomize, где базис остаётся валидным YAML.
+    Промежуточный приём — рендерить чарт в манифесты и патчить их Kustomize:
+    гибкость остаётся у поставщика, а читаемость у тебя.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"
+
+- id: k8s-packaging-gitops-017
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасно включить auto-sync с self-heal, не предупредив команду?
+  answer: |
+    Тем, что любые ручные изменения в кластере начнут молча откатываться. Отладка
+    «поправил — через минуту вернулось» превращается в мистику, а в инциденте
+    временная мера не доживает до конца разбора.
+  explanation: |
+    Технически поведение абсолютно правильное — в этом и смысл GitOps. Проблема
+    организационная: контур меняет правила работы с кластером для всех, а узнают
+    об этом по симптомам. Отсюда практика включать self-heal как командное решение
+    и заранее описывать процедуру аварийного отключения синхронизации.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-018
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Секрет уехал в git в открытом виде. Достаточно ли удалить его следующим коммитом?
+  answer: |
+    Нет. История git хранит все версии: значение остаётся доступным в старых коммитах,
+    у всех, кто делал clone, и в зеркалах. Единственный надёжный ответ — считать
+    секрет скомпрометированным и **ротировать** его.
+  explanation: |
+    Переписывание истории помогает лишь частично и только если репозиторий не успели
+    склонировать. Отсюда практика профилактики: сканер секретов в pre-commit и в CI,
+    потому что цена обнаружения после пуша всегда включает ротацию, а она бывает
+    болезненной.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"

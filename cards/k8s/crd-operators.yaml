@@ -1,0 +1,325 @@
+# k8s / crd-operators
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-crd-operators-001
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое CRD и что такое CR?
+  answer: |
+    CRD (CustomResourceDefinition) — **описание нового типа** объекта: apiserver
+    начинает понимать `kind: Certificate` и валидировать его по схеме. CR — конкретный
+    экземпляр этого типа.
+  explanation: |
+    После установки CRD новый тип ведёт себя как родной: работают `kubectl get`,
+    RBAC, watch, `kubectl explain`. Именно поэтому расширение Kubernetes не требует
+    менять его код — apiserver умеет хранить и отдавать произвольные типы, а смысл
+    им придаёт уже контроллер.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-crd-operators-002
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит оператор?
+  answer: |
+    Из **CRD** (новый тип объекта) и **контроллера** (под, который следит за объектами
+    этого типа и приводит реальный мир к их `spec`).
+  explanation: |
+    Оператор — это кодификация работы администратора: знания о том, как поднять кластер
+    БД, сделать бэкап, провести обновление, переложены в непрерывную петлю сверки.
+    Отсюда главное следствие: CRD **без** контроллера — мёртвая запись, объект создаётся
+    и не делает ничего, потому что придавать ему смысл некому.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-003
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Ошибка `no matches for kind "Certificate"`. Что это значит?
+  answer: |
+    Кластер не знает такого типа: CRD не установлен или ещё не успел появиться.
+    Проверяется `kubectl get crd` и `kubectl api-resources`.
+  explanation: |
+    Ошибка приходит от apiserver на этапе распознавания объекта — то есть до всякой
+    валидации и RBAC. Самая частая её причина не «забыли поставить оператор», а гонка
+    при установке: CR применили в одном пакете с CRD, и первый успел раньше второго.
+    Отсюда требование выкатывать CRD отдельным, более ранним шагом.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-crd-operators-004
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Создал `Certificate`, сертификат не выпустился, ошибок нет. Куда смотреть?
+  answer: |
+    Сначала в `status` и `conditions` самого CR — операторы пишут туда причину словами.
+    Потом в события объекта. Потом в логи пода-контроллера оператора.
+  explanation: |
+    Лестница разбора чужого оператора всегда одинакова и идёт от объекта к исполнителю.
+    Начинать с логов оператора — типичная ошибка: там шум по всем объектам кластера,
+    а в `status` конкретного CR лежит адресный ответ. Пустой `status` при этом сам
+    по себе диагноз — значит контроллер объект вообще не увидел.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-005
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    CR висит в `Terminating` и не удаляется, оператор при этом уже снесён. Что произошло?
+  answer: |
+    На объекте остался финализатор оператора: apiserver ждёт, пока контроллер выполнит
+    уборку и снимет метку, а контроллера больше нет. Объект будет висеть вечно.
+  explanation: |
+    Это самая частая ловушка при удалении операторов: сносят контроллер, потом пытаются
+    убрать его CR — и получают неудаляемые объекты, а следом и неудаляемый namespace.
+    Правильный порядок обратный: сначала удалить все CR **живым** оператором, потом
+    сам оператор. Снятие финализатора руками оставляет за собой сирот во внешних
+    системах.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/"
+
+- id: k8s-crd-operators-006
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Что произойдёт, если удалить CRD, по которому в кластере есть объекты?
+  options:
+    a: "Все CR этого типа будут удалены вместе с определением"
+    b: "Удаление будет отклонено, пока существует хотя бы один CR"
+    c: "CR останутся, но станут недоступны через kubectl"
+    d: "CR будут преобразованы в ConfigMap"
+  answer: a
+  explanation: |
+    Определение типа и его экземпляры связаны жёстко: нет схемы — нет и объектов,
+    apiserver вычищает их каскадно. Практическая опасность в том, что операция выглядит
+    как удаление одного технического объекта, а уносит все базы, сертификаты или
+    очереди, описанные этим типом. Если у CR есть финализаторы, удаление вдобавок
+    может зависнуть на полпути.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-crd-operators-007
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как понять, что делает незнакомый оператор в кластере?
+  answer: |
+    Посмотреть его CRD (`kubectl get crd`, `kubectl explain <kind>`) — какие сущности
+    он вводит; его ClusterRole — к чему он имеет доступ; его webhook'и — во что
+    он вмешивается; и логи контроллера.
+  explanation: |
+    Порядок идёт от намерения к полномочиям. Особенно важен второй шаг: оператор часто
+    просит очень широкие права, и его ClusterRole фактически определяет, что он может
+    сломать. Это же обязательная проверка **перед** установкой: оператор с правами
+    на секреты во всех namespace — сознательное решение, а не деталь.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-008
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Оператор дописал поле в мой объект, и Argo CD считает это дрейфом. Кто прав?
+  answer: |
+    Оба: оператор обязан проставлять поля, GitOps обязан следить за расхождением.
+    Решается исключением поля из сравнения либо переходом на владение полями
+    через server-side apply.
+  explanation: |
+    Это общий класс конфликтов «у одного объекта несколько авторов»: тот же сюжет
+    с HPA и `replicas`, с mutating webhook и sidecar'ом. Правильная реакция —
+    не отключать self-heal, а явно описать, какое поле кому принадлежит. Отключение
+    сверки лечит симптом и убивает главное свойство контура.
+  ref: "https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+
+- id: k8s-crd-operators-009
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое reconcile-петля и почему контроллеры обязаны быть идемпотентными?
+  answer: |
+    Петля читает желаемое состояние, сравнивает с фактическим и делает шаг к
+    выравниванию — и так бесконечно. Идемпотентность нужна потому, что один и тот же
+    объект обрабатывается многократно: после resync, рестарта контроллера, повтора
+    при ошибке.
+  explanation: |
+    Контроллер, который при каждом вызове создаёт что-то новое вместо проверки
+    «а есть ли уже», за сутки наплодит тысячи дубликатов. Отсюда же стандартная
+    обработка ошибок — вернуть объект в очередь с экспоненциальным backoff:
+    повтор безопасен по построению, поэтому проще повторить, чем разбираться.
+  ref: "https://kubernetes.io/docs/concepts/architecture/controller/"
+
+- id: k8s-crd-operators-010
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем mutating webhook отличается от validating?
+  answer: |
+    Mutating **меняет** объект: дописывает поля, инжектит sidecar, подставляет дефолты.
+    Validating только выносит вердикт да или нет. Порядок строгий: сначала все mutating,
+    потом все validating.
+  explanation: |
+    Порядок вытекает из смысла: валидировать нужно финальный объект, а не тот, что
+    прислал пользователь. Отсюда практическое следствие для отладки: отказ может
+    касаться поля, которого ты не писал, — его дописал mutating webhook, а validating
+    забраковал. Смотреть надо на итоговый объект.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-crd-operators-011
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Sidecar от service mesh не инжектнулся в под. Что проверять?
+  answer: |
+    Метку namespace или пода, включающую инъекцию; жив ли под webhook-сервера;
+    попадает ли под под `namespaceSelector` конфигурации webhook'а; не был ли под
+    создан **до** включения инъекции.
+  explanation: |
+    Последний пункт объясняет большинство случаев: mutating webhook работает только
+    в момент создания, к существующим подам он не применяется. Поэтому включение mesh
+    в namespace требует пересоздания подов — обычным `rollout restart`. По той же
+    причине включение PSA не ломает уже работающие поды.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-crd-operators-012
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у CRD нужны версии (`v1alpha1`, `v1beta1`, `v1`) и conversion?
+  answer: |
+    Чтобы схема могла развиваться без поломки существующих объектов: apiserver хранит
+    одну каноническую версию и умеет отдавать её в других через conversion webhook.
+    Клиенты со старой версией продолжают работать.
+  explanation: |
+    Без этого любое изменение схемы оператора ломало бы все написанные манифесты.
+    Практическое следствие при обновлении операторов — читать, какие версии объявлены
+    `storage` и `served`: выключение старой версии в новом релизе делает существующие
+    манифесты неприменимыми, и это самый частый сюрприз при апгрейде.
+  ref: "https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/"
+
+- id: k8s-crd-operators-013
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Webhook оператора с `failurePolicy: Fail` упал и заблокировал деплои.
+    Как выйти из ситуации?
+  answer: |
+    Удалить или отредактировать саму `ValidatingWebhookConfiguration` /
+    `MutatingWebhookConfiguration` — это обычный объект API, и его удаление снимает
+    блокировку. После восстановления оператора конфигурацию возвращают.
+  explanation: |
+    Знать этот аварийный выход стоит заранее: в момент инцидента кластер не даёт
+    создавать объекты, и соблазн лечить симптом внутри — тупик, потому что для подъёма
+    оператора нужно создать под, а создание подов заблокировано именно им. Профилактика:
+    исключать `kube-system` и namespace самого оператора из области действия webhook'а.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-crd-operators-014
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Когда писать собственный оператор — оверинжиниринг?
+  answer: |
+    Когда задача решается манифестами, Helm-чартом или Job'ом. Оператор оправдан там,
+    где нужна **непрерывная** реакция на состояние: обслуживание кластерных БД,
+    выборы лидера, бэкапы по расписанию с проверкой, сложные обновления с миграциями.
+  explanation: |
+    Оператор — это долгоживущий код с широкими правами в кластере, который нужно
+    сопровождать, обновлять и отлаживать. Если действие выполняется один раз
+    и не требует наблюдения за состоянием, петля сверки не даёт ничего, кроме
+    расходов. Отсюда практика — брать зрелые чужие операторы и очень редко писать свои.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-015
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему у CRD нельзя просто так уменьшить область валидации схемы в новой версии?
+  answer: |
+    Потому что в etcd уже лежат объекты, созданные по старой, более свободной схеме.
+    Ужесточение делает их невалидными: чтение может ломаться, а любое обновление
+    такого объекта будет отклонено.
+  explanation: |
+    Это общее свойство эволюции API: расширять безопасно, сужать — нет. Отсюда порядок
+    действий при ужесточении: сначала новая версия схемы рядом со старой, потом
+    миграция существующих объектов, и только затем отключение старой версии.
+    Тот же принцип объясняет, почему поля в API депрекируют годами, а не удаляют.
+  ref: "https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/"
+
+- id: k8s-crd-operators-016
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Оператор с ClusterRole на секреты во всех namespace — какова цена этого решения?
+  answer: |
+    Компрометация оператора равна компрометации всех секретов кластера. Оператор —
+    обычный под, доступный по сети и собранный из чужого кода, и его ServiceAccount
+    становится самой ценной учётной записью в кластере.
+  explanation: |
+    Про эту цену забывают, потому что права запрашивает установочный чарт, и решение
+    принимается одной командой без чтения. Практика — читать ClusterRole перед
+    установкой и по возможности ограничивать оператора namespace'ами через
+    Role вместо ClusterRole, если он это поддерживает.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
