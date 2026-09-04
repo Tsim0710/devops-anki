@@ -2525,14 +2525,17 @@
   type: basic
   verified: false
   prompt: |
-    Ingress отдаёт `503` — не `502` и не `404`. О чём это обычно говорит?
+    Все поды приложения в статусе `Running`, но Ingress отдаёт `503`.
+    Что проверять первым?
   answer: |
-    Правило нашлось, но у сервиса **нет ни одного готового бэкенда**: `EndpointSlice`
-    пуст. Поды не прошли readiness, не запустились или разъехались метки.
+    `kubectl get endpointslice` для этого сервиса. `Running` не означает `Ready`:
+    скорее всего поды не проходят readiness, и список бэкендов пуст.
   explanation: |
-    Три кода складываются в удобную лестницу: `404` — не нашлось правило,
-    `503` — правило есть, а слать некуда, `502` — послали, но ответ не получили.
-    Первый уводит в манифест Ingress, второй в состав endpoints, третий в сам под.
+    `Running` — это фаза пода, она говорит лишь о том, что контейнеры запущены.
+    В endpoints попадают только **готовые** поды, а ingress-controller берёт upstream
+    именно оттуда. Поэтому цепочка проверки идёт не от логов приложения,
+    а от состава endpoints: пусто — вопрос к readiness и меткам, не пусто — вопрос
+    к самому приложению.
   ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
 
 # --- storage: junior/middle ---
@@ -3815,3 +3818,718 @@
     прав начинают именно с `kubectl get clusterrolebindings`: там обычно и находится
     забытый доступ, выданный «на время отладки».
   ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+# --- senior-слой, проход 1 ---
+
+- id: k8s-probes-016
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Выкат намертво встал: новые поды не становятся ready, старые не гасятся.
+    Как связаны readiness и `maxUnavailable: 0`?
+  answer: |
+    `maxUnavailable: 0` запрещает уменьшать число готовых подов, а Deployment считает
+    готовность по readiness. Если новый под её не проходит, гасить старый нельзя —
+    и выкат стоит, пока не сработает `progressDeadlineSeconds`.
+  explanation: |
+    Комбинация выглядит максимально безопасной и именно поэтому опасна: строгая
+    readiness плюс нулевая недоступность превращают любую ошибку готовности
+    в бессрочную заморозку вместо честного падения. Автоотката при этом не происходит —
+    выкат просто помечается провалившимся и остаётся в половинчатом состоянии,
+    с подами двух версий одновременно.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-probes-017
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем нативная `grpc`-проба отличается от вызова `grpc_health_probe` через `exec`?
+  answer: |
+    Нативная выполняется самим kubelet по стандартному протоколу gRPC Health Checking —
+    без запуска процессов и без лишнего бинарника в образе. `exec` с `grpc_health_probe`
+    делает то же самое, но ценой форка на каждую проверку и дополнительной зависимости.
+  explanation: |
+    Практическая разница видна на плотных узлах: сотни exec-проб дают заметный расход
+    CPU, которого у нативной пробы нет вовсе. Второй аргумент — безопасность образа:
+    distroless-образ без лишних бинарников невозможно проверить через exec в принципе,
+    и раньше это было главной причиной тащить в него отдельный инструмент.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+
+- id: k8s-probes-018
+  domain: k8s
+  subtopic: probes
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у пробы есть собственный `terminationGracePeriodSeconds`, если он уже есть у пода?
+  answer: |
+    Чтобы зависший контейнер, убиваемый по liveness, гасился **быстро**, а штатное
+    завершение пода при этом сохраняло длинный grace period для корректного слива
+    соединений.
+  explanation: |
+    Два случая требуют противоположного поведения: при выкате приложение надо аккуратно
+    дождаться, при зависании — прибить немедленно, потому что ждать от него уже нечего.
+    Без раздельной настройки приходилось выбирать одно число на оба сценария, и обычно
+    выбирали длинное — из-за чего зависший под ещё минуту занимал место и держал
+    соединения.
+  ref: "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/"
+
+- id: k8s-pods-014
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: [theory, core]
+  type: basic
+  verified: false
+  prompt: |
+    Job с sidecar'ом никогда не завершается. Как это чинится нативным sidecar'ом
+    и с какой версии он стабилен?
+  answer: |
+    Нативный sidecar — это init-контейнер с `restartPolicy: Always`. Такой контейнер
+    не мешает Job завершиться: завершение считается по основному контейнеру.
+    Стабилен с **1.33**, доступен начиная с 1.28.
+  explanation: |
+    Обычный второй контейнер в Job удерживает под в работе бесконечно: под считается
+    завершённым, только когда закончились **все** его контейнеры, а прокси или сборщик
+    метрик закончиться не собирается. Нативный sidecar решает и вторую задачу — порядок:
+    он гарантированно стартует до основного контейнера и гасится после него.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/"
+
+- id: k8s-pods-015
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли изменить потолок задержки между рестартами контейнера, если
+    пятиминутный `CrashLoopBackOff` слишком долгий?
+  answer: |
+    Да, через конфигурацию kubelet: `crashLoopBackOff.maxContainerRestartPeriod`
+    в диапазоне от `1s` до `300s`. Настройка **пер-узел**, не пер-под.
+  explanation: |
+    Дефолт остаётся прежним: старт с 10s, удвоение, потолок 300s. Важно, что ручка
+    живёт у kubelet, а не в манифесте пода — то есть в managed-кластере её может
+    не быть вовсе, и разные узлы одного кластера могут вести себя по-разному.
+    Если заданный потолок меньше 10s, с него же начинается и первая задержка.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+
+- id: k8s-pods-016
+  domain: k8s
+  subtopic: pods
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Kubelet на узле перезапустился. Что произойдёт с работающими подами?
+  answer: |
+    Ничего: контейнеры запущены container runtime'ом и от kubelet не зависят.
+    Поднявшись, kubelet заново узнаёт состояние у runtime и продолжает следить
+    за уже работающими контейнерами.
+  explanation: |
+    Разделение ответственности здесь принципиально: kubelet — управляющий агент,
+    а не родитель процессов. Отсюда же следует, что во время его отсутствия
+    не работают пробы, не обновляется status и не монтируются новые тома —
+    кластер про такой узел ничего не знает и через несколько минут пометит его
+    `NotReady`, начав выселять поды, хотя они живы.
+  ref: "https://kubernetes.io/docs/concepts/architecture/nodes/"
+
+- id: k8s-workload-controllers-016
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `podManagementPolicy: Parallel` у StatefulSet и когда это допустимо?
+  answer: |
+    Отключает порядок: поды создаются и удаляются одновременно, а не строго
+    по номерам с ожиданием готовности предыдущего. Допустимо там, где реплики
+    не зависят друг от друга при старте.
+  explanation: |
+    Дефолтный `OrderedReady` нужен базам с выборами лидера и последовательной
+    инициализацией, но за это платят временем: кластер из десяти реплик поднимается
+    в десять шагов, и один зависший под блокирует всех, кто за ним. Если стабильные
+    имена и тома нужны, а порядок нет — `Parallel` убирает это узкое место.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-017
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как выкатить новую версию StatefulSet только на часть реплик?
+  answer: |
+    Через `updateStrategy.rollingUpdate.partition: N` — обновятся только поды
+    с порядковым номером **больше или равным** N. Остальные останутся на старой версии
+    до снижения partition.
+  explanation: |
+    Это встроенная канарейка для stateful-нагрузки: поставил `partition: 4` при пяти
+    репликах — обновился только `web-4`, посмотрел на него, опустил partition до нуля.
+    Работает именно благодаря порядковым именам: у Deployment такого механизма нет,
+    поды там анонимны, и канарейку приходится делать вторым Deployment.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-workload-controllers-018
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `podFailurePolicy` дополняет `backoffLimit` в Job?
+  answer: |
+    `backoffLimit` считает **все** падения одинаково. `podFailurePolicy` разбирает
+    их по причине: по коду выхода или по условию пода можно решить прекратить Job
+    немедленно либо, наоборот, не засчитывать попытку.
+  explanation: |
+    Разница важна для долгих задач: под, вытесненный с узла по preemption, — это
+    не ошибка приложения, но `backoffLimit` съедает на нём попытку, и многочасовой
+    расчёт падает из-за инфраструктуры. И наоборот, код выхода, означающий неверные
+    входные данные, нет смысла ретраить шесть раз — правильнее сразу остановиться.
+  ref: "https://kubernetes.io/docs/tasks/job/pod-failure-policy/"
+
+- id: k8s-workload-controllers-019
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Контроллер CronJob лежал два часа. Что произойдёт с пропущенными запусками?
+  answer: |
+    Он попробует запустить пропущенное, ограничившись окном `startingDeadlineSeconds`.
+    Если пропущено больше сотни запусков и дедлайн не задан, CronJob вообще перестанет
+    запускаться и пожалуется в события.
+  explanation: |
+    Поведение спроектировано против лавины: минутный CronJob после двухчасового простоя
+    иначе стартовал бы сто двадцать задач разом и добил бы кластер. Практический вывод —
+    `startingDeadlineSeconds` задают осознанно: короткое окно означает «пропущенное
+    неактуально», отсутствие поля — риск полного залипания расписания.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-services-014
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: [theory, core]
+  type: basic
+  verified: false
+  prompt: |
+    Чем режим kube-proxy `iptables` отличается от `IPVS` и когда разница становится
+    заметной?
+  answer: |
+    В iptables правила образуют цепочку, которая просматривается последовательно,
+    и её обновление переписывает большой набор правил. IPVS использует хеш-таблицы
+    в ядре: поиск не зависит от числа сервисов, обновление точечное.
+    Разница проявляется на тысячах сервисов и эндпоинтов.
+  explanation: |
+    На небольшом кластере выбор не имеет значения, и iptables проще в отладке. При росте
+    начинает болеть не столько сама маршрутизация, сколько **время применения изменений**:
+    каждое обновление endpoints перезаписывает огромный набор правил, и распространение
+    отстаёт на секунды. Тот же класс проблем решает режим nftables и подходы на eBPF,
+    где kube-proxy заменяется целиком.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-015
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем headless-сервису StatefulSet нужен `publishNotReadyAddresses: true`?
+  answer: |
+    Чтобы DNS-имена подов резолвились **до** того, как поды станут готовы. Иначе
+    реплики базы не смогут найти друг друга при первом запуске: каждая ждёт кворума,
+    а кворум ждёт их готовности.
+  explanation: |
+    Это классический дедлок начальной загрузки кластерного приложения. Обычная логика
+    «не готов — нет в DNS» правильна для трафика пользователей, но убийственна для
+    внутреннего обнаружения участников. Поэтому у headless-сервисов StatefulSet этот
+    флаг стоит почти всегда, и в чартах баз данных он прописан по умолчанию.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-016
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как из кластера ходить на внешнюю БД так, чтобы приложение об этом не знало?
+  answer: |
+    Создать Service **без селектора** и вручную завести для него `EndpointSlice`
+    с адресом БД. Приложение обращается по обычному имени сервиса, а куда он ведёт —
+    вопрос конфигурации кластера.
+  explanation: |
+    Приём даёт слой косвенности: переезд БД или переключение со внешней на внутреннюю
+    меняет один объект в кластере, а не конфиги всех приложений. Отличие от
+    `ExternalName` в том, что тот работает только через CNAME и требует DNS-имени,
+    а здесь можно указать голый IP. Обратная сторона — эндпоинты никто не проверяет
+    на живость: readiness тут нет.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-017
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кластер раскинут на три зоны, и половина счёта — межзональный трафик.
+    Что с этим делает Kubernetes?
+  answer: |
+    Даёт маршрутизацию с учётом топологии: поле `trafficDistribution` у Service
+    (значение `PreferClose`) просит отдавать предпочтение эндпоинтам в своей зоне,
+    пока их достаточно.
+  explanation: |
+    По умолчанию Service балансирует по всем готовым подам одинаково, не различая зон, —
+    и в облаке каждый межзональный пакет стоит денег. Механизм намеренно мягкий:
+    при нехватке локальных эндпоинтов трафик всё равно уйдёт в другую зону, иначе
+    экономия обернулась бы отказом. Отличие от `externalTrafficPolicy` в том,
+    что тот про **входящий извне** трафик и сохранение source IP.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-config-secrets-016
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт шифрование Secret'ов at rest в etcd и от чего оно **не** защищает?
+  answer: |
+    Защищает от чтения секретов из файлов или бэкапов etcd — данные лежат
+    зашифрованными. Не защищает от того, у кого есть доступ к API: apiserver
+    расшифровывает их прозрачно, и `kubectl get secret` вернёт открытый текст.
+  explanation: |
+    Это ровно один слой из четырёх, на которых держится защита: RBAC (кто может читать),
+    шифрование at rest (что лежит на диске), доступ к узлам (kubelet держит секреты
+    в tmpfs) и способ доставки в под (файл против env). Ни один из них не заменяет
+    остальные, а без первого шифрование почти бесполезно.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/"
+
+- id: k8s-config-secrets-017
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему токен ServiceAccount в поде теперь короткоживущий и что такое `audience`?
+  answer: |
+    Токен монтируется как projected volume, kubelet сам его продлевает, а при удалении
+    пода он становится невалидным. `audience` ограничивает, **кому** токен предъявляется:
+    выданный для внешнего сервиса не подойдёт к apiserver.
+  explanation: |
+    Раньше токен был вечным Secret'ом: утёк один раз — действителен всегда, отозвать
+    можно только пересозданием ServiceAccount. Привязка ко времени и к аудитории
+    превращает утечку из катастрофы в инцидент с ограниченным сроком. Тот же механизм
+    лежит в основе federation с облачным IAM — под получает токен с audience облака
+    и меняет его на облачные права без единого статического ключа.
+  ref: "https://kubernetes.io/docs/concepts/security/service-accounts/"
+
+- id: k8s-config-secrets-018
+  domain: k8s
+  subtopic: config-secrets
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны External Secrets или Secrets Store CSI, если Secret уже есть в кластере?
+  answer: |
+    Чтобы источником правды был внешний менеджер секретов (Vault, облачный Secret
+    Manager), а кластер получал значения оттуда. Это даёт ротацию, аудит доступа
+    и единое хранилище на все окружения — и позволяет не держать секреты в git.
+  explanation: |
+    Родной Secret решает задачу доставки, но не жизненного цикла: он не умеет ни
+    ротироваться сам, ни рассказать, кто и когда его читал. Отсюда же вечная проблема
+    GitOps — манифест Secret нельзя положить в репозиторий как есть. Два подхода
+    различаются механикой: External Secrets синхронизирует внешнее хранилище в обычный
+    Secret, CSI-драйвер монтирует значения в под напрямую, не создавая объект в API.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+# --- senior-слой, проход 2 ---
+
+- id: k8s-architecture-014
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как контроллеры узнают об изменениях, не опрашивая apiserver в цикле?
+  answer: |
+    Через watch: контроллер один раз выкачивает список объектов, запоминает
+    `resourceVersion` и дальше держит долгоживущее соединение, получая только изменения.
+    Локальная копия объектов лежит в informer-кеше.
+  explanation: |
+    Отсюда масштабируемость apiserver: тысяча контроллеров не создаёт тысячу
+    периодических запросов. Отсюда же практическое следствие для отладки: контроллер
+    читает **свой кеш**, а не etcd, поэтому между записью объекта и реакцией на неё
+    всегда есть лаг. И отсюда же периодический resync — страховка на случай
+    оборванного watch, тот самый level-triggered подход.
+  ref: "https://kubernetes.io/docs/reference/using-api/api-concepts/"
+
+- id: k8s-architecture-015
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Узел потерял связь с control plane на десять минут. Что произойдёт с его подами?
+  answer: |
+    Через `node-monitor-grace-period` узел помечается `NotReady`, на него вешается taint
+    `node.kubernetes.io/unreachable:NoExecute`, и контроллер начинает удалять объекты
+    подов, чтобы контроллеры создали их на других узлах. Но **сами контейнеры на узле
+    продолжают работать**, пока узел не вернётся.
+  explanation: |
+    Это ключевой риск split-brain: с точки зрения кластера поды уже переехали,
+    с точки зрения узла они живы и, возможно, всё ещё пишут в общий том или держат
+    внешнюю блокировку. Именно поэтому для StatefulSet с RWO-томом переезд требует
+    отсоединения тома, а для приложений с эксклюзивным доступом нужна внешняя
+    страховка вроде fencing.
+  ref: "https://kubernetes.io/docs/concepts/architecture/nodes/"
+
+- id: k8s-architecture-016
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Три реплики apiserver за балансировщиком. Как они не конфликтуют при
+    одновременной записи одного объекта?
+  answer: |
+    Через оптимистичную блокировку: у каждого объекта есть `resourceVersion`, и запись
+    принимается, только если версия совпадает с текущей. Проигравший получает конфликт
+    и повторяет операцию на свежих данных.
+  explanation: |
+    Сами apiserver'ы состояния не хранят — они полностью stateless, а арбитраж
+    происходит в etcd, который и обеспечивает консенсус. Отсюда понятно, почему
+    масштабирование apiserver горизонтально работает, а масштабирование etcd — нет:
+    добавление узлов etcd увеличивает надёжность, но замедляет запись, потому что
+    кворум становится шире.
+  ref: "https://kubernetes.io/docs/reference/using-api/api-concepts/"
+
+- id: k8s-api-model-013
+  domain: k8s
+  subtopic: api-model
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое server-side apply и какую проблему он решает?
+  answer: |
+    Режим, в котором apiserver запоминает, **какой клиент владеет каким полем**
+    (`managedFields`). Два контроллера, правящие разные поля одного объекта,
+    больше не затирают работу друг друга, а попытка отобрать чужое поле даёт конфликт.
+  explanation: |
+    До него `apply` работал через аннотацию с последним применённым состоянием
+    на стороне клиента, и любой посторонний контроллер, дописавший поле, ломал расчёт
+    разницы. В кластере с HPA, service mesh и мутирующими webhook'ами у одного объекта
+    легко оказывается три-четыре автора — server-side apply делает это сосуществование
+    явным и разрешимым.
+  ref: "https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+
+- id: k8s-api-model-014
+  domain: k8s
+  subtopic: api-model
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Namespace второй час висит в `Terminating`. Что происходит и почему нельзя
+    просто снять финализатор?
+  answer: |
+    Один из объектов внутри не удаляется: чаще всего это CR, чей оператор мёртв,
+    или API-сервис расширения, который не отвечает. Namespace ждёт, пока все ресурсы
+    внутри будут вычищены.
+  explanation: |
+    Финализатор — это обещание довести уборку до конца: снять его руками означает
+    удалить объект, минуя эту уборку, и оставить в системе сирот — облачные диски,
+    балансировщики, записи во внешних системах, за которые продолжает капать счёт.
+    Правильный путь — найти застрявший ресурс через `kubectl api-resources` и понять,
+    какой контроллер не отвечает.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/"
+
+- id: k8s-cluster-dns-009
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает NodeLocal DNSCache и какую проблему он закрывает?
+  answer: |
+    Ставит на каждый узел локальный кеширующий DNS, к которому обращаются поды этого
+    узла. Снимает нагрузку с CoreDNS и убирает сетевой хоп до него на каждый запрос.
+  explanation: |
+    Кроме очевидной экономии, он лечит специфическую беду: DNS-запросы идут по UDP через
+    conntrack, и на нагруженных узлах это приводило к потерянным пакетам и загадочным
+    таймаутам ровно в пять секунд — характерная подпись повторной попытки резолва.
+    Локальный кеш общается с CoreDNS по TCP и этот класс проблем убирает.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/nodelocaldns/"
+
+- id: k8s-cluster-dns-010
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис пересоздали, но одно приложение продолжает стучаться на старый адрес часами.
+    Почему кластерный DNS тут ни при чём?
+  answer: |
+    Потому что кеширует **клиент**. Классический случай — JVM, которая исторически
+    кеширует результат резолва бессрочно; то же бывает у HTTP-клиентов с собственным
+    пулом соединений. TTL записи кластера при этом соблюдается.
+  explanation: |
+    Разделение слоёв здесь спасает часы поисков: `nslookup` из того же пода покажет
+    правильный новый адрес, а приложение будет ходить на старый — значит, дело
+    не в DNS-инфраструктуре, а в рантайме приложения. Лечится настройкой кеша
+    в самом клиенте, а не в CoreDNS.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-ingress-014
+  domain: k8s
+  subtopic: ingress
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    HTTP-01 валидация cert-manager висит неделями, под `cm-acme-http-solver` живой.
+    Где искать?
+  answer: |
+    В маршруте до solver'а: Let's Encrypt должен снаружи достучаться до
+    `/.well-known/acme-challenge/...`. Мешает обычно принудительный HTTPS-редирект,
+    правило, перехватывающее все пути, закрытый снаружи домен или неверный DNS.
+  explanation: |
+    Solver — обычный под за временным Ingress, и он подчиняется тем же правилам
+    маршрутизации, что и приложение. Отсюда парадокс: чем строже настроен вход
+    (везде HTTPS, всё редиректится), тем вернее ломается выпуск сертификата, потому
+    что валидация идёт именно по HTTP. Проверяется снаружи обычным curl'ом по пути
+    challenge, а не изнутри кластера.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-storage-015
+  domain: k8s
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Из каких двух этапов состоит подключение тома к поду и почему это важно
+    для диагностики?
+  answer: |
+    Attach — подключение диска к **узлу** (делает controller-manager через CSI),
+    и mount — монтирование файловой системы в под (делает kubelet). Это разные
+    операции с разными акторами и разными ошибками.
+  explanation: |
+    По симптому сразу видно этаж: `Multi-Attach error` или `FailedAttachVolume` —
+    проблема на уровне узла и облачного API, том всё ещё числится за другой машиной.
+    `FailedMount` — диск к узлу подключён, но не смонтировался: не та файловая система,
+    права, отсутствующий каталог. Смешивать их — значит искать в облаке то,
+    что лежит на узле.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-016
+  domain: k8s
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен режим `ReadWriteOncePod`, если уже есть `ReadWriteOnce`?
+  answer: |
+    RWO допускает **несколько подов на одном узле** — этого достаточно, чтобы два
+    экземпляра базы одновременно писали в одни файлы. RWOP гарантирует ровно один под
+    во всём кластере.
+  explanation: |
+    Дыра в RWO проявляется именно в момент выката: старый и новый под какое-то время
+    живут вместе, и если scheduler поставил их на один узел, оба получают доступ к тому.
+    Для СУБД это повреждение данных, а не гонка за производительность. RWOP закрывает
+    ровно этот сценарий, ценой того, что выкат становится обязательно с даунтаймом.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-cluster-networking-013
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ты навесил на под одну NetworkPolicy, разрешающую вход от фронтенда.
+    Что произошло с остальным его трафиком?
+  answer: |
+    Весь остальной **входящий** трафик к этому поду закрылся. Как только под попал
+    под хотя бы одну политику по данному направлению, для него включается режим
+    «запрещено всё, кроме явно разрешённого».
+  explanation: |
+    Ловушка в асимметрии: политика с секцией `ingress` не трогает исходящий трафик
+    вовсе, и наоборот. Поэтому «закрыл вход, а под перестал ходить в БД» означает,
+    что где-то есть вторая политика с `egress`. Вторая половина ловушки — проверки
+    мониторинга и health-эндпоинты: их источник тоже надо разрешать явно, иначе
+    под окажется здоров и невидим одновременно.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-cluster-networking-014
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт замена kube-proxy на реализацию поверх eBPF?
+  answer: |
+    Обработка сервисного трафика уходит из цепочек iptables в программы eBPF в ядре:
+    поиск бэкенда становится по хеш-таблице, независимо от числа сервисов, а часть
+    хопов и NAT'ов исчезает вовсе.
+  explanation: |
+    Выигрыш заметен там же, где болит iptables: тысячи сервисов, частые изменения
+    endpoints, задержка применения правил. Побочная выгода — видимость: eBPF-реализации
+    отдают подробную сетевую телеметрию, которой в iptables взять неоткуда.
+    Плата — требования к версии ядра и заметно более сложная отладка.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-scheduling-014
+  domain: k8s
+  subtopic: scheduling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кластер стабильно недоутилизирован, но новые поды не влезают. Что менять
+    и чем это опасно?
+  answer: |
+    Разрыв между `requests` и реальным потреблением: снижать брони до честных значений
+    по метрикам. Опасность в том, что это осознанный overcommit — под пиковой нагрузкой
+    сумма фактического потребления может превысить ресурсы узла.
+  explanation: |
+    Компромисс здесь не технический, а экономический: высокие requests дают
+    предсказуемость и пустые узлы, низкие — плотность и риск вытеснений. Безопасная
+    середина — requests по 95-му перцентилю реального потребления и обязательные
+    `limits.memory`, чтобы одна утечка не забрала узел целиком. Именно эту задачу
+    автоматизирует VPA в режиме рекомендаций.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-placement-013
+  domain: k8s
+  subtopic: placement
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    `kubectl drain` висит и не может выселить под. При чём тут PodDisruptionBudget?
+  answer: |
+    PDB запрещает опускать число доступных подов ниже порога, а drain — добровольное
+    нарушение и обязан его соблюдать. Если реплика одна, а PDB требует `minAvailable: 1`,
+    выселить её нельзя никогда.
+  explanation: |
+    Получается дедлок из двух правильных по отдельности настроек, и он останавливает
+    обновление узлов всего кластера. Разрешается либо увеличением числа реплик, либо
+    переходом на `maxUnavailable: 1` вместо `minAvailable`, который ведёт себя разумно
+    при малом числе подов. Это же объясняет, почему у синглтонов PDB обычно не ставят.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/"
+
+- id: k8s-placement-014
+  domain: k8s
+  subtopic: placement
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Жёсткая anti-affinity по узлам при трёх репликах и двух узлах. Что произойдёт
+    во время выката?
+  answer: |
+    Выкат встанет: третья реплика не может разместиться уже сейчас, а при
+    `maxSurge > 0` новый под тем более не найдёт свободного узла — на каждом уже
+    сидит под этого же приложения.
+  explanation: |
+    Жёсткое правило размещения и стратегия выката конфликтуют неочевидно: по отдельности
+    обе выглядят разумно, а вместе дают тупик, который проявляется не при создании,
+    а через недели, при первом же обновлении. Отсюда практика — anti-affinity брать
+    в мягком варианте, а гарантии распределения выражать через topology spread
+    с `ScheduleAnyway`.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/"
+
+- id: k8s-rbac-013
+  domain: k8s
+  subtopic: rbac
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему пользователь не может создать роль с правами шире собственных?
+  answer: |
+    Это защита от эскалации привилегий: apiserver проверяет, что создаваемая роль
+    не выходит за пределы прав автора. Обойти проверку можно только имея явные глаголы
+    `escalate` или `bind`.
+  explanation: |
+    Без такой проверки право `create roles` в своём namespace автоматически означало бы
+    право стать в нём администратором — достаточно выписать роль на всё и привязать
+    её себе. Отсюда же следует, почему глаголы `escalate` и `bind` считаются
+    администраторскими: выдавая их, ты фактически выдаёшь право раздавать любые права.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-014
+  domain: k8s
+  subtopic: rbac
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как отозвать доступ к кластеру у уволившегося сотрудника?
+  answer: |
+    Убрать его из группы в SSO или отозвать сертификат — то есть там, где выдаются
+    удостоверения. Внутри кластера удалять нечего: объекта User не существует,
+    а RBAC-привязки описывают права группы, а не человека.
+  explanation: |
+    Это следствие того, что аутентификацию Kubernetes делегирует наружу. Клиентские
+    сертификаты здесь худший вариант: отозвать их без перевыпуска CA нельзя, поэтому
+    их выписывают с коротким сроком или не используют для людей вовсе. При OIDC
+    отзыв мгновенный и централизованный — это главный практический аргумент за него.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
