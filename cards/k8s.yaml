@@ -4533,3 +4533,1990 @@
     их выписывают с коротким сроком или не используют для людей вовсе. При OIDC
     отзыв мгновенный и централизованный — это главный практический аргумент за него.
   ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
+
+# --- troubleshooting ---
+
+- id: k8s-troubleshooting-001
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Первая команда при разборе любой проблемы с подом — какая и почему?
+  answer: |
+    `kubectl describe pod <name>`. Она показывает **события**: почему под не планируется,
+    не тянется образ, не монтируется том, падают пробы — то, чего нет ни в статусе,
+    ни в логах.
+  explanation: |
+    Логи показывают, что говорит приложение, но подавляющая часть отказов происходит
+    **до** запуска приложения — на планировании, скачивании образа, монтировании.
+    В этих случаях логов физически не существует, и попытка начать с `kubectl logs`
+    даёт пустоту вместо диагноза. События же называют причину прямым текстом.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-002
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `READY 0/1` при статусе `Running`?
+  answer: |
+    Контейнер запущен, но не прошёл `readinessProbe`. Приложение работает, а трафик
+    на него не идёт — из endpoints оно исключено.
+  explanation: |
+    Колонка `STATUS` отвечает на вопрос «запустилось ли», колонка `READY` — «можно ли
+    давать трафик», и это два независимых факта. Именно это расхождение стоит за
+    большинством жалоб «под живой, а сервис не отвечает»: смотрели на `Running`
+    и не заметили нули слева.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-003
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько живут события (`Events`) в кластере?
+  answer: |
+    Около часа — по умолчанию у них TTL, после которого apiserver их удаляет.
+  explanation: |
+    Отсюда правило разбора ночных инцидентов: события к утру уже мертвы, и восстановить
+    причину по ним невозможно. Остаются только внешние системы — централизованные
+    логи и метрики. Это же объясняет пустой раздел `Events` у пода, который сломался
+    вчера и с тех пор просто висит.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+
+- id: k8s-troubleshooting-004
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `kubectl logs -f` отличается от `kubectl logs --previous`?
+  answer: |
+    `-f` следит за логом **текущего** запуска в реальном времени. `--previous` показывает
+    лог **предыдущего**, уже завершившегося запуска контейнера.
+  explanation: |
+    При падении контейнера причина остаётся в предыдущем запуске, а текущий начинается
+    с чистого листа — поэтому у только что перезапущенного пода `logs` без флага почти
+    всегда пуст или бесполезен. Хранится ровно один предыдущий запуск: после второго
+    рестарта самый первый лог уже недоступен.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/"
+
+- id: k8s-troubleshooting-005
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Опиши лестницу диагностики: в каком порядке проверять, когда «сервис не работает».
+  answer: |
+    Снизу вверх: **объект существует** → **под запланирован** → **контейнер запущен** →
+    **под готов** (readiness, endpoints) → **трафик доходит** (Service, DNS, Ingress).
+    На каждой ступени своя команда и свой класс причин.
+  explanation: |
+    Порядок не произволен: каждая ступень — предусловие следующей, и проверять верхнюю,
+    не убедившись в нижней, значит искать не там. Классическая потеря времени — читать
+    логи приложения, когда под ещё в `Pending`: приложения не существует. Правило
+    «сначала стадия, потом команда» экономит больше, чем знание любой отдельной команды.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/"
+
+- id: k8s-troubleshooting-006
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Deployment создан, `kubectl get pods` пуст, событий на подах нет. Куда смотреть?
+  answer: |
+    На **ReplicaSet**: `kubectl describe rs`. Если подов не существует, события о причине
+    висят на том, кто пытался их создать. Типичные причины — ResourceQuota, admission-политика,
+    ошибка в pod-template.
+  explanation: |
+    Это применение правила «нет объекта — иди к владельцу». Диагностика по умолчанию
+    смотрит на поды, но когда создание пода отклонено на admission, пода нет, и смотреть
+    не на что. Ошибка при этом никуда не делась — она записана у контроллера, который
+    получил отказ.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-007
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Соединение к сервису отваливается по **таймауту**, а не с `connection refused`.
+    О чём это говорит?
+  options:
+    a: "Пакет не дошёл: его дропнули по дороге — NetworkPolicy, firewall, неверный маршрут"
+    b: "Пакет дошёл, но на порту никто не слушает"
+    c: "Приложение приняло соединение и слишком долго отвечает"
+    d: "Не разрешилось DNS-имя сервиса"
+  answer: a
+  explanation: |
+    Разница диагностична и экономит половину поиска. `Connection refused` означает, что
+    пакет **доехал** до хоста и ядро ответило RST — сеть в порядке, проблема в том, что
+    процесс не слушает нужный порт. Таймаут означает, что ответа нет вообще: пакет
+    молча уничтожен где-то по пути, и искать надо сетевые правила, а не приложение.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"
+
+- id: k8s-troubleshooting-008
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `NXDOMAIN` отличается от таймаута при резолве имени сервиса?
+  answer: |
+    `NXDOMAIN` — DNS **ответил**, что такого имени нет: неверное имя, не тот namespace,
+    сервиса не существует. Таймаут — DNS не ответил вовсе: проблема с CoreDNS,
+    сетью до него или закрытым egress.
+  explanation: |
+    Это та же логика «ответ против тишины», что с refused и таймаутом, только на слое
+    имён. Различать критично, потому что ведёт в противоположные стороны: в первом
+    случае чинишь манифест приложения, во втором — инфраструктуру кластера. Проверяется
+    одной командой `nslookup` изнутри пода: она показывает и сам ответ, и то, откуда он.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/"
+
+- id: k8s-troubleshooting-009
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как проверить, что приложение вообще отвечает, минуя Service, Ingress и DNS?
+  answer: |
+    `kubectl port-forward pod/<name> 8080:8080` — соединение идёт через apiserver прямо
+    к поду, в обход всей сетевой машинерии кластера.
+  explanation: |
+    Это способ разрезать проблему пополам одним действием. Работает через port-forward,
+    но не работает через Ingress — значит, приложение живо, и виноват путь: Service,
+    endpoints, ingress-controller. Не работает и так — виновато само приложение,
+    и в сеть можно не ходить.
+  ref: "https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/"
+
+- id: k8s-troubleshooting-010
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В образе нет ни shell, ни утилит (distroless). Как попасть внутрь пода на отладку?
+  answer: |
+    `kubectl debug -it <pod> --image=busybox --target=<container>` — в под добавляется
+    **ephemeral-контейнер** с нужными инструментами, а `--target` даёт ему общий
+    process namespace с отлаживаемым контейнером.
+  explanation: |
+    Без `--target` ты попадаешь в соседний контейнер того же пода: сеть и тома общие,
+    но чужих процессов не видно, и `ps` покажет пустоту. Именно `--target` превращает
+    отладку в полноценную. Важное ограничение: ephemeral-контейнер нельзя ни удалить,
+    ни перезапустить — он живёт до конца жизни пода.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+
+- id: k8s-troubleshooting-011
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под в `CrashLoopBackOff`. Перечисли шаги разбора по порядку.
+  answer: |
+    1) `kubectl logs --previous` — что сказало приложение перед смертью;
+    2) exit code в `describe` — 137 (OOM или SIGKILL), 1 (ошибка приложения), 0
+    (завершился штатно при `restartPolicy: Always`);
+    3) события — не убивает ли его liveness;
+    4) конфиг — переменные, тома, права.
+  explanation: |
+    Порядок идёт от самого информативного к самому редкому. Отдельно стоит помнить,
+    что `CrashLoopBackOff` — состояние ожидания, а не причина, и что exit code 0 тут
+    тоже означает проблему: контейнер сделал работу и вышел, а политика требует держать
+    его вечно — обычно это неверно выбранный тип нагрузки.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-012
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под завис в `ContainerCreating`. Какие три класса причин и как их различить?
+  answer: |
+    Тома (нет ConfigMap или Secret, не монтируется PVC), сеть (CNI не выдал адрес),
+    образ (тянется или не тянется). Различает `describe`: причина написана в событиях
+    прямым текстом.
+  explanation: |
+    Все три объединяет одно: kubelet начал работу и застрял на подготовке, поэтому
+    контейнеров ещё нет и логов не существует. Практическая ценность классификации
+    в том, что они ведут к разным людям: тома и образ — вопрос к манифесту
+    и реестру, сеть — к администратору кластера.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-013
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что значит фраза «эндпоинты разъехались» и почему это не диагноз?
+  answer: |
+    Что `EndpointSlice` сервиса пуст. Это **наблюдение**: оно говорит, где искать,
+    но не почему. Причин две — метки подов не совпали с селектором Service,
+    либо поды не готовы.
+  explanation: |
+    Разделение наблюдения и диагноза здесь принципиально, потому что дальше действия
+    противоположны: в первом случае правишь манифест, во втором — разбираешься с
+    readiness или приложением. Различить их — одна команда:
+    `kubectl get pods -l <селектор из Service>`. Пусто — метки; не пусто, но не
+    `READY` — готовность.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"
+
+- id: k8s-troubleshooting-014
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Ingress отдал `502`. Как понять, страницу нарисовал ingress-controller
+    или само приложение?
+  answer: |
+    Если ошибку отрисовал nginx (характерная страница, заголовок `Server: nginx`) —
+    контроллер жив, значит проблема в upstream. Если ответ пришёл от приложения —
+    путь целиком рабочий, и это уже его собственная ошибка.
+  explanation: |
+    Правило «кто нарисовал страницу, тот дожил» позволяет за один взгляд определить,
+    до какого этажа доехал запрос. Отсюда и разбор: `502` от nginx означает «правило
+    сработало, upstream не ответил» — смотреть надо поды и порт `targetPort`, а не
+    манифест Ingress.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-troubleshooting-015
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложению нужно знать имя своего пода и узла. Как передать это без хардкода?
+  answer: |
+    Через Downward API: значения из `metadata` и `spec` пробрасываются в переменные
+    окружения или в файлы — `POD_NAME`, `NODE_NAME`, namespace, IP пода.
+  explanation: |
+    Это единственный штатный способ дать приложению знать о себе, не выдавая ему доступ
+    к API кластера. Практическая польза именно в диагностике: имя пода и узла
+    в структурированном логе превращают централизованные логи из свалки в нечто,
+    по чему можно отследить конкретный экземпляр и понять, все ли реплики болеют
+    или только одна.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/downward-api/"
+
+- id: k8s-troubleshooting-016
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `kubectl events --for pod/<name>` удобнее, чем `describe`?
+  answer: |
+    Он показывает события в **хронологическом порядке** и умеет следить в реальном
+    времени (`--watch`), тогда как `describe` даёт срез вперемешку с остальным описанием
+    объекта.
+  explanation: |
+    Порядок важен там, где надо восстановить последовательность: сначала не сработала
+    проба, потом убили контейнер, потом не смогли скачать образ — или наоборот. По
+    описанию объекта эту цепочку не собрать. Плюс события можно смотреть по всему
+    namespace сразу и увидеть, что проблема не в одном поде.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_events/"
+
+- id: k8s-troubleshooting-017
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как правильно проверять гипотезу при разборе инцидента?
+  answer: |
+    Проверять тем, что гипотезу **отличает** от конкурирующих, а не тем, что её
+    подтверждает. Хорошая проверка — та, результат которой при разных гипотезах разный.
+  explanation: |
+    Классическая ловушка: подозреваешь сеть, идёшь смотреть сетевые метрики, находишь
+    там что-нибудь необычное и успокаиваешься — при том что необычное там есть всегда.
+    Дисциплина различающих проверок и объясняет силу пар вроде «таймаут против refused»
+    или «NXDOMAIN против тишины»: каждая делит пространство причин пополам одним действием.
+  ref: "https://kubernetes.io/docs/tasks/debug/"
+
+- id: k8s-troubleshooting-018
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Endpoints полны, поды `Ready`, а Ingress всё равно отдаёт `502`. Что осталось?
+  answer: |
+    Приложение принимает соединение, но отвечает неверно: не тот протокол (HTTPS
+    на HTTP-порту), слишком долгий ответ против таймаута контроллера, слишком большие
+    заголовки, разорванный keep-alive. Проверяется `curl` прямо на pod IP.
+  explanation: |
+    Это остаток после того, как отсеяны все инфраструктурные слои: маршрут найден,
+    бэкенды есть, соединение устанавливается. Значит расхождение в **семантике** HTTP,
+    а не в доставке пакетов. Отсюда следующий шаг — сравнить, что отдаёт под напрямую
+    и что видит контроллер: разница и есть ответ.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-troubleshooting-019
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение жалуется на нехватку памяти, но под не убивают и `restartCount` нулевой.
+    Что происходит?
+  answer: |
+    Убивают **процесс внутри** контейнера, а не сам контейнер: OOM-killer ядра выбрал
+    дочерний процесс, PID 1 выжил, значит с точки зрения kubelet ничего не случилось.
+  explanation: |
+    Из-за этого инцидент невидим для кластера: рестартов нет, статус зелёный, метрики
+    пода в норме — а приложение теряет воркеров. Смотреть надо в логи самого приложения
+    и в `dmesg` на узле. Это же аргумент за то, чтобы PID 1 корректно реагировал на
+    смерть детей, иначе контейнер превращается в кладбище зомби-процессов.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/"
+
+- id: k8s-troubleshooting-020
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Всё в кластере выглядит здоровым, но `kubectl apply` иногда висит и падает
+    по таймауту. Куда смотреть?
+  answer: |
+    На admission webhooks: mutating или validating webhook с `failurePolicy: Fail`,
+    чей под недоступен, блокирует создание объектов. Список — `kubectl get
+    mutatingwebhookconfigurations,validatingwebhookconfigurations`.
+  explanation: |
+    Webhook стоит на пути **каждого** подходящего запроса к apiserver, и его недоступность
+    выглядит не как отказ приложения, а как поломка самого кластера. Самый неприятный
+    вариант — webhook, который перехватывает создание подов в своём же namespace:
+    он не может подняться, потому что для этого нужен он сам. Отсюда практика —
+    исключать системные namespace из области действия политик.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-troubleshooting-021
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Один под из десяти реплик отвечает медленно, остальные нормально. С чего начать?
+  answer: |
+    Сравнить его окружение с остальными: на каком он узле, кто его соседи, есть ли
+    на этом узле троттлинг или давление памяти. Проблема реплики, а не приложения,
+    почти всегда живёт на уровне узла.
+  explanation: |
+    Ключ в самой асимметрии: код и конфиг у всех реплик одинаковые, значит различие
+    приходит извне — шумный сосед, неудачное распределение по зонам, деградировавший
+    диск. Это тот случай, когда `NODE_NAME` в логах через Downward API окупается
+    мгновенно: без него связь «медленно» и «вот этот узел» не увидеть.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/"
+
+- id: k8s-troubleshooting-022
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Kubelet на узле не отвечает, но контейнеры работают. Чем посмотреть, что на узле
+    реально запущено?
+  answer: |
+    `crictl ps` и `crictl logs` прямо на узле — они разговаривают с container runtime
+    по CRI, минуя kubelet и apiserver.
+  explanation: |
+    Это последний этаж диагностики, куда спускаются, когда обычные инструменты
+    бесполезны: `kubectl` спрашивает apiserver, apiserver знает лишь то, что успел
+    сообщить kubelet, а тот молчит. `crictl` показывает факт, а не представление
+    кластера о факте, — и расхождение между ними само по себе диагноз.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/"
+
+- id: k8s-troubleshooting-023
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение периодически получает ошибки соединения ровно через 5 секунд ожидания.
+    Что это за подпись?
+  answer: |
+    Характерный признак проблем с DNS по UDP: клиент ждёт стандартный таймаут резолвера
+    в 5 секунд и повторяет запрос. Обычно за этим стоят потери UDP-пакетов
+    на нагруженном узле или перегруженный CoreDNS.
+  explanation: |
+    Ровные пятисекундные задержки — редкий случай, когда число само называет причину:
+    в приложении такие круглые интервалы почти не встречаются, а таймаут резолвера
+    именно таков по умолчанию. Лечится обычно локальным DNS-кешем на узлах и переходом
+    резолва на TCP; крутить таймауты приложения бесполезно, они лишь маскируют симптом.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/"
+
+- id: k8s-troubleshooting-024
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Под удалили, а он всё ещё в `Terminating` спустя полчаса. Причины и что делать?
+  answer: |
+    Приложение не реагирует на `SIGTERM` и висит до конца grace period; или зависло
+    размонтирование тома; или недоступен узел, и kubelet не подтверждает удаление.
+    Принудительно — `--force --grace-period=0`, но с пониманием последствий.
+  explanation: |
+    Форс удаляет объект из API, **не дожидаясь подтверждения от узла**, — и если узел
+    жив, контейнер на нём продолжает работать. Для stateful-нагрузки с общим томом
+    это прямой путь к двум писателям и повреждению данных. Поэтому форс уместен, когда
+    точно известно, что узла больше нет.
+  ref: "https://kubernetes.io/docs/tasks/run-application/force-delete-stateful-set-pod/"
+
+# --- autoscaling ---
+
+- id: k8s-autoscaling-001
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Три слоя автоскейлинга в Kubernetes — что каждый из них крутит?
+  answer: |
+    HPA меняет **число реплик** пода. VPA меняет **requests и limits** одного пода.
+    Cluster Autoscaler меняет **число узлов** в кластере.
+  explanation: |
+    Слои отвечают на разные вопросы: «нагрузки больше, чем тянет одна реплика» — HPA;
+    «реплика просит не столько, сколько ест» — VPA; «поды некуда сажать» — CA.
+    Общее у всех троих одно и принципиальное: решения принимаются по **броням**
+    (`requests`), а не по фактическому потреблению узлов.
+  ref: "https://kubernetes.io/docs/concepts/workloads/autoscaling/"
+
+- id: k8s-autoscaling-002
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    По какой формуле HPA считает нужное число реплик?
+  answer: |
+    `желаемые = ceil(текущие × (текущая метрика / целевая метрика))`. Результат
+    ограничивается `minReplicas` и `maxReplicas`.
+  explanation: |
+    Из формулы следует главное свойство: HPA **пропорционален, а не инкрементален**.
+    При двукратном превышении цели он сразу удваивает число реплик, а не добавляет
+    по одной. Это отвечает на частый вопрос «почему сразу с 2 до 8» — потому что
+    метрика была вчетверо выше целевой.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-003
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Относительно чего HPA считает утилизацию CPU в процентах?
+  answer: |
+    Относительно `requests`, а не limits и не мощности узла. `targetAverageUtilization: 80`
+    означает «80% от забронированного», то есть при `requests: 100m` — 80m.
+  explanation: |
+    Отсюда неочевидное поведение: под с заниженными requests кажется HPA перегруженным
+    и вызывает лишний скейл, а с завышенными — вечно недогруженным, и скейла не будет
+    никогда, сколько ни лей нагрузки. То есть корректность автоскейлинга напрямую
+    зависит от честности броней.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-004
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что должно стоять в кластере, чтобы HPA работал по CPU?
+  answer: |
+    `metrics-server`: он собирает потребление с kubelet'ов и отдаёт его через
+    `metrics.k8s.io`. Ту же цепочку использует `kubectl top`.
+  explanation: |
+    Именно поэтому проверка «работает ли `kubectl top pods`» — первый шаг при разборе
+    неработающего HPA: обе функции висят на одном источнике. Prometheus здесь
+    не помогает: он отдельная система и к `metrics.k8s.io` отношения не имеет,
+    пока не поставлен адаптер.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"
+
+- id: k8s-autoscaling-005
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    `kubectl get hpa` показывает `TARGETS: <unknown>/80%`. Самая частая причина?
+  options:
+    a: "У контейнеров не заданы `requests` по CPU — считать процент не от чего"
+    b: "HPA ещё не собрал историю метрик, нужно подождать 5 минут"
+    c: "Число реплик уже достигло `maxReplicas`"
+    d: "Нагрузка нулевая, поэтому метрика не определена"
+  answer: a
+  explanation: |
+    Утилизация — это дробь, у которой в знаменателе стоят `requests`. Нет знаменателя —
+    нет и значения, и HPA честно пишет `<unknown>` вместо того, чтобы гадать.
+    Вторая по частоте причина того же симптома — отсутствующий или упавший
+    `metrics-server`, то есть отсутствие числителя. Обе проверяются за одну минуту.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-006
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему HPA увеличивает число реплик быстро, а уменьшает медленно?
+  answer: |
+    Асимметрия заложена намеренно: у scale-down есть окно стабилизации (по умолчанию
+    300 секунд), в течение которого HPA берёт максимум из недавних рекомендаций.
+    У scale-up такого окна по умолчанию нет.
+  explanation: |
+    Цена ошибок разная. Поздно добавить реплики — отказ обслуживания прямо сейчас.
+    Рано убрать — риск снять мощности перед следующим всплеском и начать колебаться.
+    Поэтому вверх система реагирует немедленно, а вниз — только убедившись, что спад
+    устойчив. Окно настраивается через `behavior`.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-007
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему HPA и VPA нельзя вешать на один и тот же ресурс?
+  answer: |
+    Они образуют петлю: VPA поднимает `requests`, из-за чего утилизация в процентах
+    падает, HPA убирает реплики; нагрузка на оставшиеся растёт, VPA снова поднимает
+    requests. Результат — постоянное колебание.
+  explanation: |
+    Причина в общем знаменателе: HPA считает проценты от requests, а VPA этот самый
+    знаменатель и меняет. Два регулятора, управляющие одной величиной с разных сторон,
+    неизбежно раскачивают систему. Рабочая комбинация — VPA по памяти, HPA по CPU
+    или по внешней метрике, то есть разные ресурсы.
+  ref: "https://kubernetes.io/docs/concepts/workloads/autoscaling/"
+
+- id: k8s-autoscaling-008
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что триггерит Cluster Autoscaler на добавление узла?
+  answer: |
+    Наличие подов в `Pending`, которые **поместились бы**, если бы появился ещё один
+    узел из группы. CA симулирует посадку на узел-кандидат и добавляет машину только
+    если под действительно на неё сядет.
+  explanation: |
+    Симуляция объясняет частый ступор: под висит `Pending`, а узлы не добавляются —
+    значит, ни один узел из группы поду не подойдёт. Причина обычно не в ресурсах,
+    а в ограничениях: жёсткая affinity, taint, зональность тома, слишком большие
+    requests. Загрузка узлов при этом на решение не влияет вообще.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/cluster-autoscaling/"
+
+- id: k8s-autoscaling-009
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Узлы полупустые, но Cluster Autoscaler их не удаляет. Какие типовые блокеры?
+  answer: |
+    Поды без контроллера (созданные вручную), поды с локальным хранилищем, поды,
+    которые нарушат PodDisruptionBudget, поды в `kube-system` без PDB, и явная
+    аннотация `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`.
+  explanation: |
+    Scale-down по природе опаснее scale-up: он трогает работающие поды, поэтому обвешан
+    защитами и требует, чтобы **каждый** под с узла было куда переселить. Один
+    неудачно стоящий под держит целую машину и её счёт. Отсюда практика — PDB
+    на всё, что переживает обслуживание, и осознанное отношение к аннотациям.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/cluster-autoscaling/"
+
+- id: k8s-autoscaling-010
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем KEDA, если есть HPA?
+  answer: |
+    KEDA даёт скейл по **внешним** событиям — длине очереди Kafka или RabbitMQ, числу
+    сообщений, метрике из Prometheus, расписанию — и умеет масштабировать до нуля.
+    Технически он создаёт HPA под капотом.
+  explanation: |
+    Для обработчика очереди CPU — ложный сигнал: воркер может простаивать с пустым
+    процессором при тысяче необработанных сообщений или, наоборот, грузить CPU на
+    последней задаче. Правильная метрика здесь — глубина очереди, то есть объём
+    невыполненной работы. Скейл до нуля — вторая причина: HPA сам по себе ниже
+    единицы не опускается.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-011
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    HPA стоит, нагрузка очевидно есть, реплики не растут. Порядок проверки?
+  answer: |
+    1) `kubectl top pods` — жив ли metrics-server; 2) заданы ли `requests` по нужному
+    ресурсу; 3) `kubectl describe hpa` — что он сам пишет в условиях и событиях;
+    4) не достигнут ли `maxReplicas`; 5) не упирается ли скейл в квоту namespace.
+  explanation: |
+    Порядок идёт от источника данных к потребителю: без метрик и броней HPA не может
+    даже вычислить цель, и всё остальное проверять бессмысленно. `describe hpa` стоит
+    третьим, потому что в его `Conditions` (`AbleToScale`, `ScalingActive`) причина
+    обычно написана словами — большинство разборов на этом и заканчивается.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-012
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Реплики скачут вверх-вниз каждую минуту. Что настраивать?
+  answer: |
+    Секцию `behavior` у HPA: окно стабилизации и политики скорости изменения. Плюс
+    проверить, не воюют ли за одну метрику два регулятора и не слишком ли резкая
+    выбрана целевая величина.
+  explanation: |
+    Флаппинг — это классическая перерегуляция: система реагирует быстрее, чем успевает
+    проявиться эффект её же предыдущего действия. Новые поды не начинают снимать
+    нагрузку мгновенно — им нужно запуститься и прогреться, а HPA за это время
+    успевает посчитать ещё раз. Окно стабилизации даёт эффекту дойти до метрики.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-013
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    HPA управляет числом реплик, но в манифесте Deployment стоит `replicas: 3`
+    и он лежит в git под Argo CD. Что произойдёт?
+  answer: |
+    Постоянная война: HPA ставит своё число, GitOps-агент возвращает три. Лечится
+    удалением поля `replicas` из манифеста или явным исключением его из сравнения.
+  explanation: |
+    Оба участника правы по-своему: HPA обязан приводить число реплик к нагрузке,
+    Argo CD — к тому, что записано в git. Конфликт возникает из-за того, что одно поле
+    имеет двух владельцев. Именно эту проблему в общем виде решает server-side apply
+    с учётом владения полями, но в случае с `replicas` проще просто не описывать его
+    в манифесте.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-014
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему VPA в режиме `Auto` перезапускает поды и чем это опасно?
+  answer: |
+    Потому что `requests` исторически задавались только при создании пода: чтобы
+    применить новые значения, VPA вытесняет под и даёт контроллеру создать его заново.
+    Опасно для нагрузок, чувствительных к рестарту, и для синглтонов.
+  explanation: |
+    Отсюда популярность режима рекомендаций: VPA считает и показывает подходящие
+    значения, а применяет их человек при следующем выкате — без сюрпризов в проде.
+    Именно эту слабость закрывает появившееся изменение ресурсов пода на лету,
+    но оно относительно новое и включено не в каждом кластере.
+  ref: "https://kubernetes.io/docs/concepts/workloads/autoscaling/"
+
+- id: k8s-autoscaling-015
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Cluster Autoscaler добавляет узел за минуты, а трафик вырос за секунды.
+    Как закрывают этот разрыв?
+  answer: |
+    Заранее выделенной «подушкой»: низкоприоритетные поды-заглушки, которые занимают
+    место и вытесняются preemption'ом, как только появляется реальная нагрузка. Узел
+    для неё уже готов, а заглушки уезжают ждать нового узла.
+  explanation: |
+    Приём меняет размен: платишь за постоянно свободные ресурсы, но получаешь мгновенный
+    отклик. Работает он ровно на механике preemption — жертвы выбираются по приоритету,
+    а заглушкам ставят отрицательный. Это же объясняет, зачем `PriorityClass` нужен
+    не только для «важных» нагрузок, но и для намеренно неважных.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/"
+
+- id: k8s-autoscaling-016
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему масштабирование по CPU плохо работает для сервиса, который в основном ждёт
+    ответа от базы?
+  answer: |
+    Потому что ожидание ввода-вывода не потребляет процессор: сервис может держать
+    тысячи висящих запросов при нулевом CPU. HPA увидит недогруз и не добавит реплик,
+    хотя очередь растёт.
+  explanation: |
+    CPU — метрика **насыщения вычислением**, а узкое место здесь совсем другое: число
+    одновременных соединений или размер пула. Правильный сигнал в таком случае —
+    прикладная метрика: длина очереди, число активных запросов, latency. Отсюда общий
+    принцип: скейлить надо по тому, что реально ограничивает пропускную способность.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-017
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что сломается, если позволить HPA скейлить StatefulSet с базой данных?
+  answer: |
+    Почти всё: новая реплика получает пустой том и должна пройти инициализацию
+    и репликацию, а роли в кластере БД (кто primary) автоскейлер не понимает.
+    Уменьшение числа реплик рискует убрать узел, который держит данные или лидерство.
+  explanation: |
+    Автоскейлинг построен на допущении взаимозаменяемости реплик — оно верно для
+    stateless-сервисов и ложно для баз. Технически HPA к StatefulSet прицепить можно,
+    и это делает его особенно опасным: механизм сработает, а осмысленность результата
+    никто не проверит. Масштабирование БД — задача оператора, который знает её протокол.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-autoscaling-018
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Cluster Autoscaler и Karpenter решают одну задачу. В чём разница подхода?
+  answer: |
+    CA работает с **заранее описанными группами узлов** и умеет только менять их размер.
+    Karpenter смотрит на неразмещённые поды и подбирает под них подходящий тип машины,
+    создавая узлы напрямую, без групп.
+  explanation: |
+    Разница практическая: с CA приходится заранее угадывать нужные типы машин
+    и заводить группу под каждый профиль нагрузки, а поды, не влезающие ни в один
+    профиль, висят в `Pending`. Karpenter снимает этот шаг и заодно лучше упаковывает
+    нагрузку, но привязан к конкретным облакам и меняет модель эксплуатации.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/cluster-autoscaling/"
+
+# --- namespaces-quotas ---
+
+- id: k8s-namespaces-quotas-001
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что namespace даёт и чего он НЕ даёт?
+  answer: |
+    Даёт: область имён (объекты с одинаковыми именами не конфликтуют), область действия
+    RBAC и область действия квот. **Не даёт** сетевой изоляции, изоляции по узлам
+    и защиты от соседей по ресурсам.
+  explanation: |
+    Самое опасное заблуждение — считать namespace границей безопасности. Под из одного
+    namespace по умолчанию свободно ходит по сети в любой другой: сеть кластера плоская,
+    и режет её только NetworkPolicy. Namespace — это про организацию и права,
+    а изоляция строится отдельными механизмами.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-002
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие ресурсы вообще не принадлежат namespace?
+  answer: |
+    Узлы, PersistentVolume, StorageClass, ClusterRole и ClusterRoleBinding, CRD,
+    IngressClass, PriorityClass и сами namespace. Проверить —
+    `kubectl api-resources --namespaced=false`.
+  explanation: |
+    Логика проста: если объект описывает **кластер как целое** или его физические
+    ресурсы, он не может принадлежать одному namespace. Отсюда практическое следствие
+    для мультитенантности — команда, получившая полный доступ к своему namespace,
+    всё равно не может создать StorageClass или CRD, и это правильно: такие объекты
+    влияют на всех.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-003
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что ограничивает ResourceQuota?
+  answer: |
+    Суммарные `requests` и `limits` по CPU и памяти в namespace, объём запрошенного
+    хранилища и **количество объектов** — сколько подов, сервисов, PVC, секретов
+    можно создать.
+  explanation: |
+    Второй пункт недооценивают: ограничение числа объектов защищает не от перерасхода
+    железа, а от засорения etcd — забытым CronJob'ом, циклом создания секретов,
+    сбойным оператором. Квота на `services.loadbalancers` при этом защищает
+    непосредственно бюджет: каждый такой сервис — отдельный платный балансировщик.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-004
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает LimitRange?
+  answer: |
+    Задаёт для **отдельного** контейнера или пода значения по умолчанию (`default`,
+    `defaultRequest`) и допустимые границы (`min`, `max`). Работает при создании пода.
+  explanation: |
+    Разница с квотой в объекте регулирования: ResourceQuota считает сумму по namespace,
+    LimitRange разбирается с каждым подом поштучно. Поэтому один без другого работает
+    плохо: квота без LimitRange отвергает поды без requests, а LimitRange без квоты
+    не мешает создать их тысячу.
+  ref: "https://kubernetes.io/docs/concepts/policy/limit-range/"
+
+- id: k8s-namespaces-quotas-005
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    В namespace включили ResourceQuota на CPU и память. Что станет с подами,
+    у которых не заданы `requests` и `limits`?
+  options:
+    a: "Их перестанут создавать: без явных значений квоту не посчитать"
+    b: "Они создадутся, но получат класс BestEffort и будут вытесняться первыми"
+    c: "Они создадутся, kubelet подставит значения по умолчанию"
+    d: "Ничего не изменится: квота считает только фактическое потребление"
+  answer: a
+  explanation: |
+    Квота — это бухгалтерия броней: чтобы прибавить под к сумме namespace, нужно знать
+    его вклад, а у пода без requests его нет. Поэтому квота на compute-ресурс
+    **делает их обязательными** для всех новых подов. Именно поэтому ResourceQuota
+    и LimitRange ставят только парой: второй подставляет дефолты и снимает проблему.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-006
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Квота проверяется на admission или при планировании?
+  answer: |
+    На **admission**, то есть при создании объекта. Если под не проходит по квоте,
+    он вообще не появляется — его не будет даже в `Pending`.
+  explanation: |
+    Отсюда самый сбивающий с толку симптом: Deployment есть, подов ноль, событий
+    на подах нет и быть не может. Ошибка записана у ReplicaSet, который получил отказ.
+    Сравни с нехваткой ресурсов на узлах: там под создаётся и честно висит в `Pending` —
+    другой этаж, другое место поиска.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-007
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Указал у контейнера только `limits`, `requests` не указал. Что получится?
+  answer: |
+    `requests` автоматически приравняются к `limits`. Под получит класс `Guaranteed`
+    и забронирует ровно столько, сколько указано в потолке.
+  explanation: |
+    Умолчание работает в одну сторону и на этом ловит: указал только `requests` —
+    `limits` останутся пустыми (если их не задаст LimitRange), и контейнер сможет
+    съесть сколько угодно. То есть неполное описание ресурсов даёт либо избыточную
+    бронь и пустые узлы, либо отсутствие потолка и риск утащить узел.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-namespaces-quotas-008
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке применяются LimitRange, квота и планирование?
+  answer: |
+    Сначала admission: LimitRange подставляет дефолты и проверяет границы, затем
+    ResourceQuota считает сумму по namespace. Только после этого объект попадает
+    в etcd, и уже потом scheduler ищет для него узел.
+  explanation: |
+    Порядок объясняет, почему LimitRange обязан идти первым: квота считает уже
+    **дополненный** под, иначе объект без requests не прошёл бы. И он же объясняет,
+    почему квота ничего не знает о свободном месте на узлах: она работает на этаж выше,
+    с намерениями, а не с физикой.
+  ref: "https://kubernetes.io/docs/concepts/policy/limit-range/"
+
+- id: k8s-namespaces-quotas-009
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Квоту выставили на уже живой namespace, где поды без `requests`. Что произойдёт?
+  answer: |
+    Работающие поды продолжат работать — квота их не трогает. Но любой новый под
+    без requests будет отвергнут: сломается первый же выкат, рестарт или скейл.
+  explanation: |
+    Отложенность — главная опасность такой операции: изменение выглядит безобидно,
+    кластер зелёный, а поломка ждёт следующего деплоя, возможно через недели, и связь
+    с квотой к тому моменту уже неочевидна. Поэтому квоту вводят вместе с LimitRange
+    и проверяют, что все нагрузки namespace объявляют ресурсы.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-010
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Два Ingress в разных namespace объявляют один и тот же `host`. Что будет?
+  answer: |
+    Конфликт: правила попадут в конфигурацию одного контроллера, и поведение зависит
+    от его реализации — обычно выигрывает более старый объект, а второй молча
+    не работает.
+  explanation: |
+    Причина в асимметрии: `host` — это глобальное пространство имён DNS, а `backend`
+    ссылается на сервис локально. Namespace защищает от коллизий только имена объектов,
+    но не доменные имена. Ограничить, кто какие домены может занимать, штатным
+    Kubernetes нельзя — это делается политиками вроде Kyverno.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-namespaces-quotas-011
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем мягкая мультитенантность отличается от жёсткой?
+  answer: |
+    Мягкая — команды в одном кластере, разделённые namespace, RBAC, квотами
+    и NetworkPolicy: защищает от **ошибки** соседа. Жёсткая — защита от **злого умысла**,
+    и она требует отдельных кластеров либо изоляции на уровне ядра.
+  explanation: |
+    Граница проходит по общему ядру: контейнеры на одном узле делят ядро, и уязвимость
+    в нём обходит любые namespace и политики. Поэтому вопрос «изолируем команды или
+    недоверенный код» имеет два разных ответа, и подменять один другим — самая дорогая
+    ошибка в проектировании мультитенантности.
+  ref: "https://kubernetes.io/docs/concepts/security/multi-tenancy/"
+
+- id: k8s-namespaces-quotas-012
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему namespace лучше создавать декларативно из git, а не командой
+    `kubectl create ns`?
+  answer: |
+    Потому что namespace редко бывает пустым: с ним идут квота, LimitRange, RoleBinding,
+    NetworkPolicy, лейблы Pod Security Admission. Созданный руками namespace приезжает
+    без всего этого.
+  explanation: |
+    Голый namespace — это открытая дверь: без квот в него можно уложить весь кластер,
+    без лейблов PSA в нём разрешены привилегированные поды, без NetworkPolicy он
+    доступен по сети отовсюду. При этом внешне он выглядит совершенно нормально, что
+    и делает такие «временные» namespace живучими.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-013
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Namespace висит в `Terminating` и не удаляется. Как найти виновника?
+  answer: |
+    Посмотреть `kubectl get namespace <ns> -o yaml`: в `status.conditions` перечислено,
+    какие ресурсы не удалось вычистить. Обычно это CR мёртвого оператора или
+    недоступный agregated API-сервис.
+  explanation: |
+    Namespace удаляется только после уборки всего содержимого, а уборку CR делает
+    контроллер, которого может уже не быть. Соблазн снять финализатор руками велик
+    и опасен: он оставляет за собой сирот во внешних системах — облачные диски,
+    балансировщики, записи в DNS, за которые продолжает капать счёт.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/"
+
+- id: k8s-namespaces-quotas-014
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли квотой ограничить, сколько узлов или какой процент кластера
+    достанется команде?
+  answer: |
+    Нет. ResourceQuota оперирует суммой броней в namespace и ничего не знает ни об
+    узлах, ни о размере кластера. Привязка нагрузки к конкретным машинам делается
+    через taints, tolerations и affinity, а не квотами.
+  explanation: |
+    Это два независимых измерения: квота отвечает «сколько тебе можно попросить»,
+    размещение — «где именно ты можешь оказаться». Команда с квотой на 100 ядер
+    получит их с любых узлов кластера, включая те, что предназначались другим.
+    Выделенные пулы под команду строятся taint'ами, а квота лишь ограничивает аппетит.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-015
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у ResourceQuota нужны `scopes`, например `PriorityClass`?
+  answer: |
+    Чтобы квота считала не все поды подряд, а только подпадающие под условие: например
+    отдельный лимит на поды с высоким приоритетом или на `BestEffort`. Одна общая сумма
+    не различает важное и фоновое.
+  explanation: |
+    Без разделения по scope команда может выбрать всю квоту фоновыми задачами, и на
+    критичный сервис места не останется — при том что формально лимит соблюдён.
+    Отдельная квота на высокий приоритет резервирует ёмкость под то, что действительно
+    должно работать, и заодно мешает раздавать высокий приоритет всем подряд.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+- id: k8s-namespaces-quotas-016
+  domain: k8s
+  subtopic: namespaces-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему сумма квот всех namespace может спокойно превышать ёмкость кластера?
+  answer: |
+    Потому что квота ограничивает **право попросить**, а не наличие ресурсов.
+    Kubernetes не проверяет, обеспечены ли выданные квоты железом.
+  explanation: |
+    Это осознанный overcommit на организационном уровне: команды редко выбирают квоту
+    целиком, и раздача с запасом повышает утилизацию. Плата — отказ проявляется
+    не как понятное «превышена квота», а как поды в `Pending` без видимой причины,
+    когда все одновременно решили вырасти. Поэтому сумму квот отслеживают отдельно
+    от их соблюдения.
+  ref: "https://kubernetes.io/docs/concepts/policy/resource-quotas/"
+
+# --- pod-security ---
+
+- id: k8s-pod-security-001
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое контейнер с точки зрения ядра Linux?
+  answer: |
+    Обычный процесс, изолированный namespace'ами (PID, network, mount, user) и
+    ограниченный cgroups. **Ядро у него общее с узлом** — своей ОС внутри нет.
+  explanation: |
+    Из этого вытекает вся модель безопасности контейнеров: изоляция обеспечивается
+    ядром, а не виртуализацией, поэтому уязвимость в ядре пробивает её насквозь.
+    Отсюда же самый практический вывод: root внутри контейнера — это тот же uid 0
+    снаружи, и при выходе за периметр он остаётся root'ом на узле.
+  ref: "https://kubernetes.io/docs/concepts/security/"
+
+- id: k8s-pod-security-002
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `runAsNonRoot: true`?
+  answer: |
+    Запрещает запуск контейнера от uid 0: kubelet проверяет пользователя образа
+    и отказывается стартовать контейнер, если тот root. Конкретный uid задаётся
+    отдельно через `runAsUser`.
+  explanation: |
+    Проверка происходит **до запуска**, поэтому нарушение видно как отказ старта
+    (`CreateContainerConfigError`), а не как поломка в рантайме. Важная тонкость:
+    флаг проверяет, но не меняет — если в образе не создан непривилегированный
+    пользователь, нужен ещё и `runAsUser`, иначе под просто не поднимется.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-003
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `readOnlyRootFilesystem: true`?
+  answer: |
+    Делает корневую файловую систему контейнера доступной только на чтение. Всё, куда
+    приложению нужно писать, монтируется явно — обычно `emptyDir` в `/tmp` и каталоги
+    кеша.
+  explanation: |
+    Смысл не в защите файлов, а в ограничении злоумышленника: скачать и запустить
+    полезную нагрузку внутрь контейнера становится некуда. Побочная польза
+    архитектурная — флаг заставляет явно перечислить все точки записи, что превращает
+    контейнер в честно неизменяемый артефакт.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-004
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `capabilities: drop: ["ALL"]`?
+  answer: |
+    Отобрать у процесса все привилегии Linux capabilities. Нужные возвращаются точечно
+    через `add` — например `NET_BIND_SERVICE`, чтобы слушать порт ниже 1024.
+  explanation: |
+    Capabilities дробят всемогущество root'а на десятки отдельных прав, и контейнеру
+    почти никогда не нужно ни одного из них. Подход «отобрать всё, вернуть требуемое»
+    работает лучше выборочного отбора, потому что список привилегий велик и меняется
+    от версии ядра к версии.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-005
+  domain: k8s
+  subtopic: pod-security
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие три уровня описывают Pod Security Standards?
+  answer: |
+    `privileged` — без ограничений; `baseline` — запрещены известные способы выхода
+    из контейнера (privileged, hostNetwork, hostPath, опасные capabilities);
+    `restricted` — жёсткий профиль: non-root, drop ALL, seccomp, без повышения привилегий.
+  explanation: |
+    Стандарты появились на замену удалённым PodSecurityPolicy и намеренно сведены
+    к трём готовым профилям вместо конструктора: PSP давали бесконечную гибкость,
+    в которой почти все ошибались. `baseline` задуман как разумный минимум,
+    `restricted` — как цель, к которой стоит идти.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
+
+- id: k8s-pod-security-006
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как включается Pod Security Admission и какие у него три режима?
+  answer: |
+    Лейблами на namespace: `pod-security.kubernetes.io/<режим>=<уровень>`. Режимы —
+    `enforce` (отклонять), `audit` (пропускать, писать в аудит), `warn` (пропускать,
+    предупреждать в ответе kubectl).
+  explanation: |
+    Три режима существуют ради безопасного внедрения: сначала вешаешь `warn` и `audit`,
+    смотришь, что бы сломалось, чинишь нагрузки и только потом включаешь `enforce`.
+    Попытка включить `enforce` сразу на живом namespace обычно кончается тем, что
+    выкат встаёт в самый неудобный момент.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-admission/"
+
+- id: k8s-pod-security-007
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Включили `enforce: restricted` на namespace с работающим Deployment,
+    который не проходит профиль. Что произойдёт сразу?
+  options:
+    a: "Ничего: работающие поды не трогают, сломается следующий выкат или рестарт"
+    b: "Все поды немедленно будут удалены как нарушающие политику"
+    c: "Поды продолжат работать, но потеряют лишние привилегии на лету"
+    d: "Deployment откатится на предыдущую ревизию автоматически"
+  answer: a
+  explanation: |
+    PSA — это admission-контроль: он проверяет объекты **на входе**, а к уже
+    существующим подам не применяется. Отсюда коварство: кластер выглядит здоровым
+    ровно до первого события, требующего создать под, — выката, скейла, переезда
+    с узла. И тогда `READY 0/3` появляется без всякой связи с недавним изменением лейбла.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-admission/"
+
+- id: k8s-pod-security-008
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какова сеть кластера по умолчанию с точки зрения доступа между подами?
+  answer: |
+    Полностью открытой: любой под может обратиться к любому другому в любом namespace.
+    Ограничения появляются только с NetworkPolicy — и только если CNI их поддерживает.
+  explanation: |
+    Это осознанный выбор в пользу работоспособности из коробки, но он же делает
+    «namespace изолирует» самым частым заблуждением. Практическое следствие: скомпрометированный
+    под во второстепенном сервисе по умолчанию имеет сетевой доступ к базе, к API
+    кластера и ко всему остальному.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-009
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    По чему NetworkPolicy отбирает источники трафика — по IP или по меткам?
+  answer: |
+    По **меткам**: селекторы подов и namespace. Работа с адресами есть только
+    в `ipBlock` и предназначена для внешних сетей, а не для подов кластера.
+  explanation: |
+    Иначе и быть не может: IP пода эфемерен и меняется при каждом пересоздании, правило
+    по адресу протухло бы за минуты. Метки же переживают пересоздание, потому что
+    приезжают из pod-template. Следствие — политики надо читать вместе с метками подов,
+    и опечатка в селекторе даёт молчаливую дыру: правило есть, а не совпадает ни с чем.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-010
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Написал `deny-all` политику, а поды всё равно общаются. Почему?
+  answer: |
+    Либо CNI не поддерживает NetworkPolicy (объект создался и игнорируется), либо
+    политика закрывает только одно направление: `ingress` и `egress` независимы,
+    и правило без секции `egress` исходящий трафик не трогает.
+  explanation: |
+    Обе причины молчаливые, и это худший вид отказа в безопасности: политика есть,
+    ревью пройдено, ограничений нет. Первую проверяют по документации своего CNI —
+    у Flannel поддержки нет вовсе. Вторую видно в самом манифесте:
+    в `policyTypes` должны быть перечислены оба направления.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-011
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Закрыл egress политикой — приложение перестало видеть базу, причём не сразу
+    с ошибкой соединения. Что забыли?
+  answer: |
+    Разрешить DNS: обращения к CoreDNS идут по UDP и TCP на порт 53 в `kube-system`.
+    Без этого приложение не резолвит имя и падает по таймауту резолва,
+    а не по отказу соединения.
+  explanation: |
+    Это самая частая ошибка при закрытии egress, и симптом сбивает с толку: кажется,
+    что политика отрезала базу, хотя до попытки соединения дело даже не доходит.
+    Отличить легко — `nslookup` из пода не отвечает вовсе. Поэтому в любой набор
+    egress-правил разрешение DNS кладут первым.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-pod-security-012
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке работают mutating и validating admission webhooks?
+  answer: |
+    Сначала **mutating** — они могут изменить объект (дописать sidecar, проставить
+    метки, подставить значения). Затем схема, затем **validating** — они только
+    выносят вердикт да или нет, менять объект уже нельзя.
+  explanation: |
+    Порядок обязателен по смыслу: валидировать нужно то, что реально уедет в etcd,
+    а mutating к этому моменту всё уже дописали. Отсюда практический вывод для отладки
+    политик: проверять надо не свой манифест, а результат — `kubectl get -o yaml`,
+    потому что отклонён может быть объект, которого ты не писал.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-pod-security-013
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как Istio или подобный оператор дописывает sidecar в чужой под?
+  answer: |
+    Mutating admission webhook: он перехватывает создание пода и добавляет контейнер
+    в спеку. Обычно включается меткой на namespace, поэтому владелец приложения свой
+    манифест не меняет вовсе.
+  explanation: |
+    Отсюда странный на первый взгляд эффект: в git один контейнер, в кластере два.
+    И отсюда же диагностическое правило — при расследовании смотреть фактический
+    объект, а не исходный манифест. Тот же механизм используют инжекторы секретов
+    и агенты наблюдаемости.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-pod-security-014
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение начало падать при записи в файл после включения профиля безопасности.
+    Что именно сломалось?
+  answer: |
+    Скорее всего `readOnlyRootFilesystem: true` без смонтированных каталогов для записи,
+    либо `runAsNonRoot` — файлы в образе принадлежат root'у, а процесс теперь другой uid.
+  explanation: |
+    Оба случая одинаково выглядят как «приложение сломалось после безобидной правки»,
+    хотя ломает их разное: в первом писать некуда, во втором нет прав. Различает
+    сообщение об ошибке — `read-only file system` против `permission denied`.
+    Второй случай лечится `fsGroup`, который меняет владельца смонтированных томов.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+- id: k8s-pod-security-015
+  domain: k8s
+  subtopic: pod-security
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен сканер образов вроде Trivy в CI, если образ собран из официального базового?
+  answer: |
+    Официальный базовый образ стареет: уязвимости находят после релиза. Сканер
+    сверяет установленные пакеты и зависимости приложения с базами CVE на момент
+    сборки, а не на момент публикации базового образа.
+  explanation: |
+    Отсюда практика пересобирать образы регулярно, даже когда код не менялся: без этого
+    приложение годами едет на базовом слое из позапрошлого года. Сканирование в CI
+    ценно ещё и тем, что даёт точку принятия решения до выката, а не после —
+    когда уязвимый образ уже в проде.
+  ref: "https://kubernetes.io/docs/concepts/security/supply-chain-security/"
+
+- id: k8s-pod-security-016
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `failurePolicy: Fail` у admission webhook опасен для всего кластера?
+  answer: |
+    Тем, что при недоступности webhook'а apiserver **отклоняет** все подпадающие
+    под него запросы. Упавший под политики останавливает создание объектов
+    во всём кластере.
+  explanation: |
+    Самый неприятный вариант — самоблокировка: webhook перехватывает создание подов
+    в том числе в своём namespace, поэтому подняться заново он не может — для этого
+    нужен он сам. Отсюда два обязательных правила: исключать системные namespace
+    из области действия и держать webhook в нескольких репликах с PDB.
+    `failurePolicy: Ignore` безопаснее для доступности, но оставляет дыру в политике.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-pod-security-017
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `hostPath` на `/var/run/docker.sock` или на корень узла считается
+    эквивалентом root-доступа к машине?
+  answer: |
+    Потому что монтирование файловой системы узла даёт возможность читать и менять
+    её содержимое от имени процесса контейнера: подложить свой юнит systemd, прочитать
+    kubelet-сертификаты, запустить привилегированный контейнер через сокет runtime.
+  explanation: |
+    Это самый прямой путь выхода из контейнера, и он не требует никаких уязвимостей —
+    только разрешённый `hostPath`. Именно поэтому профиль `baseline` его ограничивает,
+    а `restricted` запрещает. Тот же аргумент объясняет, почему сборку образов внутри
+    кластера делают инструментами без доступа к сокету runtime.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
+
+- id: k8s-pod-security-018
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем PSA принципиально уступает Kyverno или Gatekeeper?
+  answer: |
+    PSA умеет только три фиксированных профиля безопасности пода и ничего больше.
+    Политики общего назначения проверяют что угодно: обязательные метки, разрешённые
+    реестры образов, запрет `latest`, лимиты на домены Ingress — и умеют не только
+    отклонять, но и дописывать объекты.
+  explanation: |
+    Разделение осмысленное: PSA встроен, не требует установки и закрывает самый
+    критичный класс рисков — выход из контейнера. Всё остальное — это уже правила
+    конкретной организации, которых ядро знать не может. Отсюда типичная связка:
+    PSA как базовый рубеж плюс движок политик для собственных требований.
+  ref: "https://kubernetes.io/docs/concepts/security/pod-security-admission/"
+
+- id: k8s-pod-security-019
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `seccompProfile: RuntimeDefault` и почему это дёшево включить?
+  answer: |
+    Ограничивает набор системных вызовов, доступных контейнеру, профилем по умолчанию
+    от container runtime. Он отсекает десятки редких и опасных вызовов, которых
+    обычному приложению не требуется.
+  explanation: |
+    Дёшево потому, что профиль подобран так, чтобы не ломать типовые приложения:
+    в отличие от собственных seccomp-профилей, его не нужно составлять и отлаживать.
+    При этом он заметно сужает поверхность атаки на ядро — а ядро в контейнерной
+    модели общее, и именно оно является главной границей безопасности.
+  ref: "https://kubernetes.io/docs/tutorials/security/seccomp/"
+
+- id: k8s-pod-security-020
+  domain: k8s
+  subtopic: pod-security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `allowPrivilegeEscalation: false` и чем отличается от `runAsNonRoot`?
+  answer: |
+    Запрещает процессу получить больше привилегий, чем у его родителя, — то есть
+    отключает механику `setuid`-бинарников вроде `sudo`. `runAsNonRoot` запрещает
+    **стартовать** от root, но не мешает повысить привилегии позже.
+  explanation: |
+    Это два разных рубежа: первый про точку входа, второй про то, что можно сделать
+    после. Без запрета эскалации непривилегированный процесс, нашедший в образе
+    подходящий setuid-бинарник, поднимается до root внутри контейнера — а дальше уже
+    работают все остальные слои защиты. Профиль `restricted` требует обоих.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+
+# --- observability ---
+
+- id: k8s-observability-001
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `metrics-server` отличается от Prometheus?
+  answer: |
+    `metrics-server` — узкий компонент кластера: держит **текущее** потребление CPU
+    и памяти в памяти, без истории, и питает `kubectl top` и HPA. Prometheus — полноценная
+    система мониторинга с историей, запросами и алертами.
+  explanation: |
+    Это два разных крана, и один не заменяет другой: HPA по умолчанию ходит
+    в `metrics.k8s.io`, который отдаёт именно metrics-server, поэтому установка
+    Prometheus сама по себе автоскейлинг не чинит. И наоборот, metrics-server не годится
+    для расследования вчерашнего инцидента — истории у него нет вовсе.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"
+
+- id: k8s-observability-002
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что показывает `kube-state-metrics` и чем это отличается от потребления ресурсов?
+  answer: |
+    **Состояние объектов** API: сколько реплик желаемо и сколько доступно, в какой фазе
+    поды, сколько рестартов, когда истекает Job. Потребление CPU и памяти он не измеряет
+    вообще.
+  explanation: |
+    Три источника отвечают на три разных вопроса: kubelet (через cAdvisor) — «сколько
+    ест», kube-state-metrics — «в каком состоянии объекты», приложение — «что происходит
+    в бизнес-логике». Большинство полезных алертов про кластер строится именно
+    на втором: растущий `restartCount` или расхождение желаемых и готовых реплик.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-003
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Prometheus работает по push или по pull?
+  answer: |
+    По **pull**: он сам ходит по HTTP на эндпоинт `/metrics` каждой цели с заданным
+    интервалом. Приложение никуда ничего не отправляет.
+  explanation: |
+    Из модели вытекают практические следствия: недоступность цели сама по себе является
+    сигналом (метрика `up`), а приложению не нужно знать адрес мониторинга. Обратная
+    сторона — короткоживущие задачи вроде Job могут завершиться между опросами
+    и остаться незамеченными; для них существует отдельный Pushgateway.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-004
+  domain: k8s
+  subtopic: observability
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое golden signals?
+  answer: |
+    Четыре сигнала, описывающие здоровье сервиса с точки зрения пользователя: **latency**
+    (сколько ждать), **traffic** (сколько запросов), **errors** (доля ошибок),
+    **saturation** (насколько заполнены ресурсы).
+  explanation: |
+    Ценность набора в том, что он смещает мониторинг с внутренностей на наблюдаемый
+    эффект: пользователю безразлична загрузка CPU, ему важно, отвечает ли сервис
+    и быстро ли. Отсюда правило алертов — алертить на симптом (растёт latency,
+    растут ошибки), а не на причину (высокий CPU), потому что причин у симптома
+    десятки, а страдает пользователь одинаково.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-005
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как Prometheus узнаёт о новых подах, если они появляются и исчезают постоянно?
+  answer: |
+    Через service discovery: он подписан на apiserver и получает актуальный список
+    подов, сервисов и эндпоинтов. В экосистеме оператора цели описываются объектами
+    `ServiceMonitor` и `PodMonitor`.
+  explanation: |
+    Без этого мониторинг в кластере был бы невозможен: статический список целей протух
+    бы после первого же выката. Отсюда типичный симптом «поставил ServiceMonitor,
+    метрик нет» — он не совпал метками ни с одним сервисом, либо оператор настроен
+    искать мониторы только в определённых namespace.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-006
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему CPU throttling не виден в `kubectl top`?
+  answer: |
+    Потому что `top` показывает **потребление**, а троттлинг — это принудительное
+    ограничение: контейнер упёрся в лимит и потребляет ровно столько, сколько ему
+    разрешено. Цифра выглядит нормальной. Нужна метрика
+    `container_cpu_cfs_throttled_seconds_total`.
+  explanation: |
+    Отсюда классический тупик: приложение тормозит, `top` зелёный, ошибок нет.
+    Наблюдаемость здесь требует не «сколько используется», а «сколько раз хотели
+    больше и не дали» — принципиально иной вопрос. Это общий урок: отсутствие
+    аномалии в метрике часто означает, что метрика не про то.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-observability-007
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое cardinality метрики и почему высокая cardinality убивает Prometheus?
+  answer: |
+    Cardinality — число уникальных комбинаций меток. Каждая комбинация это отдельный
+    временной ряд со своим хранением в памяти. Метка с неограниченным набором значений
+    (ID запроса, email, полный URL) порождает миллионы рядов.
+  explanation: |
+    Взрыв происходит нелинейно: метки перемножаются, и три поля по сто значений дают
+    миллион рядов из одной метрики. Prometheus держит индекс активных рядов в памяти,
+    поэтому итог — OOM, а не постепенное замедление. Правило простое: в метку идёт
+    только то, у чего конечный и небольшой набор значений.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-008
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему логи нужно централизовать, а не читать через `kubectl logs`?
+  answer: |
+    Потому что логи живут вместе с подом: удалили под — логи исчезли, а хранится
+    только один предыдущий запуск. Плюс `kubectl logs` не умеет искать по десяти
+    репликам и по вчерашнему дню.
+  explanation: |
+    Особенно жестоко это работает в инциденте: под, который упал и был пересоздан,
+    уносит с собой ровно те логи, ради которых всё и затевалось. Централизация
+    нужна раньше, чем кажется — фактически с первого прода. `stern` и подобные
+    инструменты помогают смотреть несколько подов сразу, но проблему хранения
+    не решают.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-009
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему логи приложения в кластере пишут в stdout, а не в файл?
+  answer: |
+    Потому что сборщик логов забирает поток stdout через container runtime — это
+    стандартный контракт. Файл внутри контейнера ему не виден и исчезнет вместе с подом.
+  explanation: |
+    Модель следует принципу «контейнер не хранит состояние»: ротация, хранение
+    и доставка логов — не задача приложения. Запись в файл вдобавок съедает диск узла
+    (`emptyDir` или, хуже, слой контейнера) и может уронить узел по нехватке места —
+    отказ, который выглядит как проблема кластера, а не приложения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-010
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что обязательно мониторить в самом кластере, а не в приложениях?
+  answer: |
+    Доступность control plane и etcd (задержки записи, размер базы), узлы (`NotReady`,
+    давление по памяти и диску), CoreDNS, число рестартов и `Pending`-подов, истечение
+    сертификатов, заполнение PV.
+  explanation: |
+    Общее у этого списка одно: отказ любого пункта проявляется в приложениях как
+    что-то совершенно другое и уводит расследование в сторону. Перегруженный CoreDNS
+    выглядит как медленная база, полный диск узла — как падающее приложение,
+    просроченный сертификат — как внезапная потеря доступа к кластеру.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-011
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Какой алерт полезнее дежурному инженеру?
+  options:
+    a: "Доля ответов 5xx на checkout превысила 2% в течение 5 минут"
+    b: "CPU на узле node-7 превысил 85%"
+    c: "Число подов в namespace prod изменилось"
+    d: "Средняя загрузка памяти по кластеру выросла на 10%"
+  answer: a
+  explanation: |
+    Алертить нужно на симптом, который чувствует пользователь, а не на причину. Высокий
+    CPU — нормальное состояние работающей системы: он либо ни к чему не приводит,
+    либо его последствия и так видны в latency и ошибках. Алерты на причины дают поток
+    ложных срабатываний, а от него дежурный перестаёт реагировать вообще — и пропускает
+    настоящий инцидент.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-012
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему по средней latency нельзя судить о здоровье сервиса?
+  answer: |
+    Среднее прячет хвост: при девяноста быстрых запросах и десяти по десять секунд
+    среднее выглядит приемлемо, а десять процентов пользователей ждут вечность.
+    Нужны перцентили — p95 и p99.
+  explanation: |
+    Хвост распределения — это и есть жалобы: пользователь ощущает свой запрос,
+    а не среднее по системе. Перцентили ещё и лучше показывают деградацию: p99 растёт
+    первым, когда начинают заполняться очереди и пулы соединений, задолго до того,
+    как сдвинется среднее.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-013
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение тормозит, а все дашборды зелёные. Что это обычно означает?
+  answer: |
+    Что измеряется не то узкое место. Типичные слепые зоны: CPU throttling, ожидание
+    внешней зависимости, исчерпанный пул соединений, потери и ретраи DNS, очередь
+    внутри приложения.
+  explanation: |
+    Инфраструктурные метрики описывают ресурсы, а тормозит обычно **ожидание**: поток,
+    стоящий в очереди за соединением к базе, не потребляет ни CPU, ни памяти и выглядит
+    идеально здоровым. Отсюда ценность трассировки — она показывает, где именно
+    в цепочке вызовов ушло время, вместо того чтобы гадать по графикам ресурсов.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-014
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что дают распределённые трейсы, чего не дают метрики и логи?
+  answer: |
+    Путь **одного конкретного запроса** через все сервисы с временем на каждом шаге.
+    Метрики отвечают агрегатами, логи — событиями одного сервиса; ни те, ни другие
+    не связывают шаги в цепочку.
+  explanation: |
+    Как только сервисов больше двух, вопрос «где ушли те самые три секунды» перестаёт
+    иметь ответ в метриках: каждый сервис по отдельности выглядит быстрым. Трейс
+    показывает и последовательность, и параллельность вызовов — и часто вскрывает
+    не медленный сервис, а лишние повторные обращения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/system-traces/"
+
+- id: k8s-observability-015
+  domain: k8s
+  subtopic: observability
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем логам структурированный формат вместо свободного текста?
+  answer: |
+    Чтобы по ним можно было искать и агрегировать: JSON с полями `level`, `trace_id`,
+    `pod`, `user_id` фильтруется запросом, а строка текста — только регулярным
+    выражением, которое ломается при первом изменении формата.
+  explanation: |
+    В кластере это не стилистика, а необходимость: логи десятков реплик смешиваются
+    в один поток, и без поля с именем пода невозможно понять, болеют все или одна.
+    Поле с идентификатором трассировки при этом сшивает логи с трейсами и превращает
+    три отдельных инструмента в один связный контур.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+- id: k8s-observability-016
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Prometheus съел всю память узла и упал. Что искать в первую очередь?
+  answer: |
+    Взрыв cardinality: новую метку с неограниченным набором значений или новую цель,
+    отдающую тысячи рядов. Проверяется через `topk` по числу рядов на метрику
+    и на job.
+  explanation: |
+    Причина почти никогда не в объёме данных за длительный период — исторические
+    блоки лежат на диске. В памяти живёт индекс **активных** рядов, поэтому падение
+    обычно совпадает по времени с выкатом, который добавил метку. Отсюда и профилактика:
+    лимиты на число рядов со стороны scrape-конфигурации, чтобы одно приложение
+    не унесло мониторинг всего кластера.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-017
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `container_memory_usage_bytes` — плохая метрика для алерта на нехватку памяти?
+  answer: |
+    Она включает страничный кеш, который ядро освободит при необходимости. Приложение,
+    активно читающее файлы, покажет потребление у самого лимита, будучи совершенно
+    здоровым. Для алертов берут `working_set` — то, что реально нельзя отдать.
+  explanation: |
+    Различие принципиально ещё и потому, что именно `working_set` использует kubelet,
+    решая, кого убивать по OOM. То есть алерт на `usage` будет срабатывать тогда,
+    когда ничего не грозит, и молчать, когда под действительно близок к смерти —
+    худшая из возможных комбинаций.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"
+
+- id: k8s-observability-018
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое SLI, SLO и error budget и как это меняет работу дежурного?
+  answer: |
+    SLI — измеримый показатель качества (доля успешных запросов). SLO — целевое значение
+    (99.9%). Error budget — разрешённая доля отказов, вытекающая из SLO. Дежурного
+    поднимают, когда бюджет расходуется слишком быстро, а не на каждое отклонение.
+  explanation: |
+    Подход решает главную болезнь алертинга — усталость от ложных срабатываний: алерт
+    на скорость сжигания бюджета молчит, пока пользователи не страдают, и срабатывает
+    рано, когда страдают. Второй эффект организационный: исчерпанный бюджет —
+    объективный аргумент притормозить выкаты и заняться надёжностью.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-019
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Prometheus в поде хранит данные и переживает рестарт. Какие с этим проблемы
+    в долгую?
+  answer: |
+    Локальное хранилище ограничено диском узла и не реплицируется: потеря PV означает
+    потерю истории. Плюс один экземпляр не масштабируется горизонтально. Для длительного
+    хранения ставят Thanos, Mimir или подобное с выгрузкой блоков в объектное хранилище.
+  explanation: |
+    Архитектурно Prometheus задуман как локальный и простой — надёжность и долгое
+    хранение сознательно вынесены наружу. Отсюда типичная эволюция: сначала один
+    экземпляр с retention на пару недель, затем боль при расследовании старых инцидентов,
+    затем слой долговременного хранения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: k8s-observability-020
+  domain: k8s
+  subtopic: observability
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему сбор логов делают DaemonSet'ом, а не sidecar'ом в каждом поде?
+  answer: |
+    Один агент на узел читает файлы логов всех контейнеров из каталога узла: меньше
+    накладных расходов, единая конфигурация, ничего не нужно менять в манифестах
+    приложений. Sidecar добавляет контейнер к каждому поду и умножает расход памяти.
+  explanation: |
+    Sidecar остаётся оправданным в частных случаях: приложение пишет в файл и его
+    нельзя переучить на stdout, либо нужен свой парсинг для одной нагрузки. Общее
+    правило — инфраструктурная функция, привязанная к узлу, живёт в DaemonSet;
+    в под она переезжает, только когда требует контекста самого приложения.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
