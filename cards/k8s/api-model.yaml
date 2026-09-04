@@ -1,0 +1,300 @@
+# k8s / api-model
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-api-model-001
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `spec` и `status` у объекта Kubernetes?
+  answer: |
+    `spec` — желаемое состояние, его пишешь ты. `status` — фактическое состояние,
+    его пишет контроллер. Работа контроллера — это бесконечное приведение status к spec.
+  explanation: |
+    Отсюда главное правило работы с кластером: не воюй с фактом — меняй желаемое.
+    Убил под руками, а он вернулся, — значит `spec` контроллера выше по цепочке говорит,
+    что подов должно быть N, и он прав. Менять надо `spec`, а не воевать со следствием.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-002
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие четыре поля есть у любого объекта Kubernetes?
+  answer: |
+    `apiVersion`, `kind`, `metadata` (имя, namespace, метки, аннотации) и `spec`.
+    У большинства объектов ещё и `status`, который заполняет контроллер.
+  explanation: |
+    Единообразие здесь не косметика: оно позволяет одному `kubectl` и одному apiserver
+    работать с любым типом, включая те, которых в Kubernetes нет — CRD выглядят
+    ровно так же. Отсюда же понятно, что расширение кластера своими типами не требует
+    менять ядро.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-003
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `kubectl apply` отличается от `kubectl create`?
+  answer: |
+    `create` — императивная операция: создать, и если объект есть, упасть с ошибкой.
+    `apply` — декларативная: привести объект к описанному состоянию, создав его или
+    обновив.
+  explanation: |
+    Разница в идемпотентности: `apply` можно выполнять сколько угодно раз с тем же
+    результатом, поэтому именно он лежит в основе GitOps. Он же умеет удалять поля,
+    исчезнувшие из манифеста, — для этого apiserver хранит информацию о том, кто
+    какими полями владеет.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/"
+
+- id: k8s-api-model-004
+  domain: k8s
+  subtopic: api-model
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть, какие поля есть у ресурса, не открывая документацию?
+  answer: |
+    `kubectl explain <ресурс>` и глубже через точку: `kubectl explain deployment.spec.strategy`.
+    Флаг `--recursive` покажет всё дерево полей сразу.
+  explanation: |
+    Схему отдаёт сам apiserver, поэтому ответ всегда соответствует **твоей** версии
+    кластера — в отличие от документации в интернете, которая может описывать другую.
+    Это же работает для CRD: `kubectl explain` покажет поля установленных операторов.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_explain/"
+
+- id: k8s-api-model-005
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Сделал `kubectl scale deploy/web --replicas=1`, через минуту реплик снова 3. Почему?
+  answer: |
+    Потому что желаемое состояние приехало обратно: скорее всего сработал GitOps-агент
+    (Argo CD) или HPA, у которых свой источник правды. Ручное изменение факта проигрывает
+    тому, кто владеет `spec`.
+  explanation: |
+    Это тот же принцип «не воюй с фактом», но на уровень выше: у объекта может быть
+    внешний владелец, который непрерывно приводит его к своему представлению.
+    Чинить надо там, где живёт правда — в git-репозитории или в настройках HPA,
+    а не командой в кластере.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-006
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `ownerReferences` и что происходит при удалении владельца?
+  answer: |
+    Ссылка в `metadata` дочернего объекта на родителя. При удалении владельца garbage
+    collector удаляет всех детей каскадно — так удаление Deployment уносит ReplicaSet,
+    а тот поды.
+  explanation: |
+    Каскад объясняет, почему удалять надо с самого верха цепочки: удалишь только поды —
+    ReplicaSet создаст новые, удалишь ReplicaSet — Deployment создаст новый. Режим
+    можно менять: `--cascade=orphan` оставит детей сиротами, и они продолжат
+    существовать без владельца.
+  ref: "https://kubernetes.io/docs/concepts/architecture/garbage-collection/"
+
+- id: k8s-api-model-007
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означают `metadata.generation` и `status.observedGeneration`?
+  answer: |
+    `generation` растёт на каждое изменение `spec`. `observedGeneration` — та generation,
+    которую контроллер уже обработал. Если они не совпали, изменение ещё не доехало.
+  explanation: |
+    Это машинный способ отличить «контроллер ещё не увидел мои правки» от «увидел, но
+    не может их применить». Без него остаётся гадать, глядя на статус. На той же паре
+    строится ожидание готовности в скриптах и в операторах.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-008
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Удалённый под «воскрес». Это тот же под?
+  answer: |
+    Нет. Это **новый объект**: другое имя, другой UID, другой IP, пустая история.
+    Контроллер не воскрешает под, он создаёт другой, чтобы их снова стало N.
+  explanation: |
+    Разница принципиальна для отладки: логи, события и состояние старого пода исчезли
+    вместе с ним, `kubectl logs --previous` тут уже не поможет. Поэтому упавший под,
+    который нужно исследовать, «замораживают» — снимают с него selector-метку, чтобы
+    контроллер потерял его и создал замену, а больной экземпляр остался нетронутым.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-api-model-009
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что значит запись `apps/v1` в `apiVersion` и бывает ли пусто перед версией?
+  answer: |
+    Это группа API и её версия. Ядро (Pod, Service, ConfigMap) живёт в «пустой» группе
+    и пишется просто `v1`. Всё остальное — в именованных группах: `apps/v1`,
+    `batch/v1`, `networking.k8s.io/v1`.
+  explanation: |
+    Группы позволяют развивать разные части API независимо и постепенно выводить старые
+    версии: `v1beta1` может исчезнуть в следующем релизе, `v1` — нет. Отсюда типичная
+    поломка при обновлении кластера: манифест с устаревшей версией перестаёт
+    приниматься, хотя ресурс никуда не делся.
+  ref: "https://kubernetes.io/docs/reference/using-api/"
+
+- id: k8s-api-model-010
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Где императивные команды (`kubectl scale`, `kubectl edit`) остаются легитимными?
+  options:
+    a: "При отладке и в инцидентах, когда важна скорость реакции"
+    b: "Всегда — это самый быстрый способ управлять кластером"
+    c: "Нигде, любая императивная команда — антипаттерн"
+    d: "Только в managed-кластерах, где нет доступа к манифестам"
+  answer: a
+  explanation: |
+    Императив плох не сам по себе, а как **источник правды**: изменение, живущее только
+    в памяти кластера, теряется при следующем `apply` и не воспроизводится при
+    пересоздании. В инциденте, когда надо срочно погасить нагрузку, это приемлемо —
+    при условии, что потом то же изменение поедет в git. Антипаттерн — `kubectl edit`
+    как штатный способ выката.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-011
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему контроллеры устроены как бесконечный цикл, а не как реакция на событие?
+  answer: |
+    Потому что событие можно пропустить: сеть моргнула, контроллер перезапустился,
+    watch оборвался. Цикл сверки текущего состояния с желаемым самовосстанавливается —
+    пропущенное изменение будет замечено на следующем витке.
+  explanation: |
+    Это называется level-triggered в противоположность edge-triggered: контроллер
+    смотрит на **состояние**, а не на факт изменения. Watch-события служат лишь
+    оптимизацией — они ускоряют реакцию, но корректность на них не завязана.
+    Отсюда устойчивость кластера к рестартам собственных компонентов.
+  ref: "https://kubernetes.io/docs/concepts/architecture/controller/"
+
+- id: k8s-api-model-012
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Объект принят кластером без ошибок. Значит ли это, что механизм заработал?
+  answer: |
+    Нет. Валидация проверяет **форму** объекта, а не наличие исполнителя. Ingress без
+    ingress-controller, PVC без StorageClass, HPA без metrics-server создадутся молча
+    и не будут делать ничего.
+  explanation: |
+    Это следствие декларативной модели: запись в etcd и её исполнение — разные события.
+    Поэтому после создания всегда смотрят на `status` и на события объекта, а не
+    на факт успешного `apply`. «Принято» означает лишь «понято», но не «сделано».
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-013
+  domain: k8s
+  subtopic: api-model
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое server-side apply и какую проблему он решает?
+  answer: |
+    Режим, в котором apiserver запоминает, **какой клиент владеет каким полем**
+    (`managedFields`). Два контроллера, правящие разные поля одного объекта,
+    больше не затирают работу друг друга, а попытка отобрать чужое поле даёт конфликт.
+  explanation: |
+    До него `apply` работал через аннотацию с последним применённым состоянием
+    на стороне клиента, и любой посторонний контроллер, дописавший поле, ломал расчёт
+    разницы. В кластере с HPA, service mesh и мутирующими webhook'ами у одного объекта
+    легко оказывается три-четыре автора — server-side apply делает это сосуществование
+    явным и разрешимым.
+  ref: "https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+
+- id: k8s-api-model-014
+  domain: k8s
+  subtopic: api-model
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Namespace второй час висит в `Terminating`. Что происходит и почему нельзя
+    просто снять финализатор?
+  answer: |
+    Один из объектов внутри не удаляется: чаще всего это CR, чей оператор мёртв,
+    или API-сервис расширения, который не отвечает. Namespace ждёт, пока все ресурсы
+    внутри будут вычищены.
+  explanation: |
+    Финализатор — это обещание довести уборку до конца: снять его руками означает
+    удалить объект, минуя эту уборку, и оставить в системе сирот — облачные диски,
+    балансировщики, записи во внешних системах, за которые продолжает капать счёт.
+    Правильный путь — найти застрявший ресурс через `kubectl api-resources` и понять,
+    какой контроллер не отвечает.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/"
+
+- id: k8s-api-model-015
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `--dry-run=server` отличается от `--dry-run=client`?
+  answer: |
+    `client` только рендерит объект локально. `server` отправляет его в apiserver
+    и прогоняет через аутентификацию, RBAC, admission-webhook'и и валидацию —
+    но не сохраняет в etcd.
+  explanation: |
+    Разница принципиальна при проверке манифеста перед выкатом: клиентский режим
+    не поймает ни отказ политики, ни отсутствующий CRD, ни то, что mutating webhook
+    дописал поле, которое затем забраковали. Серверный показывает **фактический**
+    результат применения, включая изменения от чужих контроллеров.
+  ref: "https://kubernetes.io/docs/reference/using-api/api-concepts/"

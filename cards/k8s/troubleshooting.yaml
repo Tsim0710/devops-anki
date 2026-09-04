@@ -1,0 +1,506 @@
+# k8s / troubleshooting
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-troubleshooting-001
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Первая команда при разборе любой проблемы с подом — какая и почему?
+  answer: |
+    `kubectl describe pod <name>`. Она показывает **события**: почему под не планируется,
+    не тянется образ, не монтируется том, падают пробы — то, чего нет ни в статусе,
+    ни в логах.
+  explanation: |
+    Логи показывают, что говорит приложение, но подавляющая часть отказов происходит
+    **до** запуска приложения — на планировании, скачивании образа, монтировании.
+    В этих случаях логов физически не существует, и попытка начать с `kubectl logs`
+    даёт пустоту вместо диагноза. События же называют причину прямым текстом.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-002
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `READY 0/1` при статусе `Running`?
+  answer: |
+    Контейнер запущен, но не прошёл `readinessProbe`. Приложение работает, а трафик
+    на него не идёт — из endpoints оно исключено.
+  explanation: |
+    Колонка `STATUS` отвечает на вопрос «запустилось ли», колонка `READY` — «можно ли
+    давать трафик», и это два независимых факта. Именно это расхождение стоит за
+    большинством жалоб «под живой, а сервис не отвечает»: смотрели на `Running`
+    и не заметили нули слева.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-003
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько живут события (`Events`) в кластере?
+  answer: |
+    Около часа — по умолчанию у них TTL, после которого apiserver их удаляет.
+  explanation: |
+    Отсюда правило разбора ночных инцидентов: события к утру уже мертвы, и восстановить
+    причину по ним невозможно. Остаются только внешние системы — централизованные
+    логи и метрики. Это же объясняет пустой раздел `Events` у пода, который сломался
+    вчера и с тех пор просто висит.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+
+- id: k8s-troubleshooting-004
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `kubectl logs -f` отличается от `kubectl logs --previous`?
+  answer: |
+    `-f` следит за логом **текущего** запуска в реальном времени. `--previous` показывает
+    лог **предыдущего**, уже завершившегося запуска контейнера.
+  explanation: |
+    При падении контейнера причина остаётся в предыдущем запуске, а текущий начинается
+    с чистого листа — поэтому у только что перезапущенного пода `logs` без флага почти
+    всегда пуст или бесполезен. Хранится ровно один предыдущий запуск: после второго
+    рестарта самый первый лог уже недоступен.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/"
+
+- id: k8s-troubleshooting-005
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Опиши лестницу диагностики: в каком порядке проверять, когда «сервис не работает».
+  answer: |
+    Снизу вверх: **объект существует** → **под запланирован** → **контейнер запущен** →
+    **под готов** (readiness, endpoints) → **трафик доходит** (Service, DNS, Ingress).
+    На каждой ступени своя команда и свой класс причин.
+  explanation: |
+    Порядок не произволен: каждая ступень — предусловие следующей, и проверять верхнюю,
+    не убедившись в нижней, значит искать не там. Классическая потеря времени — читать
+    логи приложения, когда под ещё в `Pending`: приложения не существует. Правило
+    «сначала стадия, потом команда» экономит больше, чем знание любой отдельной команды.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/"
+
+- id: k8s-troubleshooting-006
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Deployment создан, `kubectl get pods` пуст, событий на подах нет. Куда смотреть?
+  answer: |
+    На **ReplicaSet**: `kubectl describe rs`. Если подов не существует, события о причине
+    висят на том, кто пытался их создать. Типичные причины — ResourceQuota, admission-политика,
+    ошибка в pod-template.
+  explanation: |
+    Это применение правила «нет объекта — иди к владельцу». Диагностика по умолчанию
+    смотрит на поды, но когда создание пода отклонено на admission, пода нет, и смотреть
+    не на что. Ошибка при этом никуда не делась — она записана у контроллера, который
+    получил отказ.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-007
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Соединение к сервису отваливается по **таймауту**, а не с `connection refused`.
+    О чём это говорит?
+  options:
+    a: "Пакет не дошёл: его дропнули по дороге — NetworkPolicy, firewall, неверный маршрут"
+    b: "Пакет дошёл, но на порту никто не слушает"
+    c: "Приложение приняло соединение и слишком долго отвечает"
+    d: "Не разрешилось DNS-имя сервиса"
+  answer: a
+  explanation: |
+    Разница диагностична и экономит половину поиска. `Connection refused` означает, что
+    пакет **доехал** до хоста и ядро ответило RST — сеть в порядке, проблема в том, что
+    процесс не слушает нужный порт. Таймаут означает, что ответа нет вообще: пакет
+    молча уничтожен где-то по пути, и искать надо сетевые правила, а не приложение.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"
+
+- id: k8s-troubleshooting-008
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `NXDOMAIN` отличается от таймаута при резолве имени сервиса?
+  answer: |
+    `NXDOMAIN` — DNS **ответил**, что такого имени нет: неверное имя, не тот namespace,
+    сервиса не существует. Таймаут — DNS не ответил вовсе: проблема с CoreDNS,
+    сетью до него или закрытым egress.
+  explanation: |
+    Это та же логика «ответ против тишины», что с refused и таймаутом, только на слое
+    имён. Различать критично, потому что ведёт в противоположные стороны: в первом
+    случае чинишь манифест приложения, во втором — инфраструктуру кластера. Проверяется
+    одной командой `nslookup` изнутри пода: она показывает и сам ответ, и то, откуда он.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/"
+
+- id: k8s-troubleshooting-009
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как проверить, что приложение вообще отвечает, минуя Service, Ingress и DNS?
+  answer: |
+    `kubectl port-forward pod/<name> 8080:8080` — соединение идёт через apiserver прямо
+    к поду, в обход всей сетевой машинерии кластера.
+  explanation: |
+    Это способ разрезать проблему пополам одним действием. Работает через port-forward,
+    но не работает через Ingress — значит, приложение живо, и виноват путь: Service,
+    endpoints, ingress-controller. Не работает и так — виновато само приложение,
+    и в сеть можно не ходить.
+  ref: "https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/"
+
+- id: k8s-troubleshooting-010
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В образе нет ни shell, ни утилит (distroless). Как попасть внутрь пода на отладку?
+  answer: |
+    `kubectl debug -it <pod> --image=busybox --target=<container>` — в под добавляется
+    **ephemeral-контейнер** с нужными инструментами, а `--target` даёт ему общий
+    process namespace с отлаживаемым контейнером.
+  explanation: |
+    Без `--target` ты попадаешь в соседний контейнер того же пода: сеть и тома общие,
+    но чужих процессов не видно, и `ps` покажет пустоту. Именно `--target` превращает
+    отладку в полноценную. Важное ограничение: ephemeral-контейнер нельзя ни удалить,
+    ни перезапустить — он живёт до конца жизни пода.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+
+- id: k8s-troubleshooting-011
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под в `CrashLoopBackOff`. Перечисли шаги разбора по порядку.
+  answer: |
+    1) `kubectl logs --previous` — что сказало приложение перед смертью;
+    2) exit code в `describe` — 137 (OOM или SIGKILL), 1 (ошибка приложения), 0
+    (завершился штатно при `restartPolicy: Always`);
+    3) события — не убивает ли его liveness;
+    4) конфиг — переменные, тома, права.
+  explanation: |
+    Порядок идёт от самого информативного к самому редкому. Отдельно стоит помнить,
+    что `CrashLoopBackOff` — состояние ожидания, а не причина, и что exit code 0 тут
+    тоже означает проблему: контейнер сделал работу и вышел, а политика требует держать
+    его вечно — обычно это неверно выбранный тип нагрузки.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-012
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под завис в `ContainerCreating`. Какие три класса причин и как их различить?
+  answer: |
+    Тома (нет ConfigMap или Secret, не монтируется PVC), сеть (CNI не выдал адрес),
+    образ (тянется или не тянется). Различает `describe`: причина написана в событиях
+    прямым текстом.
+  explanation: |
+    Все три объединяет одно: kubelet начал работу и застрял на подготовке, поэтому
+    контейнеров ещё нет и логов не существует. Практическая ценность классификации
+    в том, что они ведут к разным людям: тома и образ — вопрос к манифесту
+    и реестру, сеть — к администратору кластера.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-troubleshooting-013
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что значит фраза «эндпоинты разъехались» и почему это не диагноз?
+  answer: |
+    Что `EndpointSlice` сервиса пуст. Это **наблюдение**: оно говорит, где искать,
+    но не почему. Причин две — метки подов не совпали с селектором Service,
+    либо поды не готовы.
+  explanation: |
+    Разделение наблюдения и диагноза здесь принципиально, потому что дальше действия
+    противоположны: в первом случае правишь манифест, во втором — разбираешься с
+    readiness или приложением. Различить их — одна команда:
+    `kubectl get pods -l <селектор из Service>`. Пусто — метки; не пусто, но не
+    `READY` — готовность.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"
+
+- id: k8s-troubleshooting-014
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Ingress отдал `502`. Как понять, страницу нарисовал ingress-controller
+    или само приложение?
+  answer: |
+    Если ошибку отрисовал nginx (характерная страница, заголовок `Server: nginx`) —
+    контроллер жив, значит проблема в upstream. Если ответ пришёл от приложения —
+    путь целиком рабочий, и это уже его собственная ошибка.
+  explanation: |
+    Правило «кто нарисовал страницу, тот дожил» позволяет за один взгляд определить,
+    до какого этажа доехал запрос. Отсюда и разбор: `502` от nginx означает «правило
+    сработало, upstream не ответил» — смотреть надо поды и порт `targetPort`, а не
+    манифест Ingress.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-troubleshooting-015
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложению нужно знать имя своего пода и узла. Как передать это без хардкода?
+  answer: |
+    Через Downward API: значения из `metadata` и `spec` пробрасываются в переменные
+    окружения или в файлы — `POD_NAME`, `NODE_NAME`, namespace, IP пода.
+  explanation: |
+    Это единственный штатный способ дать приложению знать о себе, не выдавая ему доступ
+    к API кластера. Практическая польза именно в диагностике: имя пода и узла
+    в структурированном логе превращают централизованные логи из свалки в нечто,
+    по чему можно отследить конкретный экземпляр и понять, все ли реплики болеют
+    или только одна.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/downward-api/"
+
+- id: k8s-troubleshooting-016
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `kubectl events --for pod/<name>` удобнее, чем `describe`?
+  answer: |
+    Он показывает события в **хронологическом порядке** и умеет следить в реальном
+    времени (`--watch`), тогда как `describe` даёт срез вперемешку с остальным описанием
+    объекта.
+  explanation: |
+    Порядок важен там, где надо восстановить последовательность: сначала не сработала
+    проба, потом убили контейнер, потом не смогли скачать образ — или наоборот. По
+    описанию объекта эту цепочку не собрать. Плюс события можно смотреть по всему
+    namespace сразу и увидеть, что проблема не в одном поде.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_events/"
+
+- id: k8s-troubleshooting-017
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как правильно проверять гипотезу при разборе инцидента?
+  answer: |
+    Проверять тем, что гипотезу **отличает** от конкурирующих, а не тем, что её
+    подтверждает. Хорошая проверка — та, результат которой при разных гипотезах разный.
+  explanation: |
+    Классическая ловушка: подозреваешь сеть, идёшь смотреть сетевые метрики, находишь
+    там что-нибудь необычное и успокаиваешься — при том что необычное там есть всегда.
+    Дисциплина различающих проверок и объясняет силу пар вроде «таймаут против refused»
+    или «NXDOMAIN против тишины»: каждая делит пространство причин пополам одним действием.
+  ref: "https://kubernetes.io/docs/tasks/debug/"
+
+- id: k8s-troubleshooting-018
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Endpoints полны, поды `Ready`, а Ingress всё равно отдаёт `502`. Что осталось?
+  answer: |
+    Приложение принимает соединение, но отвечает неверно: не тот протокол (HTTPS
+    на HTTP-порту), слишком долгий ответ против таймаута контроллера, слишком большие
+    заголовки, разорванный keep-alive. Проверяется `curl` прямо на pod IP.
+  explanation: |
+    Это остаток после того, как отсеяны все инфраструктурные слои: маршрут найден,
+    бэкенды есть, соединение устанавливается. Значит расхождение в **семантике** HTTP,
+    а не в доставке пакетов. Отсюда следующий шаг — сравнить, что отдаёт под напрямую
+    и что видит контроллер: разница и есть ответ.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-troubleshooting-019
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение жалуется на нехватку памяти, но под не убивают и `restartCount` нулевой.
+    Что происходит?
+  answer: |
+    Убивают **процесс внутри** контейнера, а не сам контейнер: OOM-killer ядра выбрал
+    дочерний процесс, PID 1 выжил, значит с точки зрения kubelet ничего не случилось.
+  explanation: |
+    Из-за этого инцидент невидим для кластера: рестартов нет, статус зелёный, метрики
+    пода в норме — а приложение теряет воркеров. Смотреть надо в логи самого приложения
+    и в `dmesg` на узле. Это же аргумент за то, чтобы PID 1 корректно реагировал на
+    смерть детей, иначе контейнер превращается в кладбище зомби-процессов.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/"
+
+- id: k8s-troubleshooting-020
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Всё в кластере выглядит здоровым, но `kubectl apply` иногда висит и падает
+    по таймауту. Куда смотреть?
+  answer: |
+    На admission webhooks: mutating или validating webhook с `failurePolicy: Fail`,
+    чей под недоступен, блокирует создание объектов. Список — `kubectl get
+    mutatingwebhookconfigurations,validatingwebhookconfigurations`.
+  explanation: |
+    Webhook стоит на пути **каждого** подходящего запроса к apiserver, и его недоступность
+    выглядит не как отказ приложения, а как поломка самого кластера. Самый неприятный
+    вариант — webhook, который перехватывает создание подов в своём же namespace:
+    он не может подняться, потому что для этого нужен он сам. Отсюда практика —
+    исключать системные namespace из области действия политик.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-troubleshooting-021
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Один под из десяти реплик отвечает медленно, остальные нормально. С чего начать?
+  answer: |
+    Сравнить его окружение с остальными: на каком он узле, кто его соседи, есть ли
+    на этом узле троттлинг или давление памяти. Проблема реплики, а не приложения,
+    почти всегда живёт на уровне узла.
+  explanation: |
+    Ключ в самой асимметрии: код и конфиг у всех реплик одинаковые, значит различие
+    приходит извне — шумный сосед, неудачное распределение по зонам, деградировавший
+    диск. Это тот случай, когда `NODE_NAME` в логах через Downward API окупается
+    мгновенно: без него связь «медленно» и «вот этот узел» не увидеть.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/"
+
+- id: k8s-troubleshooting-022
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Kubelet на узле не отвечает, но контейнеры работают. Чем посмотреть, что на узле
+    реально запущено?
+  answer: |
+    `crictl ps` и `crictl logs` прямо на узле — они разговаривают с container runtime
+    по CRI, минуя kubelet и apiserver.
+  explanation: |
+    Это последний этаж диагностики, куда спускаются, когда обычные инструменты
+    бесполезны: `kubectl` спрашивает apiserver, apiserver знает лишь то, что успел
+    сообщить kubelet, а тот молчит. `crictl` показывает факт, а не представление
+    кластера о факте, — и расхождение между ними само по себе диагноз.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/"
+
+- id: k8s-troubleshooting-023
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение периодически получает ошибки соединения ровно через 5 секунд ожидания.
+    Что это за подпись?
+  answer: |
+    Характерный признак проблем с DNS по UDP: клиент ждёт стандартный таймаут резолвера
+    в 5 секунд и повторяет запрос. Обычно за этим стоят потери UDP-пакетов
+    на нагруженном узле или перегруженный CoreDNS.
+  explanation: |
+    Ровные пятисекундные задержки — редкий случай, когда число само называет причину:
+    в приложении такие круглые интервалы почти не встречаются, а таймаут резолвера
+    именно таков по умолчанию. Лечится обычно локальным DNS-кешем на узлах и переходом
+    резолва на TCP; крутить таймауты приложения бесполезно, они лишь маскируют симптом.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/"
+
+- id: k8s-troubleshooting-024
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Под удалили, а он всё ещё в `Terminating` спустя полчаса. Причины и что делать?
+  answer: |
+    Приложение не реагирует на `SIGTERM` и висит до конца grace period; или зависло
+    размонтирование тома; или недоступен узел, и kubelet не подтверждает удаление.
+    Принудительно — `--force --grace-period=0`, но с пониманием последствий.
+  explanation: |
+    Форс удаляет объект из API, **не дожидаясь подтверждения от узла**, — и если узел
+    жив, контейнер на нём продолжает работать. Для stateful-нагрузки с общим томом
+    это прямой путь к двум писателям и повреждению данных. Поэтому форс уместен, когда
+    точно известно, что узла больше нет.
+  ref: "https://kubernetes.io/docs/tasks/run-application/force-delete-stateful-set-pod/"
+
+- id: k8s-troubleshooting-025
+  domain: k8s
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как попасть на узел и посмотреть его файловую систему, если SSH туда нет?
+  answer: |
+    `kubectl debug node/<name> -it --image=busybox` — создаётся привилегированный под
+    на этом узле, файловая система узла доступна в `/host`.
+  explanation: |
+    Это спасение в managed-кластерах, где прямого доступа к машинам нет: так смотрят
+    место на диске, логи kubelet через `journalctl` в chroot, конфиги CNI. И это же
+    иллюстрация границы безопасности: право создавать такие поды фактически равно
+    root на любом узле — потому его и ограничивают политиками.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/kubectl-node-debug/"

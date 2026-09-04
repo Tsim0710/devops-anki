@@ -1,0 +1,371 @@
+# k8s / services
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-services-001
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Service хранит у себя список подов?
+  answer: |
+    Нет. Service хранит **селектор**. По селектору контроллер endpoints ведёт отдельный
+    объект `EndpointSlice` со списком адресов, а kube-proxy на каждом узле превращает
+    его в правила в ядре.
+  explanation: |
+    Отсюда порядок отладки «сервис есть, трафика нет»: смотреть надо не на Service,
+    а на `kubectl get endpointslice` — пустой список означает, что селектор не совпал
+    с метками подов или поды не готовы. Само по себе существование Service ничего
+    не гарантирует, это лишь декларация намерения.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-002
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Перечисли типы Service и как они соотносятся друг с другом.
+  answer: |
+    `ClusterIP` — базовый, адрес только внутри кластера. `NodePort` — это ClusterIP
+    **плюс** порт на каждом узле. `LoadBalancer` — это NodePort **плюс** внешний
+    балансировщик от облака. `ExternalName` стоит особняком: это просто CNAME в DNS.
+  explanation: |
+    Типы — надстройки, а не альтернативы: у LoadBalancer внутри всё равно есть и
+    ClusterIP, и NodePort. Понимание этой матрёшки объясняет, почему у LoadBalancer
+    на узлах открываются порты из диапазона NodePort, и почему внутрикластерные
+    обращения к нему всё равно идут через ClusterIP.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-003
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `clusterIP: None` (headless Service)?
+  answer: |
+    Отключает виртуальный IP и балансировку: DNS-имя сервиса начинает резолвиться
+    **сразу в IP всех готовых подов**, а не в один ClusterIP.
+  explanation: |
+    Нужно там, где клиент обязан видеть отдельные экземпляры, а не безликую точку входа:
+    реплики БД (писать только в primary), кластеры с обнаружением участников, gRPC-клиент
+    с собственной балансировкой. Для StatefulSet headless-сервис ещё и даёт каждому поду
+    персональное DNS-имя вида `web-0.svc-name`.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-004
+  domain: k8s
+  subtopic: services
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем различаются `port`, `targetPort` и `nodePort` в манифесте Service?
+  answer: |
+    `port` — порт самого сервиса (на ClusterIP), `targetPort` — порт **контейнера**,
+    куда трафик пересылается, `nodePort` — порт на каждом узле для типа NodePort.
+  explanation: |
+    Три числа для трёх разных сетевых точек, и путаница между ними — самая частая
+    причина «сервис есть, а curl молчит». Клиенты внутри кластера обращаются на `port`,
+    приложение слушает `targetPort`, а `nodePort` появляется только когда вход нужен
+    снаружи. Если `targetPort` не указан, он считается равным `port`.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-005
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    ClusterIP не поднят ни на одном интерфейсе в кластере, но `curl` на него работает.
+    Как?
+  answer: |
+    ClusterIP — виртуальный адрес, существующий только как **правило в ядре**.
+    Пакет на него никуда не доезжает: он переписывается (DNAT) на IP конкретного пода
+    прямо на узле-отправителе.
+  explanation: |
+    Отсюда следствия, которые проверяют на собесе: ClusterIP нельзя пропинговать
+    (ICMP правилами не обрабатывается) и его не видно в `ip addr`. Правила
+    раскладывает kube-proxy на **каждом** узле, поэтому подмена происходит локально,
+    ещё до того как пакет ушёл в сеть.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-006
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Через что физически проходит пакет, отправленный на ClusterIP?
+  options:
+    a: "Через процесс kube-proxy на узле-отправителе"
+    b: "Через правила в ядре узла-отправителя, kube-proxy их только записывает"
+    c: "Через kube-apiserver, который знает актуальный список подов"
+    d: "Через ingress-controller, он и есть балансировщик кластера"
+  answer: b
+  explanation: |
+    Имя `kube-proxy` обманывает: он не проксирует трафик, а работает control plane'ом
+    для сети сервисов — следит за EndpointSlice и программирует iptables, IPVS или
+    nftables. Данные идут через ядро. Поэтому упавший kube-proxy не рвёт существующие
+    соединения — правила остаются на месте, просто перестают обновляться.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-007
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Балансировка Service работает на уровне запросов или соединений?
+  answer: |
+    На уровне **соединений**. Под выбирается один раз, при установке соединения,
+    и все запросы внутри него идут в один и тот же под.
+  explanation: |
+    Это следствие того, что балансировка живёт на L4, в ядре: там нет понятия
+    «HTTP-запрос», есть только новый коннект. Для HTTP/1.1 с коротким keep-alive это
+    незаметно, а для долгих соединений — принципиально. Балансировка ещё и «тупая»:
+    это выбор наугад по весу, без учёта загрузки подов.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-008
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Отскейлил gRPC-сервис до 10 реплик, но нагрузка идёт в один под. Почему и что делать?
+  answer: |
+    gRPC работает поверх HTTP/2 и держит **одно долгое соединение**, а Service
+    балансирует на коннект. Клиент выбрал под один раз и остался на нём навсегда.
+    Лечится клиентской балансировкой через headless Service, service mesh или прокси
+    с поддержкой HTTP/2.
+  explanation: |
+    Симптом контринтуитивен: реплики есть, они здоровы, все запросы у одной. Причина
+    в том, что L4-балансировщик физически не видит границ запросов внутри установленного
+    соединения. Поэтому решение всегда лежит на уровне, который эти границы видит —
+    у клиента или у L7-прокси.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-009
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Создал `type: LoadBalancer` на bare-metal кластере, `EXTERNAL-IP` вечно `<pending>`.
+    Почему?
+  answer: |
+    Внешний адрес выдаёт не Kubernetes, а cloud-controller-manager, который ходит в API
+    облака. На bare-metal его нет, выдавать адрес некому. Нужен MetalLB или аналог.
+  explanation: |
+    Kubernetes сам по себе балансировщиков не создаёт — он лишь описывает намерение
+    и ждёт, что кто-то его исполнит. Это тот же паттерн, что с Ingress: объект без
+    контроллера остаётся декларацией. `<pending>` означает «заявка принята, исполнитель
+    не найден», и в событиях сервиса это будет видно прямым текстом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-010
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какой диапазон портов у NodePort по умолчанию и чем NodePort плох в проде?
+  answer: |
+    `30000–32767`. Плох тем, что открывает порт на **каждом** узле кластера, даёт
+    некрасивый адрес вида `узел:31543`, не умеет TLS и путей, и требует, чтобы клиент
+    сам знал живые адреса узлов.
+  explanation: |
+    NodePort — это механизм, а не продуктовое решение: он существует как фундамент
+    для LoadBalancer, а не как способ выставить сервис наружу. В проде наружу выходят
+    через Ingress или LoadBalancer, а NodePort остаётся для отладки и стендов.
+    Отдельный риск — сетевой периметр: порт открывается на всех узлах разом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-011
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `externalTrafficPolicy: Local` и чем за это платишь?
+  answer: |
+    Запрещает пересылку входящего внешнего трафика на другие узлы — пакет обслуживает
+    только под на том узле, куда он пришёл. Взамен сохраняется **реальный source IP**
+    клиента. Плата — неравномерность: узлы с большим числом подов получат больше нагрузки.
+  explanation: |
+    При дефолтном `Cluster` узел может перекинуть пакет соседу, и для этого делает SNAT —
+    подменяет источник, из-за чего приложение видит IP узла вместо клиента. Это ломает
+    геолокацию, rate limiting по IP и аудит. `Local` убирает лишний хоп и SNAT, но
+    требует, чтобы поды были на всех узлах, куда балансировщик шлёт трафик.
+  ref: "https://kubernetes.io/docs/tutorials/services/source-ip/"
+
+- id: k8s-services-012
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что умеет и чего не умеет `sessionAffinity: ClientIP`?
+  answer: |
+    Умеет привязать соединения с одного IP к одному поду (по умолчанию на 3 часа).
+    Не умеет ничего сложнее: ни куки, ни заголовки, ни ключ сессии — это L4, он видит
+    только адреса.
+  explanation: |
+    Привязка по IP разваливается ровно там, где она обычно нужна: клиенты за общим NAT
+    выглядят одним адресом и уедут в один под, а мобильный клиент при смене сети
+    поменяет IP и потеряет привязку. Это костыль для legacy-приложений с состоянием
+    в памяти; нормальное решение — вынести сессию во внешнее хранилище.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-013
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие три сети живут в кластере и какая из них маршрутизируется в обычной сети?
+  answer: |
+    Сеть узлов (реальная, из VPC), pod CIDR (адреса подов, раздаёт CNI) и service CIDR
+    (виртуальные ClusterIP). Реально маршрутизируется только сеть узлов; pod-сеть —
+    внутри кластера, service-сеть не существует вне правил ядра.
+  explanation: |
+    Разделение объясняет типовые сетевые сюрпризы: на ClusterIP нельзя сходить снаружи
+    кластера, а pod IP не отвечает из офисной сети без специальной маршрутизации.
+    И оно же объясняет требование не пересекать эти диапазоны с адресами VPC —
+    иначе часть реальной сети станет недостижимой изнутри подов.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-services-014
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: [theory, core]
+  type: basic
+  verified: false
+  prompt: |
+    Чем режим kube-proxy `iptables` отличается от `IPVS` и когда разница становится
+    заметной?
+  answer: |
+    В iptables правила образуют цепочку, которая просматривается последовательно,
+    и её обновление переписывает большой набор правил. IPVS использует хеш-таблицы
+    в ядре: поиск не зависит от числа сервисов, обновление точечное.
+    Разница проявляется на тысячах сервисов и эндпоинтов.
+  explanation: |
+    На небольшом кластере выбор не имеет значения, и iptables проще в отладке. При росте
+    начинает болеть не столько сама маршрутизация, сколько **время применения изменений**:
+    каждое обновление endpoints перезаписывает огромный набор правил, и распространение
+    отстаёт на секунды. Тот же класс проблем решает режим nftables и подходы на eBPF,
+    где kube-proxy заменяется целиком.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-services-015
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем headless-сервису StatefulSet нужен `publishNotReadyAddresses: true`?
+  answer: |
+    Чтобы DNS-имена подов резолвились **до** того, как поды станут готовы. Иначе
+    реплики базы не смогут найти друг друга при первом запуске: каждая ждёт кворума,
+    а кворум ждёт их готовности.
+  explanation: |
+    Это классический дедлок начальной загрузки кластерного приложения. Обычная логика
+    «не готов — нет в DNS» правильна для трафика пользователей, но убийственна для
+    внутреннего обнаружения участников. Поэтому у headless-сервисов StatefulSet этот
+    флаг стоит почти всегда, и в чартах баз данных он прописан по умолчанию.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-016
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как из кластера ходить на внешнюю БД так, чтобы приложение об этом не знало?
+  answer: |
+    Создать Service **без селектора** и вручную завести для него `EndpointSlice`
+    с адресом БД. Приложение обращается по обычному имени сервиса, а куда он ведёт —
+    вопрос конфигурации кластера.
+  explanation: |
+    Приём даёт слой косвенности: переезд БД или переключение со внешней на внутреннюю
+    меняет один объект в кластере, а не конфиги всех приложений. Отличие от
+    `ExternalName` в том, что тот работает только через CNAME и требует DNS-имени,
+    а здесь можно указать голый IP. Обратная сторона — эндпоинты никто не проверяет
+    на живость: readiness тут нет.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-017
+  domain: k8s
+  subtopic: services
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кластер раскинут на три зоны, и половина счёта — межзональный трафик.
+    Что с этим делает Kubernetes?
+  answer: |
+    Даёт маршрутизацию с учётом топологии: поле `trafficDistribution` у Service
+    (значение `PreferClose`) просит отдавать предпочтение эндпоинтам в своей зоне,
+    пока их достаточно.
+  explanation: |
+    По умолчанию Service балансирует по всем готовым подам одинаково, не различая зон, —
+    и в облаке каждый межзональный пакет стоит денег. Механизм намеренно мягкий:
+    при нехватке локальных эндпоинтов трафик всё равно уйдёт в другую зону, иначе
+    экономия обернулась бы отказом. Отличие от `externalTrafficPolicy` в том,
+    что тот про **входящий извне** трафик и сохранение source IP.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: k8s-services-018
+  domain: k8s
+  subtopic: services
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем `EndpointSlice` заменил старый объект `Endpoints`?
+  answer: |
+    `Endpoints` хранил **все** адреса сервиса в одном объекте: у сервиса с тысячей
+    подов любое изменение переписывало и рассылало весь список на все узлы.
+    `EndpointSlice` режет его на части (по умолчанию до 100 адресов), и меняется
+    только затронутый кусок.
+  explanation: |
+    Это чистая проблема масштаба: при выкате крупного сервиса каждый новый под вызывал
+    рассылку огромного объекта каждому kube-proxy в кластере, и сеть контрольного
+    трафика становилась узким местом. Побочная выгода — в срезах нашлось место
+    для дополнительных полей: топологии и признаков готовности.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/"

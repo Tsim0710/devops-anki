@@ -1,0 +1,222 @@
+# k8s / cluster-dns
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-cluster-dns-001
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Откуда под знает адрес DNS-сервера кластера?
+  answer: |
+    `/etc/resolv.conf` внутрь пода пишет **kubelet** при запуске. Туда попадает ClusterIP
+    сервиса `kube-dns`, список `search`-доменов и опция `ndots`.
+  explanation: |
+    Из образа этот файл не берётся и приложением не настраивается — поэтому «поправить
+    DNS в Dockerfile» бессмысленно. Настройка меняется через `dnsPolicy` и `dnsConfig`
+    в спеке пода. Важно и то, что сервис `kube-dns` имеет фиксированный ClusterIP:
+    иначе поды не знали бы, куда обращаться при пересоздании CoreDNS.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-002
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как выглядит полное DNS-имя сервиса внутри кластера?
+  answer: |
+    `<service>.<namespace>.svc.cluster.local`. Например `payments.prod.svc.cluster.local`.
+  explanation: |
+    Из структуры имени видно устройство пространства имён: сервисы одного namespace
+    не конфликтуют с сервисами другого, потому что namespace входит в имя. Короткая
+    форма работает только благодаря `search`-доменам в `resolv.conf`, и она всегда
+    относительна namespace **спрашивающего** пода.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-003
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое CoreDNS с точки зрения кластера?
+  answer: |
+    Обычный Deployment из нескольких подов в `kube-system`, стоящий за Service с
+    фиксированным ClusterIP. Он следит за объектами Service и Pod через apiserver
+    и отвечает на запросы по ним.
+  explanation: |
+    Отсюда двойственность: с одной стороны, это рядовая нагрузка, которая может упасть,
+    вытесниться или упереться в лимиты; с другой — от неё зависит **всё** в кластере,
+    потому что приложения ходят друг к другу по именам. Поэтому CoreDNS мониторят
+    как критичный компонент, а не как обычный под.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/coredns/"
+
+- id: k8s-cluster-dns-004
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Под из namespace `staging` обращается к `payments` и попадает не туда.
+    Что произошло?
+  answer: |
+    Короткое имя резолвится относительно namespace **спрашивающего**: из `staging`
+    оно превратилось в `payments.staging.svc.cluster.local`. Для обращения в другой
+    namespace нужно как минимум `payments.prod`.
+  explanation: |
+    Это следствие `search`-списка в `resolv.conf`, первым элементом которого стоит
+    собственный namespace пода. Опасность в том, что при наличии одноимённого сервиса
+    рядом ошибки не будет вообще — запрос молча уйдёт не в тот контур. Поэтому
+    кросс-namespace обращения пишут явным FQDN.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-005
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает опция `ndots:5` и почему из-за неё растёт нагрузка на DNS?
+  answer: |
+    Имена, содержащие меньше пяти точек, сначала проверяются по всем `search`-доменам
+    и только потом как абсолютные. Для `api.github.com` (две точки) это означает
+    четыре бесполезных запроса перед правильным.
+  explanation: |
+    Значение выбрано ради удобства коротких имён внутри кластера, а расплачиваются
+    за него внешние вызовы. Заметно это на сервисах, которые часто ходят в интернет:
+    лишние запросы дают и задержку, и лишнюю нагрузку на CoreDNS. Лечится точкой
+    в конце имени (`api.github.com.`) или собственным `ndots` в `dnsConfig` пода.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-006
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    CoreDNS полностью недоступен. Что произойдёт с уже установленными
+    TCP-соединениями между сервисами?
+  options:
+    a: "Останутся живыми: резолв нужен только при установке соединения"
+    b: "Разорвутся сразу — маршрутизация внутри кластера идёт через DNS"
+    c: "Останутся живыми, но балансировка перестанет работать"
+    d: "Разорвутся по истечении TTL DNS-записи"
+  answer: a
+  explanation: |
+    Имя превращается в IP один раз, перед подключением; дальше пакеты ходят по адресам,
+    и DNS в этом не участвует. Поэтому симптом падения CoreDNS специфический: старые
+    соединения работают, а любая новая попытка подключиться падает с ошибкой резолва.
+    Разделять «имя → IP» и «IP → под» — разные слои — тут принципиально.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-007
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что вернёт DNS-запрос к headless-сервису?
+  answer: |
+    Список A-записей — IP всех готовых подов, а не один ClusterIP. Для StatefulSet
+    дополнительно доступны персональные имена вида `web-0.<service>.<ns>.svc.cluster.local`.
+  explanation: |
+    Так DNS становится механизмом обнаружения участников: клиент сам видит все
+    экземпляры и решает, к какому идти. На этом строятся клиентская балансировка gRPC
+    и кластеризация БД, где нужно отличать primary от реплик. У обычного сервиса
+    такой возможности нет — он всегда отвечает одним виртуальным адресом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-008
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему внутри кластера обращаются по имени сервиса, а не по его ClusterIP?
+  answer: |
+    ClusterIP выдаётся при создании Service и меняется при его пересоздании, а имя
+    стабильно. Захардкоженный адрес переживёт ровно до первого пересоздания сервиса.
+  explanation: |
+    Симптом при этом крайне неприятный: приложение долго работает, а после безобидного
+    `kubectl delete svc && apply` начинает стучаться в никуда — соединение просто виснет,
+    потому что старый адрес больше никому не принадлежит. Имя же резолвится заново
+    при каждом подключении.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-009
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает NodeLocal DNSCache и какую проблему он закрывает?
+  answer: |
+    Ставит на каждый узел локальный кеширующий DNS, к которому обращаются поды этого
+    узла. Снимает нагрузку с CoreDNS и убирает сетевой хоп до него на каждый запрос.
+  explanation: |
+    Кроме очевидной экономии, он лечит специфическую беду: DNS-запросы идут по UDP через
+    conntrack, и на нагруженных узлах это приводило к потерянным пакетам и загадочным
+    таймаутам ровно в пять секунд — характерная подпись повторной попытки резолва.
+    Локальный кеш общается с CoreDNS по TCP и этот класс проблем убирает.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/nodelocaldns/"
+
+- id: k8s-cluster-dns-010
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис пересоздали, но одно приложение продолжает стучаться на старый адрес часами.
+    Почему кластерный DNS тут ни при чём?
+  answer: |
+    Потому что кеширует **клиент**. Классический случай — JVM, которая исторически
+    кеширует результат резолва бессрочно; то же бывает у HTTP-клиентов с собственным
+    пулом соединений. TTL записи кластера при этом соблюдается.
+  explanation: |
+    Разделение слоёв здесь спасает часы поисков: `nslookup` из того же пода покажет
+    правильный новый адрес, а приложение будет ходить на старый — значит, дело
+    не в DNS-инфраструктуре, а в рантайме приложения. Лечится настройкой кеша
+    в самом клиенте, а не в CoreDNS.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"
+
+- id: k8s-cluster-dns-011
+  domain: k8s
+  subtopic: cluster-dns
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие бывают значения `dnsPolicy` у пода?
+  answer: |
+    `ClusterFirst` (по умолчанию) — сначала кластерный DNS; `ClusterFirstWithHostNet` —
+    то же самое для пода с `hostNetwork: true`; `Default` — унаследовать resolv.conf
+    узла; `None` — полностью своя конфигурация через `dnsConfig`.
+  explanation: |
+    Практическая ловушка во втором пункте: под с `hostNetwork: true` и обычным
+    `ClusterFirst` унаследует резолвер узла и **перестанет видеть кластерные имена** —
+    сервисы по коротким именам резолвиться не будут. Это одна из тех настроек,
+    про которые вспоминают только когда поломка уже случилась.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"

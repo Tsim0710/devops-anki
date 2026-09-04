@@ -1,0 +1,346 @@
+# k8s / storage
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-storage-001
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько живёт `emptyDir` и что его переживает?
+  answer: |
+    Ровно столько же, сколько под. Рестарт **контейнера** он переживает, удаление
+    или переезд пода — нет: данные исчезают вместе с подом.
+  explanation: |
+    Границу «контейнер» и «под» тут путают чаще всего. Том создаётся при создании пода
+    и живёт в его sandbox, поэтому упавший и перезапущенный контейнер находит файлы
+    на месте. А вот новый под — это другой объект, и `emptyDir` у него пустой.
+    Отсюда область применения: кеш, обмен файлами между контейнерами, временные файлы —
+    но не данные.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-storage-002
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как распределены роли между PV, PVC и StorageClass?
+  answer: |
+    PVC — **заявка** от приложения: сколько места и с каким режимом доступа.
+    PV — конкретный кусок хранилища. StorageClass — рецепт, по которому PV создаётся
+    автоматически под заявку.
+  explanation: |
+    Разделение отвязывает приложение от инфраструктуры: манифест просит «10 гигабайт
+    RWO», не зная, будет это диск GCP, Ceph или NFS. Поэтому один и тот же чарт едет
+    в разные кластеры без правок — меняется только StorageClass, и обычно он вообще
+    не указан и берётся дефолтный.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-003
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое динамический провижининг?
+  answer: |
+    Создание PV **по факту заявки**: появился PVC со StorageClass — CSI-драйвер сам
+    заказал диск у облака или СХД и связал его с заявкой. Администратору не нужно
+    готовить тома заранее.
+  explanation: |
+    Без него работал бы статический сценарий: админ вручную создаёт PV, а PVC потом
+    к ним подбираются по размеру и режиму — медленно и с постоянными несовпадениями.
+    Динамика — причина, по которой `volumeClaimTemplates` у StatefulSet просто работает:
+    отскейлил до пяти реплик, получил пять новых дисков.
+  ref: "https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/"
+
+- id: k8s-storage-004
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие бывают `accessModes` у PVC?
+  answer: |
+    `ReadWriteOnce` (RWO) — монтируется на **одном узле**; `ReadOnlyMany` (ROX) —
+    только чтение с многих узлов; `ReadWriteMany` (RWX) — чтение и запись с многих узлов;
+    `ReadWriteOncePod` — ровно один под.
+  explanation: |
+    Режим — не пожелание, а свойство драйвера: обычный блочный диск физически
+    не подключается к двум виртуалкам сразу, поэтому у него только RWO. RWX требует
+    сетевой файловой системы (NFS, CephFS, Filestore), и она есть далеко не везде —
+    отсюда постоянные сюрпризы при переносе манифестов между кластерами.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-005
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Deployment с тремя репликами и одним RWO-PVC. Что произойдёт?
+  options:
+    a: "Поды на одном узле поднимутся, на других — зависнут с Multi-Attach error"
+    b: "Все три пода поднимутся: RWO ограничивает одного писателя, а не монтирование"
+    c: "Ни один под не поднимется: RWO разрешает ровно один под"
+    d: "Поды поднимутся, но том будет доступен только на чтение"
+  answer: a
+  explanation: |
+    RWO — это «один **узел**», а не «один под»: несколько подов на одном и том же узле
+    спокойно разделят такой том. Проблема начинается, когда scheduler разносит реплики
+    по разным узлам — второй узел не может подключить уже подключённый диск, и под
+    зависает с `Multi-Attach error`. Отсюда правило: stateful-нагрузка — это StatefulSet
+    с `volumeClaimTemplates`, где у каждой реплики свой том.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-006
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `volumeBindingMode: WaitForFirstConsumer` и зачем это нужно?
+  answer: |
+    Откладывает создание и привязку тома до момента, когда scheduler выберет узел
+    для пода. При дефолтном `Immediate` диск создаётся сразу, ещё до планирования.
+  explanation: |
+    Проблема, которую это решает, — зональность: диск в облаке принадлежит конкретной
+    зоне, и если он создан заранее в зоне `a`, под уже не сможет уехать в зону `b`.
+    При `Immediate` получается замкнутый круг: том выбрал зону, а свободные ресурсы
+    оказались в другой, и под навсегда в `Pending`. Ожидание переворачивает порядок:
+    сначала узел, потом диск рядом с ним.
+  ref: "https://kubernetes.io/docs/concepts/storage/storage-classes/"
+
+- id: k8s-storage-007
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Чем `reclaimPolicy: Delete` отличается от `Retain` и где это больно?
+  answer: |
+    `Delete` — вместе с PVC уничтожается PV и **сам диск с данными**. `Retain` — том
+    остаётся, данные целы, но повторно использовать его нужно вручную.
+    У большинства облачных StorageClass по умолчанию стоит `Delete`.
+  explanation: |
+    Опасность в том, что удаление выглядит безобидно: `kubectl delete pvc` — обычная
+    команда над обычным объектом, а уносит она реальные данные без подтверждения
+    и без корзины. Для всего, что дороже кеша, StorageClass берут с `Retain` —
+    и это единственный момент, когда решение можно принять, потому что политика
+    у существующего PV меняется, а прошлое уже не вернуть.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-008
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Удалил PVC, а он висит в `Terminating` и не исчезает. Почему?
+  answer: |
+    На нём финализатор `kubernetes.io/pvc-protection`: пока PVC используется живым подом,
+    удаление не завершается. Объект уйдёт, когда пода не останется.
+  explanation: |
+    Финализатор — это протокол удаления, а не баг: apiserver помечает объект
+    `deletionTimestamp` и ждёт, пока ответственный контроллер снимет свою метку.
+    Так предотвращается ситуация «том выдернули из-под работающей базы». Снимать
+    финализатор руками — крайняя мера, которая ровно эту защиту и отключает.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-009
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `volumeClaimTemplates` у StatefulSet?
+  answer: |
+    Создаёт **отдельный PVC на каждую реплику** по шаблону, с именем, привязанным
+    к имени пода. `web-0` всегда получает свой том, `web-1` — свой, и после
+    пересоздания под находит именно тот, что был у него раньше.
+  explanation: |
+    Это техническая основа «стабильной идентичности» StatefulSet: без неё все реплики
+    претендовали бы на один PVC из шаблона пода, что для RWO невозможно, а для базы
+    данных бессмысленно. Обратная сторона — при уменьшении числа реплик тома
+    не удаляются: они ждут возвращения пода с тем же номером.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-storage-010
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Коллега снёс StatefulSet, а потом PVC. В какой момент погибли данные?
+  answer: |
+    При удалении PVC — и то лишь если у StorageClass `reclaimPolicy: Delete`.
+    Удаление самого StatefulSet тома не трогает вообще.
+  explanation: |
+    Цепочка ответственности здесь трёхэтажная: StatefulSet → PVC → PV с диском, и
+    каскадного удаления вниз по ней нет **специально**. Это единственная защита данных,
+    встроенная в модель, и снимается она одной командой над PVC. Вывод простой: PVC —
+    самый опасный объект в кластере, а снапшоты CSI и живой PVC бэкапом не являются.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-011
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    PVC — это бэкап?
+  answer: |
+    Нет. Это подключённый рабочий диск: удаление данных приложением, повреждение
+    файловой системы или `DROP TABLE` доедут до него мгновенно. Снапшот CSI ближе,
+    но живёт в той же системе хранения, что и оригинал.
+  explanation: |
+    Бэкап определяется не технологией, а изоляцией: копия должна лежать отдельно
+    от источника, переживать его полную потерю и быть проверенной восстановлением.
+    Реплика и снапшот защищают от отказа железа, но не от ошибки человека
+    и не от удаления всего проекта в облаке.
+  ref: "https://kubernetes.io/docs/concepts/storage/volume-snapshots/"
+
+- id: k8s-storage-012
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Диск кончается. Можно ли расширить существующий PVC?
+  answer: |
+    Только если у StorageClass стоит `allowVolumeExpansion: true`. Тогда достаточно
+    увеличить `spec.resources.requests.storage` в PVC. Уменьшить том нельзя никогда.
+  explanation: |
+    Флаг проверяется в момент правки PVC, а не при создании тома, поэтому забытый
+    `allowVolumeExpansion` обнаруживается ровно тогда, когда место уже кончилось
+    и что-то делать поздно. Само расширение состоит из двух шагов — увеличить том
+    и растянуть файловую систему; второй у некоторых драйверов требует перезапуска пода.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-013
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасен `hostPath` и когда он всё-таки уместен?
+  answer: |
+    Он монтирует каталог **узла**, поэтому под привязывается к конкретной машине,
+    а данные не переезжают вместе с ним. Плюс это прямая дыра в изоляции: доступ
+    к файловой системе узла. Уместен для системных DaemonSet — сбор логов, метрики узла.
+  explanation: |
+    Коварство в том, что на одноузловом кластере `hostPath` работает прекрасно и создаёт
+    ложное ощущение рабочего решения. На нескольких узлах под уезжает и обнаруживает
+    пустой каталог. Для локального хранилища с гарантиями существует отдельный механизм —
+    `local` PV, который хотя бы привязывает под к нужному узлу явно.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-storage-014
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Откуда в кластере берутся осиротевшие PVC и чем они плохи?
+  answer: |
+    Из уменьшения реплик StatefulSet и из удалённых нагрузок: тома не удаляются вместе
+    с контроллером. Плохи тем, что за каждый диск капает счёт, а по имени PVC уже
+    не понять, нужен он или нет.
+  explanation: |
+    Это прямое следствие защиты данных — Kubernetes сознательно не удаляет тома
+    каскадно. Расплата в том, что уборка становится ручной задачей, о которой никто
+    не помнит. Практика: `kubectl get pvc -A` в регулярный чек-лист и осмысленные
+    метки на PVC, чтобы через полгода можно было понять происхождение диска.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-015
+  domain: k8s
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Из каких двух этапов состоит подключение тома к поду и почему это важно
+    для диагностики?
+  answer: |
+    Attach — подключение диска к **узлу** (делает controller-manager через CSI),
+    и mount — монтирование файловой системы в под (делает kubelet). Это разные
+    операции с разными акторами и разными ошибками.
+  explanation: |
+    По симптому сразу видно этаж: `Multi-Attach error` или `FailedAttachVolume` —
+    проблема на уровне узла и облачного API, том всё ещё числится за другой машиной.
+    `FailedMount` — диск к узлу подключён, но не смонтировался: не та файловая система,
+    права, отсутствующий каталог. Смешивать их — значит искать в облаке то,
+    что лежит на узле.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-016
+  domain: k8s
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен режим `ReadWriteOncePod`, если уже есть `ReadWriteOnce`?
+  answer: |
+    RWO допускает **несколько подов на одном узле** — этого достаточно, чтобы два
+    экземпляра базы одновременно писали в одни файлы. RWOP гарантирует ровно один под
+    во всём кластере.
+  explanation: |
+    Дыра в RWO проявляется именно в момент выката: старый и новый под какое-то время
+    живут вместе, и если scheduler поставил их на один узел, оба получают доступ к тому.
+    Для СУБД это повреждение данных, а не гонка за производительность. RWOP закрывает
+    ровно этот сценарий, ценой того, что выкат становится обязательно с даунтаймом.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-017
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем generic ephemeral volume отличается от `emptyDir` и от обычного PVC?
+  answer: |
+    Это полноценный том из StorageClass (с нужным классом диска, размером,
+    возможностью снапшота), но с жизненным циклом пода: PVC создаётся автоматически
+    при старте и удаляется вместе с подом.
+  explanation: |
+    Он закрывает разрыв между двумя крайностями: `emptyDir` живёт на диске узла и не
+    даёт ни выбора типа хранилища, ни внятного ограничения размера, а обычный PVC надо
+    заводить и убирать самому. Для крупного временного пространства — распаковка,
+    сборка, обработка данных — это ровно то, что нужно.
+  ref: "https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/"

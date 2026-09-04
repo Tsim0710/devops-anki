@@ -1,0 +1,203 @@
+# k8s / ebpf-cilium
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-ebpf-cilium-001
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое eBPF в одном предложении?
+  answer: |
+    Механизм, позволяющий безопасно загружать и выполнять программы **внутри ядра**
+    Linux — без модулей ядра и без его пересборки. Программы проходят проверку
+    верификатором перед загрузкой.
+  explanation: |
+    Ключевое здесь — сочетание безопасности и скорости: обработка трафика происходит
+    в ядре, но написать её можно как обычный код, а верификатор гарантирует, что
+    программа завершится и не полезет в чужую память. Именно поэтому eBPF стал основой
+    и для сети, и для наблюдаемости, и для безопасности рантайма.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-ebpf-cilium-002
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какую проблему iptables-режима kube-proxy решают IPVS и eBPF?
+  answer: |
+    Не корректность, а **масштаб**: правила iptables просматриваются последовательно,
+    а их обновление переписывает большой набор. На тысячах сервисов растёт и задержка
+    обработки, и время применения изменений.
+  explanation: |
+    Формулировка «iptables медленный» неточна и на собесе выдаёт поверхностное
+    понимание: на сотне сервисов разницы нет никакой. Боль появляется на масштабе
+    и проявляется характерно — не как замедление трафика, а как отставание правил
+    от реального состава endpoints после выката.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-ebpf-cilium-003
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `kubeProxyReplacement` у Cilium?
+  answer: |
+    Что Cilium берёт на себя всю работу kube-proxy: обработку ClusterIP, NodePort
+    и балансировку реализуют eBPF-программы, а сам kube-proxy из кластера убирается.
+  explanation: |
+    Это не оптимизация поверх, а замена компонента: правила iptables для сервисов
+    просто перестают существовать, что заодно меняет отладку — привычные
+    `iptables -L` показывают пустоту, и смотреть надо инструментами Cilium.
+    Полезно понимать, что режим включается явно: поставить Cilium и получить
+    замену kube-proxy по умолчанию не выйдет.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-ebpf-cilium-004
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Чем identity-based политика лучше политики по IP?
+  answer: |
+    Cilium присваивает каждому набору меток числовую **identity** и фильтрует по ней.
+    IP пода эфемерен и переиспользуется, а identity привязана к смыслу нагрузки
+    и переживает пересоздание подов.
+  explanation: |
+    Практическая разница на масштабе: правил становится столько, сколько разных
+    идентичностей, а не сколько подов, поэтому скейл до тысячи реплик не раздувает
+    таблицы. Плюс исчезает целый класс гонок, когда освободившийся IP достаётся другому
+    поду, а правило продолжает считать его прежним.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-ebpf-cilium-005
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что `CiliumNetworkPolicy` умеет сверх стандартной NetworkPolicy?
+  answer: |
+    Правила уровня L7: разрешить конкретные HTTP-методы и пути, ограничить запросы
+    Kafka по топикам, фильтровать DNS-запросы по доменам. Стандартная политика
+    работает только на уровне L3 и L4.
+  explanation: |
+    Разница качественная: «сервису A можно ходить к сервису B» и «сервису A можно
+    делать только `GET /api/v1/status` у сервиса B» — разные уровни доверия.
+    Фильтрация DNS по именам к тому же решает старую проблему egress-политик,
+    где внешние сервисы приходилось разрешать по IP, которые постоянно меняются.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-ebpf-cilium-006
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как убедиться, что сетевая политика реально применяется, а не просто создана?
+  answer: |
+    Наблюдаемостью сетевого слоя: Hubble показывает поток и вердикты — какой трафик
+    разрешён, какой отброшен и какой политикой. Без этого факт применения проверяется
+    только косвенно, попыткой соединения.
+  explanation: |
+    Это лечит худший класс отказов в сетевой безопасности — тихий: политика есть,
+    ревью пройдено, а трафик ходит как ходил, потому что CNI её не поддерживает или
+    селектор ни с чем не совпал. Видимость превращает вопрос «должно работать»
+    в вопрос «вот что происходит».
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-ebpf-cilium-007
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Поставили Cilium поверх работающего Flannel. Что произойдёт?
+  answer: |
+    Конфликт: два CNI начнут раздавать адреса и прописывать маршруты для одних
+    и тех же подсетей. Сеть станет непредсказуемой, а отладка почти невозможной.
+  explanation: |
+    Правило «один CNI на кластер» нарушают не осознанно, а по остаточному принципу:
+    новый плагин применили поверх, а конфиги старого остались на дисках узлов.
+    Смена CNI — это операция с полной очисткой `/etc/cni/net.d`, удалением старых
+    интерфейсов и пересозданием подов, а не наложение манифеста.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-ebpf-cilium-008
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    По каким осям сравнивают CNI при выборе?
+  answer: |
+    Поддержка NetworkPolicy (и её уровень), способ доставки трафика (overlay
+    или маршрутизация, есть ли BGP), производительность и масштаб, наблюдаемость,
+    требования к ядру, зрелость и сопровождение.
+  explanation: |
+    Единственно правильного CNI нет, и выбор диктует сеть, в которой живёт кластер:
+    в своём VPC с управляемой маршрутизацией разумен режим без overlay, в чужой сети
+    выбора нет. Отдельная ось — политики: у Flannel их нет вовсе, и это часто
+    выясняется уже после того, как политики написаны.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-ebpf-cilium-009
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какова цена перехода на eBPF-решение вроде Cilium?
+  answer: |
+    Требования к версии ядра, более сложная отладка (привычные `iptables-save`
+    и `conntrack` частично перестают отражать реальность), собственный набор
+    инструментов и понятий, и заметный расход ресурсов при включённой полной
+    наблюдаемости.
+  explanation: |
+    Смена не только реализации, но и модели: команда, привыкшая читать правила
+    iptables, теряет привычную видимость и должна переучиваться. Поэтому Cilium
+    разумно выбирать для нового кластера, где нужны политики и наблюдаемость,
+    а не мигрировать работающий кластер ради производительности, которой пока хватает.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-ebpf-cilium-010
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему Hubble не включают на полную по всему кластеру?
+  answer: |
+    Потому что полная видимость потока стоит ресурсов: сбор и хранение событий
+    по каждому соединению на большом кластере даёт заметную нагрузку на узлы
+    и на хранилище. Включают точечно — по namespace или на время разбора.
+  explanation: |
+    Это общий закон наблюдаемости, тот же, что с cardinality в Prometheus и с уровнем
+    логирования: полнота данных упирается в стоимость их сбора и хранения. Разумная
+    практика — базовый уровень постоянно, детальный поток по требованию, когда есть
+    конкретный вопрос.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"

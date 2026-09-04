@@ -1,0 +1,350 @@
+# k8s / architecture
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-architecture-001
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из каких компонентов состоит control plane и что делает каждый?
+  answer: |
+    `kube-apiserver` — единственная дверь ко всему; `etcd` — key-value хранилище,
+    единственный источник истины; `kube-scheduler` — решает, на какой узел сажать под;
+    `kube-controller-manager` — набор контроллеров, приводящих факт к желаемому.
+    В облаке добавляется `cloud-controller-manager`.
+  explanation: |
+    Разделение построено вокруг apiserver: ни один компонент не ходит в etcd напрямую
+    и не общается с другими напрямую — все читают и пишут через API. Отсюда единая точка
+    для аутентификации, авторизации, аудита и валидации, и отсюда же следует, что
+    падение apiserver парализует управление, хотя запущенные поды продолжают работать.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-architecture-002
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что работает на worker-узле?
+  answer: |
+    `kubelet` — агент, который берёт spec у apiserver, просит runtime запустить
+    контейнеры и пишет status обратно; `kube-proxy` — программирует сетевые правила
+    Service; container runtime (обычно `containerd`) — собственно запускает контейнеры.
+  explanation: |
+    Docker в этом списке нет с версии 1.24: kubelet общается с runtime по CRI, а Docker
+    его не реализует напрямую. Полезно помнить, кто чей начальник: kubelet — единственный,
+    кто реально запускает контейнеры, а scheduler и controller-manager только пишут
+    объекты в API.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-architecture-003
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему никто не ходит в etcd напрямую?
+  answer: |
+    Потому что apiserver — единственное место, где выполняются аутентификация,
+    авторизация, admission-проверки, валидация схемы и аудит. Запись мимо него
+    обходит все гарантии разом и легко оставит кластер в невалидном состоянии.
+  explanation: |
+    etcd не знает ничего про Kubernetes — для него это просто ключи и значения.
+    Вся семантика (что поле обязательно, что имя уникально, что у объекта есть владелец)
+    живёт в apiserver. Плюс watch-механизм: контроллеры подписаны именно на apiserver,
+    и запись мимо него они увидят не так, как ожидают.
+  ref: "https://kubernetes.io/docs/concepts/overview/components/"
+
+- id: k8s-architecture-004
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `kube-scheduler`, когда выбрал узел для пода?
+  answer: |
+    Делает ровно **одну запись**: проставляет `spec.nodeName` у объекта пода
+    (через подресурс binding). Больше ничего — контейнеры он не запускает.
+  explanation: |
+    Это шов между scheduler и kubelet: kubelet каждого узла следит за подами со своим
+    `nodeName` и подхватывает всё, что там появилось. Отсюда следует, что под с заранее
+    проставленным `nodeName` минует scheduler целиком, а падение scheduler'а не трогает
+    уже работающие поды — новые просто зависают в `Pending`.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/"
+
+- id: k8s-architecture-005
+  domain: k8s
+  subtopic: architecture
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Через какие три ступени проходит любой запрос к apiserver?
+  answer: |
+    Аутентификация (кто ты) → авторизация (можно ли тебе это, обычно RBAC) →
+    admission (мутация и валидация объекта). Только после этого объект пишется в etcd.
+  explanation: |
+    Ступени решают разные задачи, и по сообщению об ошибке видно, какая сработала:
+    `Unauthorized` — не опознали, `Forbidden` — опознали, но не разрешили, отказ
+    от webhook'а — прошёл RBAC, но не понравился политике. Admission — единственная
+    ступень, которая может **изменить** объект: так работают инъекции sidecar'ов.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/controlling-access/"
+
+- id: k8s-architecture-006
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Упал etcd. Что произойдёт с уже работающими подами?
+  options:
+    a: "Продолжат работать; сломается управление кластером"
+    b: "Будут остановлены — kubelet потеряет их спецификации"
+    c: "Будут перепланированы на другие узлы"
+    d: "Перейдут в статус Unknown и через 5 минут удалятся"
+  answer: a
+  explanation: |
+    Контейнеры запущены runtime'ом на узле и от etcd не зависят: kubelet держит спеки
+    в собственном кеше и продолжает следить за контейнерами. Перестаёт работать всё,
+    что требует чтения или записи состояния — `kubectl`, выкаты, планирование новых подов,
+    реакция на падение узла. Кластер становится «замороженным, но живым».
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-architecture-007
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    В HA-кластере три реплики controller-manager. Не создадут ли они три ReplicaSet
+    на один Deployment?
+  answer: |
+    Нет. Контроллеры используют leader election: активна ровно одна реплика, остальные
+    стоят в горячем резерве и ждут, пока лидер перестанет продлевать аренду (Lease).
+  explanation: |
+    Это принципиально для reconcile-архитектуры: несколько контроллеров, одновременно
+    приводящих один объект к желаемому состоянию, устроили бы гонку и дублирование.
+    Отсюда же вывод про HA-control-plane вообще: три узла дают **отказоустойчивость,
+    а не производительность** — работает всё равно один.
+  ref: "https://kubernetes.io/docs/concepts/architecture/leases/"
+
+- id: k8s-architecture-008
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое static pod и почему его нельзя удалить через `kubectl delete`?
+  answer: |
+    Это под, который kubelet запускает по файлу с узла (обычно из
+    `/etc/kubernetes/manifests`), а не по объекту из API. В API он виден как mirror pod —
+    зеркало, доступное только на чтение. Удалишь его — kubelet тут же создаст зеркало заново.
+  explanation: |
+    Так решается проблема курицы и яйца при загрузке кластера: apiserver сам запускается
+    как static pod, ведь пока его нет, никакой API-объект создать невозможно. Чтобы
+    убрать static pod по-настоящему, нужно удалить его манифест с файловой системы узла.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/"
+
+- id: k8s-architecture-009
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как по имени пода понять, кто его создал?
+  answer: |
+    `web-7d9f8c5b4-x2kfp` (два случайных сегмента) — Deployment через ReplicaSet;
+    `web-0` (порядковый номер) — StatefulSet; `web-x2kfp` (один случайный сегмент) —
+    DaemonSet или Job; `kube-apiserver-node1` (имя узла в конце) — static pod.
+  explanation: |
+    Полезный навык при разборе незнакомого кластера: имя сразу говорит, где искать
+    владельца и что произойдёт при удалении пода. Средний сегмент у Deployment — это хеш
+    pod-template, поэтому он меняется при каждом выкате: по нему видно, какие поды
+    от какой версии.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/"
+
+- id: k8s-architecture-010
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем оркестратор принципиально отличается от `docker compose` + Ansible?
+  answer: |
+    Compose и Ansible описывают, **что сделать сейчас**, и на этом их ответственность
+    кончается. Kubernetes описывает, **что должно быть верно всегда**, и непрерывно
+    приводит факт к этому состоянию сам.
+  explanation: |
+    Отсюда всё остальное: поднять упавшее, переселить поды с умершего узла, выкатить
+    версию без даунтайма, добавить реплик под нагрузкой. С императивными инструментами
+    каждое из этих действий — отдельный запуск, который кто-то должен инициировать.
+    Куб — это петля, работающая без тебя.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-architecture-011
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит между `kubectl apply -f deploy.yaml` и запущенным контейнером?
+  answer: |
+    kubectl шлёт объект в apiserver → тот проводит его через authn/authz/admission
+    и пишет в etcd → deployment-контроллер создаёт ReplicaSet → тот создаёт поды →
+    scheduler проставляет им `nodeName` → kubelet нужного узла видит свой под и просит
+    containerd запустить контейнеры.
+  explanation: |
+    Цепочка — это карта для диагностики: на каждом звене свой симптом. Объект не создался —
+    RBAC или admission; под в `Pending` — scheduler не нашёл узел; под в
+    `ContainerCreating` — kubelet не смог смонтировать том или сеть; `ImagePullBackOff` —
+    runtime не достал образ. Отсюда правило: не гадать, а идти по цепочке сверху вниз.
+  ref: "https://kubernetes.io/docs/concepts/overview/components/"
+
+- id: k8s-architecture-012
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт managed-кластер (GKE, EKS) и чего в нём нельзя?
+  answer: |
+    Провайдер держит control plane сам: обновляет, бэкапит etcd, обеспечивает HA.
+    Взамен нет доступа к узлам control plane и к etcd, ограничен набор флагов apiserver
+    и список admission-плагинов.
+  explanation: |
+    Практическое следствие для отладки: в managed-кластере нет смысла искать
+    `kube-apiserver` среди подов — их не видно, а логи control plane приходят через
+    систему логирования облака. Всё, что требует правки флагов apiserver или прямого
+    доступа к etcd, в managed-кластере либо делается через API провайдера, либо
+    не делается вовсе.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-architecture-013
+  domain: k8s
+  subtopic: architecture
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Откуда apiserver знает, кто ты, когда ты выполняешь `kubectl get pods`?
+  answer: |
+    Из `kubeconfig`: там лежит клиентский сертификат, токен или конфигурация OIDC.
+    Личность зашита в эти учётные данные — Kubernetes не хранит пользователей у себя
+    как объекты.
+  explanation: |
+    Отсюда особенность, которая удивляет: объекта User в API нет, «создать пользователя»
+    нельзя. Есть только способ доказать личность (серт, токен, OIDC) и RBAC, который
+    привязывает права к имени из этого доказательства. Для подов личность выдаётся иначе —
+    токеном ServiceAccount, который kubelet монтирует в контейнер.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
+
+- id: k8s-architecture-014
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как контроллеры узнают об изменениях, не опрашивая apiserver в цикле?
+  answer: |
+    Через watch: контроллер один раз выкачивает список объектов, запоминает
+    `resourceVersion` и дальше держит долгоживущее соединение, получая только изменения.
+    Локальная копия объектов лежит в informer-кеше.
+  explanation: |
+    Отсюда масштабируемость apiserver: тысяча контроллеров не создаёт тысячу
+    периодических запросов. Отсюда же практическое следствие для отладки: контроллер
+    читает **свой кеш**, а не etcd, поэтому между записью объекта и реакцией на неё
+    всегда есть лаг. И отсюда же периодический resync — страховка на случай
+    оборванного watch, тот самый level-triggered подход.
+  ref: "https://kubernetes.io/docs/reference/using-api/api-concepts/"
+
+- id: k8s-architecture-015
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Узел потерял связь с control plane на десять минут. Что произойдёт с его подами?
+  answer: |
+    Через `node-monitor-grace-period` узел помечается `NotReady`, на него вешается taint
+    `node.kubernetes.io/unreachable:NoExecute`, и контроллер начинает удалять объекты
+    подов, чтобы контроллеры создали их на других узлах. Но **сами контейнеры на узле
+    продолжают работать**, пока узел не вернётся.
+  explanation: |
+    Это ключевой риск split-brain: с точки зрения кластера поды уже переехали,
+    с точки зрения узла они живы и, возможно, всё ещё пишут в общий том или держат
+    внешнюю блокировку. Именно поэтому для StatefulSet с RWO-томом переезд требует
+    отсоединения тома, а для приложений с эксклюзивным доступом нужна внешняя
+    страховка вроде fencing.
+  ref: "https://kubernetes.io/docs/concepts/architecture/nodes/"
+
+- id: k8s-architecture-016
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Три реплики apiserver за балансировщиком. Как они не конфликтуют при
+    одновременной записи одного объекта?
+  answer: |
+    Через оптимистичную блокировку: у каждого объекта есть `resourceVersion`, и запись
+    принимается, только если версия совпадает с текущей. Проигравший получает конфликт
+    и повторяет операцию на свежих данных.
+  explanation: |
+    Сами apiserver'ы состояния не хранят — они полностью stateless, а арбитраж
+    происходит в etcd, который и обеспечивает консенсус. Отсюда понятно, почему
+    масштабирование apiserver горизонтально работает, а масштабирование etcd — нет:
+    добавление узлов etcd увеличивает надёжность, но замедляет запись, потому что
+    кворум становится шире.
+  ref: "https://kubernetes.io/docs/reference/using-api/api-concepts/"
+
+- id: k8s-architecture-017
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое audit log apiserver и какие у него уровни?
+  answer: |
+    Журнал всех запросов к API, настраиваемый политикой. Уровни: `None` (не писать),
+    `Metadata` (кто, что, когда), `Request` (плюс тело запроса), `RequestResponse`
+    (плюс ответ).
+  explanation: |
+    Это единственное место, где видно, **кто** и **что** сделал с кластером: событий
+    хватает на час, а логи контроллеров показывают следствия, а не автора. Уровни
+    существуют из-за объёма и чувствительности: `RequestResponse` на секретах пишет
+    их содержимое в лог, поэтому политику пишут адресно, а не одним правилом на всё.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/"

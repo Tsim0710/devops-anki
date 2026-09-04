@@ -1,0 +1,285 @@
+# k8s / ingress
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-ingress-001
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем Ingress отличается от ingress-controller?
+  answer: |
+    Ingress — это **правило**, объект в etcd: какой домен и путь ведут в какой сервис.
+    Ingress-controller — под-исполнитель (обычно nginx или подобное), который следит
+    за этими объектами и превращает их в свою конфигурацию.
+  explanation: |
+    Разделение объясняет самый частый симптом: Ingress создался, `kubectl get ingress`
+    его показывает, а ничего не работает и колонка `ADDRESS` пуста — контроллера
+    в кластере просто нет. Правило без исполнителя остаётся текстом в базе.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-002
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен Ingress, если есть Service типа LoadBalancer?
+  answer: |
+    Экономика и возможности: каждый LoadBalancer-сервис — это отдельный балансировщик
+    облака с отдельным IP и отдельным счётом. Ingress даёт **один** вход на десятки
+    доменов плюс маршрутизацию по путям, TLS-терминацию и заголовки.
+  explanation: |
+    Разница ещё и в слое: Service работает на L4 и видит только адреса и порты, а Ingress
+    на L7 и читает домен и путь. Всё, что требует понимания HTTP — раздача по путям,
+    редиректы, единый сертификат на домен — на L4 невыразимо в принципе.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-003
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что задаёт `ingressClassName` в манифесте Ingress?
+  answer: |
+    Какой именно контроллер должен обработать это правило. В кластере их может быть
+    несколько (внешний и внутренний nginx, облачный контроллер), и каждый берёт
+    только свой класс.
+  explanation: |
+    Без указания класса правило может не подобрать никто — и симптом будет тот же,
+    что при полном отсутствии контроллера: объект есть, `ADDRESS` пуст. В кластере
+    может быть класс по умолчанию, помеченный аннотацией, но полагаться на него
+    в манифестах — источник сюрпризов при переезде между кластерами.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-004
+  domain: k8s
+  subtopic: ingress
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где должен лежать TLS-секрет, на который ссылается Ingress?
+  answer: |
+    В **том же namespace**, что и сам Ingress, и быть типа `kubernetes.io/tls`
+    с ключами `tls.crt` и `tls.key`.
+  explanation: |
+    Ограничение namespace здесь — граница безопасности: иначе любой Ingress мог бы
+    прочитать чужой приватный ключ. Практическое следствие — при нескольких namespace
+    один и тот же wildcard-сертификат приходится размножать, чем обычно занимается
+    отдельный контроллер репликации секретов.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-005
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Куда ingress-controller отправляет запрос — на ClusterIP сервиса или на IP пода?
+  answer: |
+    Напрямую на **IP подов**, которые он берёт из `EndpointSlice`. ClusterIP
+    и kube-proxy при этом не участвуют.
+  explanation: |
+    Отсюда два следствия. Первое: балансирует контроллер сам, на L7, то есть по запросам,
+    а не по соединениям — поэтому за Ingress gRPC размазывается по репликам нормально.
+    Второе: составом upstream управляет readiness подов, и обновляется он на лету,
+    без перезагрузки nginx.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/"
+
+- id: k8s-ingress-006
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    От Ingress прилетает `502`, а не `404`. О чём это говорит?
+  options:
+    a: "Правило нашлось, но upstream не ответил или ответил мусором"
+    b: "Правило не нашлось: не тот домен или путь"
+    c: "Сертификат не подошёл к запрошенному домену"
+    d: "Ingress-controller не установлен в кластере"
+  answer: a
+  explanation: |
+    Код ошибки указывает на слой, где всё сломалось, и это экономит половину диагностики.
+    `404` от nginx означает, что запрос дошёл, но не подошёл ни к одному правилу —
+    проблема в `host`, `path` или классе. `502` означает, что правило сработало
+    и контроллер пошёл в upstream — значит смотреть надо в поды: readiness, порт,
+    приложение.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-007
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как тридцать HTTPS-доменов на одном IP выбирают нужный сертификат, если TLS
+    устанавливается **раньше**, чем сервер видит HTTP-заголовки?
+  answer: |
+    По SNI: имя домена клиент передаёт открытым текстом в `ClientHello`, ещё
+    до шифрования. Контроллер по нему выбирает сертификат, и только потом,
+    внутри установленного TLS, читает `Host` и маршрутизирует.
+  explanation: |
+    Без SNI один IP мог бы обслуживать только один HTTPS-сайт — исторически так и было.
+    Порядок здесь важен и на собесе: сначала SNI выбирает **сертификат**, затем
+    заголовок `Host` выбирает **правило**. Это два разных имени в двух разных местах,
+    и они могут не совпасть.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-008
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Браузер показывает `Fake Certificate` при заходе на домен через nginx-ingress.
+    Что это значит?
+  answer: |
+    Что для запрошенного домена nginx не нашёл подходящего TLS-секрета и отдал
+    свой самоподписанный дефолтный сертификат. Обычно секрета нет, он в другом
+    namespace или домен в `spec.tls` не совпадает с запрошенным.
+  explanation: |
+    Отдавать заглушку, а не рвать соединение — сознательное поведение: так проблема
+    выглядит как ошибка сертификата в браузере, а не как «сайт недоступен», и её проще
+    диагностировать. Если сертификаты выписывает cert-manager, смотреть надо на объекты
+    `Certificate` и `Order` — секрет появляется только после успешной валидации.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-009
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сайт за Cloudflare в режиме Flexible уходит в `ERR_TOO_MANY_REDIRECTS`. Почему?
+  answer: |
+    Cloudflare ходит в origin по HTTP, а nginx-ingress по умолчанию редиректит HTTP
+    на HTTPS. Cloudflare получает редирект, снова идёт по HTTP — цикл. Лечится
+    отключением `ssl-redirect` или переводом Cloudflare в режим Full.
+  explanation: |
+    Корень в том, что TLS здесь терминируется **дважды**: браузер → Cloudflare
+    и Cloudflare → origin, и это два независимых сертификата и два независимых решения
+    про схему. Origin не видит, что клиент пришёл по HTTPS, и честно пытается его
+    туда отправить.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-010
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Аннотация в Ingress написана с опечаткой в ключе. Что произойдёт?
+  answer: |
+    Ничего — ни ошибки, ни предупреждения. Аннотации не валидируются: контроллер просто
+    не найдёт ожидаемый ключ и применит поведение по умолчанию.
+  explanation: |
+    Это цена того, что аннотации — свободное поле для расширений: apiserver не знает,
+    какие ключи понимает конкретный контроллер, и проверить их не может. Отсюда
+    практика — сверять ключи с документацией **своего** контроллера и проверять
+    результат, а не факт применения манифеста.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/"
+
+- id: k8s-ingress-011
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ingress умеет маршрутизировать не-HTTP трафик, например Postgres или SMTP?
+  answer: |
+    Нет. Ingress API описывает только HTTP и HTTPS. Проброс произвольного TCP или UDP
+    делается нестандартными средствами конкретного контроллера или через
+    Service типа LoadBalancer.
+  explanation: |
+    Ограничение вытекает из модели: правила Ingress состоят из `host` и `path`,
+    а этих понятий у обычного TCP нет. Именно эта негибкость — одна из причин появления
+    Gateway API, где транспорт и протокол описываются явно и расширяемо.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-012
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что Gateway API даёт такого, чего не даёт Ingress?
+  answer: |
+    Разделение ролей и типизацию: инфраструктурная команда владеет `GatewayClass`
+    и `Gateway`, а команды приложений — своими `HTTPRoute`. Возможности (заголовки,
+    веса, зеркалирование, не-HTTP протоколы) описаны полями API, а не аннотациями.
+  explanation: |
+    Ingress упёрся в собственную простоту: всё, что выходило за host и path, уезжало
+    в аннотации, а те у каждого контроллера свои и не переносятся между реализациями.
+    Gateway API — официальный преемник, но Ingress не объявлен устаревшим и в проде
+    его всё ещё большинство.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/gateway/"
+
+- id: k8s-ingress-013
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Все поды приложения в статусе `Running`, но Ingress отдаёт `503`.
+    Что проверять первым?
+  answer: |
+    `kubectl get endpointslice` для этого сервиса. `Running` не означает `Ready`:
+    скорее всего поды не проходят readiness, и список бэкендов пуст.
+  explanation: |
+    `Running` — это фаза пода, она говорит лишь о том, что контейнеры запущены.
+    В endpoints попадают только **готовые** поды, а ingress-controller берёт upstream
+    именно оттуда. Поэтому цепочка проверки идёт не от логов приложения,
+    а от состава endpoints: пусто — вопрос к readiness и меткам, не пусто — вопрос
+    к самому приложению.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-014
+  domain: k8s
+  subtopic: ingress
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    HTTP-01 валидация cert-manager висит неделями, под `cm-acme-http-solver` живой.
+    Где искать?
+  answer: |
+    В маршруте до solver'а: Let's Encrypt должен снаружи достучаться до
+    `/.well-known/acme-challenge/...`. Мешает обычно принудительный HTTPS-редирект,
+    правило, перехватывающее все пути, закрытый снаружи домен или неверный DNS.
+  explanation: |
+    Solver — обычный под за временным Ingress, и он подчиняется тем же правилам
+    маршрутизации, что и приложение. Отсюда парадокс: чем строже настроен вход
+    (везде HTTPS, всё редиректится), тем вернее ломается выпуск сертификата, потому
+    что валидация идёт именно по HTTP. Проверяется снаружи обычным curl'ом по пути
+    challenge, а не изнутри кластера.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"

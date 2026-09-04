@@ -1,0 +1,289 @@
+# k8s / cluster-networking
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-cluster-networking-001
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Kubernetes сам создаёт сеть между подами на разных узлах?
+  answer: |
+    Нет. Он только **задаёт требования**: у каждого пода свой IP, поды видят друг друга
+    напрямую без NAT, узлы видят поды. Реализует это CNI-плагин, который ставится отдельно.
+  explanation: |
+    Отсюда состояние свежего кластера: узлы в `NotReady`, поды в `ContainerCreating`,
+    пока не установлен CNI — и это не поломка, а незавершённая установка. Отсюда же
+    возможность выбирать реализацию под свою сеть: Calico, Cilium, Flannel решают одну
+    задачу очень по-разному.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-002
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    CNI — это одна сущность или две?
+  answer: |
+    Две. **Плагин** — короткоживущий бинарник на диске узла, который containerd
+    вызывает на создание пода, чтобы выдать адрес и настроить интерфейс.
+    **Агент** — постоянно работающий DaemonSet, который занимается маршрутизацией
+    между узлами.
+  explanation: |
+    Разделение объясняет разные симптомы отказа. Сломан бинарник — поды не создаются
+    вообще, зависают в `ContainerCreating`, ошибка видна сразу. Умер агент — новые поды
+    создаются нормально, но перестают быть доступными с других узлов: отказ отложенный
+    и потому куда более коварный.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-cluster-networking-003
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `hostNetwork: true` и чем за это платишь?
+  answer: |
+    Под получает сетевой namespace **узла**: его процессы слушают прямо на адресе узла,
+    отдельного pod IP нет. Плата — конфликты портов между подами и потеря сетевой
+    изоляции.
+  explanation: |
+    Используется там, где нужно видеть или обслуживать сеть самого узла: CNI-агенты,
+    kube-proxy, сборщики сетевых метрик. Для приложений это почти всегда ошибка —
+    два таких пода не сядут на один узел, если слушают один порт, и никакие
+    NetworkPolicy к ним уже не применяются.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-cluster-networking-004
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем overlay-сеть отличается от native routing?
+  answer: |
+    Overlay заворачивает пакет пода в дополнительный пакет между узлами (VXLAN, Geneve) —
+    работает в любой сети, но платит накладными расходами. Native routing прописывает
+    маршруты до pod-подсетей прямо в сеть — быстрее, но требует, чтобы сеть об этих
+    подсетях знала.
+  explanation: |
+    Выбор диктуется не вкусом, а тем, управляешь ли ты маршрутизацией. В своём VPC
+    маршруты добавить можно — берут routing. В чужой или сложной сети остаётся overlay.
+    Отличить их на живом кластере просто: посмотреть, есть ли на узлах интерфейс
+    вроде `vxlan.calico` или `flannel.1`.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-005
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Между подами на разных узлах: короткие запросы проходят, большие POST'ы виснут
+    без ошибки. Первая гипотеза?
+  options:
+    a: "MTU: overlay добавляет заголовки, крупные пакеты не проходят"
+    b: "NetworkPolicy режет трафик по размеру запроса"
+    c: "Перегружен CoreDNS, резолв не успевает"
+    d: "kube-proxy потерял правила для этого сервиса"
+  answer: a
+  explanation: |
+    Overlay добавляет к каждому пакету обёртку (для VXLAN порядка 50 байт), и если MTU
+    интерфейса пода не уменьшен на эту величину, полноразмерные пакеты не помещаются
+    в кадр. Мелкие запросы влезают и ходят, крупные молча теряются — соединение
+    устанавливается и виснет на передаче тела. Симптом «мелочь работает, крупное
+    висит» — почти всегда MTU.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-006
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему pod CIDR не должен пересекаться с адресами VPC?
+  answer: |
+    Потому что узел будет считать эти адреса «своими подами» и направлять трафик
+    внутрь кластера вместо реальной сети. Часть VPC — базы, внешние сервисы —
+    станет недостижимой из подов.
+  explanation: |
+    Ошибку легко не заметить при запуске: пересекающийся диапазон может долго
+    не выдаваться никому, и всё работает. Ломается позже и точечно — «этот один сервис
+    не отвечает из кластера», причём только из подов, а с узла по SSH всё доступно.
+    Диапазоны планируются один раз, до создания кластера: сменить их потом нельзя.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-007
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    За чем следит CNI-агент — за подами или за узлами?
+  answer: |
+    За **узлами**. Он смотрит, какая pod-подсеть выделена каждому узлу, и обеспечивает
+    доставку до этой подсети. Отдельные поды его не интересуют — их адреса раздаёт
+    плагин локально.
+  explanation: |
+    Отсюда масштабируемость: маршрутов в кластере столько же, сколько узлов, а не
+    сколько подов, и создание тысячи подов не создаёт тысячу записей в сети.
+    И отсюда же понятно, почему добавление узла требует времени на сходимость —
+    новую подсеть должны увидеть агенты на всех остальных узлах.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-008
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем сетевая модель пода отличается от сети Docker по умолчанию?
+  answer: |
+    В Docker контейнер сидит за NAT на bridge и снаружи виден только через проброс порта.
+    В Kubernetes у каждого пода **свой маршрутизируемый IP**, и поды общаются напрямую,
+    без NAT и без проброса.
+  explanation: |
+    Отсутствие NAT — не деталь реализации, а требование модели: приложение видит тот же
+    адрес источника, который у отправителя, что нужно для service discovery, аудита
+    и mTLS. Побочный эффект — адресов расходуется много, и pod CIDR приходится
+    планировать с запасом на рост кластера.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-009
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под завис в `ContainerCreating` с ошибкой про сеть. Что проверять?
+  answer: |
+    CNI на этом узле: жив ли агент-DaemonSet, есть ли бинарник плагина и его конфиг
+    на диске узла, не кончились ли адреса в подсети узла.
+  explanation: |
+    Порядок создания пода — sandbox сначала, сеть потом: containerd поднимает
+    pause-контейнер и зовёт CNI, чтобы тот выдал адрес. Пока адреса нет, запускать
+    прикладные контейнеры бессмысленно, и kubelet ждёт. Поэтому сетевые проблемы
+    проявляются именно как затык на создании, а не как отказ уже работающего пода.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-cluster-networking-010
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает NetworkPolicy и что будет, если её применить в кластере без поддержки?
+  answer: |
+    Ограничивает, кто может обращаться к подам, отобранным селектором. Если CNI
+    не поддерживает NetworkPolicy (например Flannel), объект **создастся и будет
+    молча игнорироваться** — ограничения не появятся.
+  explanation: |
+    Это самый опасный вид отказа: политика есть, ревью пройдено, а трафик ходит как
+    ходил, и об этом никто не узнает до аудита. Вторая особенность — как только
+    на под навешена хоть одна политика, он переходит в режим «запрещено всё, кроме
+    разрешённого», поэтому забытое правило легко обрывает легитимный трафик.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-cluster-networking-011
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему нельзя поставить в кластер два CNI сразу?
+  answer: |
+    Оба будут раздавать адреса и прописывать маршруты для одних и тех же подсетей,
+    конфликтуя за одни и те же ресурсы узла. Результат — непредсказуемая сеть,
+    которую невозможно диагностировать.
+  explanation: |
+    Частая причина такой ситуации — не осознанный выбор, а остатки: поставили Flannel,
+    решили перейти на Calico, применили манифест поверх, а старые конфиги плагина
+    остались на дисках узлов. Смена CNI — это операция с полной очисткой конфигов
+    и, как правило, с пересозданием подов.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-cluster-networking-012
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему MTU в кластере лучше задать явно, а не полагаться на автоопределение?
+  answer: |
+    Автоопределение смотрит на MTU интерфейса узла и не всегда учитывает то, что лежит
+    ниже: VPN, туннель между зонами, оборудование с нестандартным MTU. Ошибка проявится
+    не при старте, а под нагрузкой на крупных пакетах.
+  explanation: |
+    Цена ошибки несимметрична: заниженный MTU стоит немного производительности,
+    завышенный даёт зависающие соединения, которые ищут неделями и обычно не там.
+    Поэтому в средах со своей сетью значение проставляют руками в конфиге CNI
+    и проверяют большим пакетом с запретом фрагментации.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-013
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ты навесил на под одну NetworkPolicy, разрешающую вход от фронтенда.
+    Что произошло с остальным его трафиком?
+  answer: |
+    Весь остальной **входящий** трафик к этому поду закрылся. Как только под попал
+    под хотя бы одну политику по данному направлению, для него включается режим
+    «запрещено всё, кроме явно разрешённого».
+  explanation: |
+    Ловушка в асимметрии: политика с секцией `ingress` не трогает исходящий трафик
+    вовсе, и наоборот. Поэтому «закрыл вход, а под перестал ходить в БД» означает,
+    что где-то есть вторая политика с `egress`. Вторая половина ловушки — проверки
+    мониторинга и health-эндпоинты: их источник тоже надо разрешать явно, иначе
+    под окажется здоров и невидим одновременно.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-cluster-networking-014
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт замена kube-proxy на реализацию поверх eBPF?
+  answer: |
+    Обработка сервисного трафика уходит из цепочек iptables в программы eBPF в ядре:
+    поиск бэкенда становится по хеш-таблице, независимо от числа сервисов, а часть
+    хопов и NAT'ов исчезает вовсе.
+  explanation: |
+    Выигрыш заметен там же, где болит iptables: тысячи сервисов, частые изменения
+    endpoints, задержка применения правил. Побочная выгода — видимость: eBPF-реализации
+    отдают подробную сетевую телеметрию, которой в iptables взять неоткуда.
+    Плата — требования к версии ядра и заметно более сложная отладка.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"

@@ -1,0 +1,365 @@
+# k8s / autoscaling
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-autoscaling-001
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Три слоя автоскейлинга в Kubernetes — что каждый из них крутит?
+  answer: |
+    HPA меняет **число реплик** пода. VPA меняет **requests и limits** одного пода.
+    Cluster Autoscaler меняет **число узлов** в кластере.
+  explanation: |
+    Слои отвечают на разные вопросы: «нагрузки больше, чем тянет одна реплика» — HPA;
+    «реплика просит не столько, сколько ест» — VPA; «поды некуда сажать» — CA.
+    Общее у всех троих одно и принципиальное: решения принимаются по **броням**
+    (`requests`), а не по фактическому потреблению узлов.
+  ref: "https://kubernetes.io/docs/concepts/workloads/autoscaling/"
+
+- id: k8s-autoscaling-002
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    По какой формуле HPA считает нужное число реплик?
+  answer: |
+    `желаемые = ceil(текущие × (текущая метрика / целевая метрика))`. Результат
+    ограничивается `minReplicas` и `maxReplicas`.
+  explanation: |
+    Из формулы следует главное свойство: HPA **пропорционален, а не инкрементален**.
+    При двукратном превышении цели он сразу удваивает число реплик, а не добавляет
+    по одной. Это отвечает на частый вопрос «почему сразу с 2 до 8» — потому что
+    метрика была вчетверо выше целевой.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-003
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Относительно чего HPA считает утилизацию CPU в процентах?
+  answer: |
+    Относительно `requests`, а не limits и не мощности узла. `targetAverageUtilization: 80`
+    означает «80% от забронированного», то есть при `requests: 100m` — 80m.
+  explanation: |
+    Отсюда неочевидное поведение: под с заниженными requests кажется HPA перегруженным
+    и вызывает лишний скейл, а с завышенными — вечно недогруженным, и скейла не будет
+    никогда, сколько ни лей нагрузки. То есть корректность автоскейлинга напрямую
+    зависит от честности броней.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-004
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что должно стоять в кластере, чтобы HPA работал по CPU?
+  answer: |
+    `metrics-server`: он собирает потребление с kubelet'ов и отдаёт его через
+    `metrics.k8s.io`. Ту же цепочку использует `kubectl top`.
+  explanation: |
+    Именно поэтому проверка «работает ли `kubectl top pods`» — первый шаг при разборе
+    неработающего HPA: обе функции висят на одном источнике. Prometheus здесь
+    не помогает: он отдельная система и к `metrics.k8s.io` отношения не имеет,
+    пока не поставлен адаптер.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"
+
+- id: k8s-autoscaling-005
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    `kubectl get hpa` показывает `TARGETS: <unknown>/80%`. Самая частая причина?
+  options:
+    a: "У контейнеров не заданы `requests` по CPU — считать процент не от чего"
+    b: "HPA ещё не собрал историю метрик, нужно подождать 5 минут"
+    c: "Число реплик уже достигло `maxReplicas`"
+    d: "Нагрузка нулевая, поэтому метрика не определена"
+  answer: a
+  explanation: |
+    Утилизация — это дробь, у которой в знаменателе стоят `requests`. Нет знаменателя —
+    нет и значения, и HPA честно пишет `<unknown>` вместо того, чтобы гадать.
+    Вторая по частоте причина того же симптома — отсутствующий или упавший
+    `metrics-server`, то есть отсутствие числителя. Обе проверяются за одну минуту.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-006
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему HPA увеличивает число реплик быстро, а уменьшает медленно?
+  answer: |
+    Асимметрия заложена намеренно: у scale-down есть окно стабилизации (по умолчанию
+    300 секунд), в течение которого HPA берёт максимум из недавних рекомендаций.
+    У scale-up такого окна по умолчанию нет.
+  explanation: |
+    Цена ошибок разная. Поздно добавить реплики — отказ обслуживания прямо сейчас.
+    Рано убрать — риск снять мощности перед следующим всплеском и начать колебаться.
+    Поэтому вверх система реагирует немедленно, а вниз — только убедившись, что спад
+    устойчив. Окно настраивается через `behavior`.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-007
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему HPA и VPA нельзя вешать на один и тот же ресурс?
+  answer: |
+    Они образуют петлю: VPA поднимает `requests`, из-за чего утилизация в процентах
+    падает, HPA убирает реплики; нагрузка на оставшиеся растёт, VPA снова поднимает
+    requests. Результат — постоянное колебание.
+  explanation: |
+    Причина в общем знаменателе: HPA считает проценты от requests, а VPA этот самый
+    знаменатель и меняет. Два регулятора, управляющие одной величиной с разных сторон,
+    неизбежно раскачивают систему. Рабочая комбинация — VPA по памяти, HPA по CPU
+    или по внешней метрике, то есть разные ресурсы.
+  ref: "https://kubernetes.io/docs/concepts/workloads/autoscaling/"
+
+- id: k8s-autoscaling-008
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что триггерит Cluster Autoscaler на добавление узла?
+  answer: |
+    Наличие подов в `Pending`, которые **поместились бы**, если бы появился ещё один
+    узел из группы. CA симулирует посадку на узел-кандидат и добавляет машину только
+    если под действительно на неё сядет.
+  explanation: |
+    Симуляция объясняет частый ступор: под висит `Pending`, а узлы не добавляются —
+    значит, ни один узел из группы поду не подойдёт. Причина обычно не в ресурсах,
+    а в ограничениях: жёсткая affinity, taint, зональность тома, слишком большие
+    requests. Загрузка узлов при этом на решение не влияет вообще.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/cluster-autoscaling/"
+
+- id: k8s-autoscaling-009
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Узлы полупустые, но Cluster Autoscaler их не удаляет. Какие типовые блокеры?
+  answer: |
+    Поды без контроллера (созданные вручную), поды с локальным хранилищем, поды,
+    которые нарушат PodDisruptionBudget, поды в `kube-system` без PDB, и явная
+    аннотация `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`.
+  explanation: |
+    Scale-down по природе опаснее scale-up: он трогает работающие поды, поэтому обвешан
+    защитами и требует, чтобы **каждый** под с узла было куда переселить. Один
+    неудачно стоящий под держит целую машину и её счёт. Отсюда практика — PDB
+    на всё, что переживает обслуживание, и осознанное отношение к аннотациям.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/cluster-autoscaling/"
+
+- id: k8s-autoscaling-010
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем KEDA, если есть HPA?
+  answer: |
+    KEDA даёт скейл по **внешним** событиям — длине очереди Kafka или RabbitMQ, числу
+    сообщений, метрике из Prometheus, расписанию — и умеет масштабировать до нуля.
+    Технически он создаёт HPA под капотом.
+  explanation: |
+    Для обработчика очереди CPU — ложный сигнал: воркер может простаивать с пустым
+    процессором при тысяче необработанных сообщений или, наоборот, грузить CPU на
+    последней задаче. Правильная метрика здесь — глубина очереди, то есть объём
+    невыполненной работы. Скейл до нуля — вторая причина: HPA сам по себе ниже
+    единицы не опускается.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-011
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    HPA стоит, нагрузка очевидно есть, реплики не растут. Порядок проверки?
+  answer: |
+    1) `kubectl top pods` — жив ли metrics-server; 2) заданы ли `requests` по нужному
+    ресурсу; 3) `kubectl describe hpa` — что он сам пишет в условиях и событиях;
+    4) не достигнут ли `maxReplicas`; 5) не упирается ли скейл в квоту namespace.
+  explanation: |
+    Порядок идёт от источника данных к потребителю: без метрик и броней HPA не может
+    даже вычислить цель, и всё остальное проверять бессмысленно. `describe hpa` стоит
+    третьим, потому что в его `Conditions` (`AbleToScale`, `ScalingActive`) причина
+    обычно написана словами — большинство разборов на этом и заканчивается.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-012
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Реплики скачут вверх-вниз каждую минуту. Что настраивать?
+  answer: |
+    Секцию `behavior` у HPA: окно стабилизации и политики скорости изменения. Плюс
+    проверить, не воюют ли за одну метрику два регулятора и не слишком ли резкая
+    выбрана целевая величина.
+  explanation: |
+    Флаппинг — это классическая перерегуляция: система реагирует быстрее, чем успевает
+    проявиться эффект её же предыдущего действия. Новые поды не начинают снимать
+    нагрузку мгновенно — им нужно запуститься и прогреться, а HPA за это время
+    успевает посчитать ещё раз. Окно стабилизации даёт эффекту дойти до метрики.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-013
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    HPA управляет числом реплик, но в манифесте Deployment стоит `replicas: 3`
+    и он лежит в git под Argo CD. Что произойдёт?
+  answer: |
+    Постоянная война: HPA ставит своё число, GitOps-агент возвращает три. Лечится
+    удалением поля `replicas` из манифеста или явным исключением его из сравнения.
+  explanation: |
+    Оба участника правы по-своему: HPA обязан приводить число реплик к нагрузке,
+    Argo CD — к тому, что записано в git. Конфликт возникает из-за того, что одно поле
+    имеет двух владельцев. Именно эту проблему в общем виде решает server-side apply
+    с учётом владения полями, но в случае с `replicas` проще просто не описывать его
+    в манифесте.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-014
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему VPA в режиме `Auto` перезапускает поды и чем это опасно?
+  answer: |
+    Потому что `requests` исторически задавались только при создании пода: чтобы
+    применить новые значения, VPA вытесняет под и даёт контроллеру создать его заново.
+    Опасно для нагрузок, чувствительных к рестарту, и для синглтонов.
+  explanation: |
+    Отсюда популярность режима рекомендаций: VPA считает и показывает подходящие
+    значения, а применяет их человек при следующем выкате — без сюрпризов в проде.
+    Именно эту слабость закрывает появившееся изменение ресурсов пода на лету,
+    но оно относительно новое и включено не в каждом кластере.
+  ref: "https://kubernetes.io/docs/concepts/workloads/autoscaling/"
+
+- id: k8s-autoscaling-015
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Cluster Autoscaler добавляет узел за минуты, а трафик вырос за секунды.
+    Как закрывают этот разрыв?
+  answer: |
+    Заранее выделенной «подушкой»: низкоприоритетные поды-заглушки, которые занимают
+    место и вытесняются preemption'ом, как только появляется реальная нагрузка. Узел
+    для неё уже готов, а заглушки уезжают ждать нового узла.
+  explanation: |
+    Приём меняет размен: платишь за постоянно свободные ресурсы, но получаешь мгновенный
+    отклик. Работает он ровно на механике preemption — жертвы выбираются по приоритету,
+    а заглушкам ставят отрицательный. Это же объясняет, зачем `PriorityClass` нужен
+    не только для «важных» нагрузок, но и для намеренно неважных.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/"
+
+- id: k8s-autoscaling-016
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему масштабирование по CPU плохо работает для сервиса, который в основном ждёт
+    ответа от базы?
+  answer: |
+    Потому что ожидание ввода-вывода не потребляет процессор: сервис может держать
+    тысячи висящих запросов при нулевом CPU. HPA увидит недогруз и не добавит реплик,
+    хотя очередь растёт.
+  explanation: |
+    CPU — метрика **насыщения вычислением**, а узкое место здесь совсем другое: число
+    одновременных соединений или размер пула. Правильный сигнал в таком случае —
+    прикладная метрика: длина очереди, число активных запросов, latency. Отсюда общий
+    принцип: скейлить надо по тому, что реально ограничивает пропускную способность.
+  ref: "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+
+- id: k8s-autoscaling-017
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что сломается, если позволить HPA скейлить StatefulSet с базой данных?
+  answer: |
+    Почти всё: новая реплика получает пустой том и должна пройти инициализацию
+    и репликацию, а роли в кластере БД (кто primary) автоскейлер не понимает.
+    Уменьшение числа реплик рискует убрать узел, который держит данные или лидерство.
+  explanation: |
+    Автоскейлинг построен на допущении взаимозаменяемости реплик — оно верно для
+    stateless-сервисов и ложно для баз. Технически HPA к StatefulSet прицепить можно,
+    и это делает его особенно опасным: механизм сработает, а осмысленность результата
+    никто не проверит. Масштабирование БД — задача оператора, который знает её протокол.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-autoscaling-018
+  domain: k8s
+  subtopic: autoscaling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Cluster Autoscaler и Karpenter решают одну задачу. В чём разница подхода?
+  answer: |
+    CA работает с **заранее описанными группами узлов** и умеет только менять их размер.
+    Karpenter смотрит на неразмещённые поды и подбирает под них подходящий тип машины,
+    создавая узлы напрямую, без групп.
+  explanation: |
+    Разница практическая: с CA приходится заранее угадывать нужные типы машин
+    и заводить группу под каждый профиль нагрузки, а поды, не влезающие ни в один
+    профиль, висят в `Pending`. Karpenter снимает этот шаг и заодно лучше упаковывает
+    нагрузку, но привязан к конкретным облакам и меняет модель эксплуатации.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/cluster-autoscaling/"

@@ -1,0 +1,303 @@
+# k8s / scheduling
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki. Путь файла на группировку не влияет.
+
+- id: k8s-scheduling-001
+  domain: k8s
+  subtopic: scheduling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    На что смотрит scheduler при выборе узла — на реальное потребление или на что-то другое?
+  answer: |
+    Только на **брони**: сумму `requests` уже размещённых подов против `allocatable`
+    узла. Фактическое потребление он не смотрит никогда.
+  explanation: |
+    Отсюда два симметричных сюрприза. Узел загружен на 20%, но новый под туда не садится —
+    значит, соседи забронировали больше, чем едят. И наоборот: узел задыхается под
+    реальной нагрузкой, а scheduler спокойно досаживает поды, потому что по броням
+    место есть. Requests — это не «сколько нужно», а «сколько я занял в учёте».
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/"
+
+- id: k8s-scheduling-002
+  domain: k8s
+  subtopic: scheduling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `cpu: 200m` в requests?
+  answer: |
+    200 millicores, то есть 0.2 ядра — одна пятая процессорного времени одного ядра.
+    `1000m` = `1` = целое ядро.
+  explanation: |
+    Единица дробная потому, что CPU — ресурс делимый во времени: контейнеру выдаётся
+    доля тактов, а не физическое ядро. С памятью так нельзя, поэтому она задаётся
+    абсолютными величинами (`Mi`, `Gi`) и ведёт себя принципиально иначе при превышении.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-003
+  domain: k8s
+  subtopic: scheduling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `capacity` узла отличается от `allocatable`?
+  answer: |
+    `capacity` — всё железо узла. `allocatable` — то, что остаётся подам после вычета
+    резервов на систему и kubelet (`kube-reserved`, `system-reserved`) и порога вытеснения.
+    Планирование идёт по `allocatable`.
+  explanation: |
+    Разница объясняет, почему на узле с 8 ГБ нельзя разместить поды на 8 ГБ requests —
+    гигабайта попросту нет в наличии. Резервы существуют, чтобы kubelet и systemd
+    не умерли от голода вместе с узлом: без них перегруженный узел уходит в `NotReady`
+    и уносит все свои поды разом.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/"
+
+- id: k8s-scheduling-004
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из каких двух фаз состоит работа scheduler'а?
+  answer: |
+    Фильтрация — отсеять узлы, где под разместить **нельзя** (не хватает ресурсов,
+    не подходят taints, nodeSelector, тома). Скоринг — оценить оставшиеся и выбрать
+    лучший по сумме баллов.
+  explanation: |
+    Разделение подсказывает, как читать `Pending`: если сообщение говорит
+    «0/5 nodes are available» с перечислением причин — под не прошёл фильтрацию,
+    и надо смотреть именно на эти причины. Скоринг же объясняет, почему поды обычно
+    размазываются по узлам, а не сваливаются в кучу: за равномерность даются баллы.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/"
+
+- id: k8s-scheduling-005
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под висит в `Pending`. Какие причины бывают и где написана точная?
+  answer: |
+    Не хватает ресурсов по броням, не подходят taints или affinity, не привязывается том,
+    упирается в квоту namespace, нет узлов вообще. Точная причина — в событиях:
+    `kubectl describe pod`, сообщение от `default-scheduler`.
+  explanation: |
+    `Pending` означает ровно одно: узел ещё не выбран, `spec.nodeName` пуст. Поэтому
+    смотреть в логи приложения бессмысленно — контейнеров не существует. Scheduler
+    при этом любезно перечисляет, сколько узлов отсеялось по каждой причине, и обычно
+    это готовый ответ.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-scheduling-006
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Под класса `Guaranteed` (requests == limits) упёрся в свой лимит памяти.
+    Спасёт ли его QoS-класс?
+  options:
+    a: "Нет — его убьют по OOM за превышение собственного лимита"
+    b: "Да — Guaranteed-поды не убивают по OOM никогда"
+    c: "Да, но только если на узле есть свободная память"
+    d: "Нет, но вместо убийства kubelet начнёт троттлить его память"
+  answer: a
+  explanation: |
+    QoS-класс определяет **только очередь на вытеснение при нехватке памяти на узле** —
+    кого выгонят первым, когда узел в целом задыхается. Собственный лимит контейнера
+    к этому отношения не имеет: превысил свой `limits.memory` — ядро убивает процесс,
+    независимо от класса и от того, свободна ли память на узле. Это два разных
+    механизма, которые постоянно путают.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/"
+
+- id: k8s-scheduling-007
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Узел под давлением памяти. Кого kubelet выселит первым?
+  answer: |
+    Сначала `BestEffort`, затем `Burstable`, превысившие свои `requests` — и чем сильнее
+    превысили, тем раньше. `Guaranteed` и поды, потребляющие **меньше** своих requests,
+    трогают в последнюю очередь.
+  explanation: |
+    Логика справедливая: выселяют того, кто наврал сильнее всех при бронировании.
+    Отсюда практический вывод — честные requests это не бюрократия, а страховка:
+    под, который ест меньше забронированного, фактически защищён от вытеснения,
+    даже когда на узле пожар.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/"
+
+- id: k8s-scheduling-008
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Стоит ли ставить `limits.cpu`, если узел всё равно недогружен?
+  answer: |
+    Спорно и часто вредно: лимит троттлит контейнер, **даже когда процессор на узле
+    свободен**. Пики нагрузки упираются в потолок без всякой пользы для соседей.
+  explanation: |
+    Защиту соседей обеспечивают `requests` — они гарантируют долю времени при
+    конкуренции. `limits.cpu` нужен там, где важна предсказуемость, а не скорость:
+    бенчмарки, шумные фоновые задачи, жёсткий мультитенант. С памятью всё наоборот:
+    `limits.memory` ставить обязательно, иначе одна утечка утащит узел целиком.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-009
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение регулярно получает OOMKilled, хотя утечки нет и памяти на узле полно.
+    Что смотреть?
+  answer: |
+    `limits.memory` контейнера. Скорее всего он занижен относительно реального пика:
+    ядро убивает процесс по превышению **его собственного** лимита, состояние узла
+    здесь ни при чём.
+  explanation: |
+    Ключ к диагнозу — регулярность без роста: утечка даёт растущий график и всё более
+    ранние падения, а заниженный лимит даёт стабильный цикл, привязанный к пикам
+    трафика или к тяжёлым операциям вроде импорта. Числа берут из метрик за неделю
+    по 95-му перцентилю, а не из головы.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-010
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько подов помещается на один узел и чем это ограничено?
+  answer: |
+    По умолчанию 110 подов на узел — это настройка kubelet (`maxPods`), а не следствие
+    ресурсов. Ограничение может упереться раньше, чем CPU и память.
+  explanation: |
+    Предел существует не из-за железа, а из-за накладных расходов: на каждый под нужны
+    адрес из подсети узла, набор сетевых правил, watch-соединения и место в отчётах
+    kubelet о статусе. Отсюда неожиданный `Pending` на пустом с виду узле — особенно
+    в кластерах, где много мелких подов и sidecar'ов.
+  ref: "https://kubernetes.io/docs/setup/best-practices/cluster-large/"
+
+- id: k8s-scheduling-011
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение тормозит, ошибок в логах нет, поды здоровы, рестартов нет. Куда смотреть?
+  answer: |
+    На CPU throttling: контейнер упёрся в `limits.cpu`, и ядро отбирает у него такты.
+    Метрика — `container_cpu_cfs_throttled_seconds_total`.
+  explanation: |
+    Троттлинг принципиально невидим для приложения: оно не получает ошибку, ему просто
+    реже дают процессор — растёт latency, копятся очереди, а логи чистые. Именно
+    поэтому такой инцидент ищут долго: все обычные признаки поломки отсутствуют,
+    и в логи смотреть бесполезно.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-012
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Куда считается `emptyDir` с `medium: Memory`?
+  answer: |
+    В память пода: это tmpfs, и записанные файлы занимают RAM, учитываемую в лимите
+    контейнера. Заполнил такой том — получил OOMKilled.
+  explanation: |
+    Ловушка в том, что причина выглядит совершенно не связанной: приложение памяти
+    не ест, утечки нет, а под убивают. Обычно виноват кеш или временные файлы, которые
+    сложили в быстрый tmpfs и забыли, что он живёт в оперативке. Обычный `emptyDir`
+    без `medium` лежит на диске узла и в лимит памяти не попадает.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-scheduling-013
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем плохо задать `requests` сильно ниже реального потребления?
+  answer: |
+    Scheduler посчитает узел свободным и досадит туда поды. Все они начнут есть больше
+    брони, узел уйдёт в давление по памяти, и вытеснять начнут именно тех, кто наврал —
+    возможно, вместе с чужими подами.
+  explanation: |
+    Заниженные requests выглядят выгодно — поды плотнее садятся, кластер кажется
+    экономным. Расплата приходит под нагрузкой и не там, где сэкономили: страдают соседи
+    по узлу. Это же объясняет эффект «узлы падают по очереди» — вытесненные поды едут
+    на следующий узел и повторяют историю.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-014
+  domain: k8s
+  subtopic: scheduling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кластер стабильно недоутилизирован, но новые поды не влезают. Что менять
+    и чем это опасно?
+  answer: |
+    Разрыв между `requests` и реальным потреблением: снижать брони до честных значений
+    по метрикам. Опасность в том, что это осознанный overcommit — под пиковой нагрузкой
+    сумма фактического потребления может превысить ресурсы узла.
+  explanation: |
+    Компромисс здесь не технический, а экономический: высокие requests дают
+    предсказуемость и пустые узлы, низкие — плотность и риск вытеснений. Безопасная
+    середина — requests по 95-му перцентилю реального потребления и обязательные
+    `limits.memory`, чтобы одна утечка не забрала узел целиком. Именно эту задачу
+    автоматизирует VPA в режиме рекомендаций.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-015
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как под запрашивает GPU и чем такой ресурс отличается от CPU и памяти?
+  answer: |
+    Через расширенный ресурс вида `nvidia.com/gpu: 1`, который публикует device plugin
+    на узле. Такие ресурсы **целочисленные и неделимые**: `requests` обязаны равняться
+    `limits`, переподписка невозможна.
+  explanation: |
+    Разница вытекает из природы устройства: процессорное время можно нарезать долями
+    и отобрать, а видеокарту — нет, она выдаётся поду целиком. Отсюда и планирование
+    строже: свободных GPU либо хватает, либо под висит в `Pending`, и никакие
+    ухищрения с requests тут не помогут.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/"
