@@ -283,3 +283,24 @@
     что валидация идёт именно по HTTP. Проверяется снаружи обычным curl'ом по пути
     challenge, а не изнутри кластера.
   ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+- id: k8s-ingress-015
+  domain: k8s
+  subtopic: ingress
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что задаёт `pathType` в правиле Ingress и чем опасно значение
+    `ImplementationSpecific`?
+  answer: |
+    Способ сопоставления пути: `Exact` — точное совпадение, `Prefix` — по сегментам
+    пути, `ImplementationSpecific` — как решит конкретный контроллер. Последнее
+    означает, что поведение манифеста зависит от реализации.
+  explanation: |
+    Поле обязательно, и выбор влияет тоньше, чем кажется: `Prefix` сопоставляет
+    **посегментно**, поэтому `/api` совпадёт с `/api/v1`, но не с `/apifoo`.
+    А `ImplementationSpecific` у nginx может означать регулярное выражение —
+    отсюда манифест, который работает в одном кластере и ведёт себя иначе в другом.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"

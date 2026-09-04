@@ -344,3 +344,22 @@
     заводить и убирать самому. Для крупного временного пространства — распаковка,
     сборка, обработка данных — это ровно то, что нужно.
   ref: "https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/"
+
+- id: k8s-storage-018
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как ограничить объём, который под может записать в `emptyDir`?
+  answer: |
+    Полем `sizeLimit` у тома. Без него `emptyDir` растёт до тех пор, пока
+    не кончится место на узле, — и тогда пострадают все поды этой машины.
+  explanation: |
+    Место на узле — общий неквотируемый ресурс, в отличие от CPU и памяти. Один под,
+    пишущий логи или временные файлы в `emptyDir`, способен довести узел
+    до `DiskPressure` и вызвать вытеснение **чужих** подов. `sizeLimit` превращает
+    это в проблему одного пода: превысивший лимит будет вытеснен сам.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"

@@ -301,3 +301,65 @@
     строже: свободных GPU либо хватает, либо под висит в `Pending`, и никакие
     ухищрения с requests тут не помогут.
   ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/"
+
+- id: k8s-scheduling-016
+  domain: k8s
+  subtopic: scheduling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как нативный sidecar влияет на расчёт ресурсов пода, в отличие от обычного
+    init-контейнера?
+  answer: |
+    Он работает **одновременно** с основными контейнерами, поэтому его запросы
+    **прибавляются** к их сумме, а не участвуют в выборе максимума, как у обычных
+    init-контейнеров.
+  explanation: |
+    Разница вытекает из того, что sidecar не завершается: его ресурсы нельзя
+    переиспользовать. Практический эффект заметен при массовом внедрении service mesh —
+    добавление прокси ко всем подам увеличивает суммарные брони кластера,
+    и часть подов внезапно перестаёт помещаться на узлы.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/"
+
+- id: k8s-scheduling-017
+  domain: k8s
+  subtopic: scheduling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что нужно предусмотреть, запуская нагрузку на spot или preemptible узлах?
+  answer: |
+    Что узел могут забрать в любой момент с коротким предупреждением. Нужны
+    несколько реплик, распределение по узлам и зонам, PDB, корректная реакция
+    на `SIGTERM` и отдельный пул обычных узлов для того, что прерывать нельзя.
+  explanation: |
+    Экономия достигает кратных величин, но она платная: сервис должен переживать
+    внезапную потерю части подов, а stateful-нагрузка и долгие Job'ы без чекпоинтов
+    для таких узлов не годятся вовсе. Технически spot-узлы помечают taint'ом
+    и метками, чтобы нагрузка попадала туда осознанно, а не по остаточному принципу.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"
+
+- id: k8s-scheduling-018
+  domain: k8s
+  subtopic: scheduling
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему завышенные `requests` — это прямые деньги, а не просто аккуратность?
+  answer: |
+    Потому что scheduler упаковывает поды по броням: завышенный запрос занимает
+    место, которое никто не использует, и вынуждает добавлять узлы. Счёт растёт
+    за неиспользуемую ёмкость.
+  explanation: |
+    Отсюда и главный рычаг оптимизации стоимости кластера — привести requests
+    к реальному потреблению по метрикам, а не угадывать. Обратная крайность
+    так же дорога, только иначе: заниженные брони дают вытеснения и инциденты.
+    Ровно эту задачу автоматизируют VPA в режиме рекомендаций и инструменты
+    анализа утилизации.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
