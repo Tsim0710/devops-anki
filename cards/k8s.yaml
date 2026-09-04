@@ -2534,3 +2534,1284 @@
     `503` — правило есть, а слать некуда, `502` — послали, но ответ не получили.
     Первый уводит в манифест Ingress, второй в состав endpoints, третий в сам под.
   ref: "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+
+# --- storage: junior/middle ---
+
+- id: k8s-storage-001
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько живёт `emptyDir` и что его переживает?
+  answer: |
+    Ровно столько же, сколько под. Рестарт **контейнера** он переживает, удаление
+    или переезд пода — нет: данные исчезают вместе с подом.
+  explanation: |
+    Границу «контейнер» и «под» тут путают чаще всего. Том создаётся при создании пода
+    и живёт в его sandbox, поэтому упавший и перезапущенный контейнер находит файлы
+    на месте. А вот новый под — это другой объект, и `emptyDir` у него пустой.
+    Отсюда область применения: кеш, обмен файлами между контейнерами, временные файлы —
+    но не данные.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-storage-002
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как распределены роли между PV, PVC и StorageClass?
+  answer: |
+    PVC — **заявка** от приложения: сколько места и с каким режимом доступа.
+    PV — конкретный кусок хранилища. StorageClass — рецепт, по которому PV создаётся
+    автоматически под заявку.
+  explanation: |
+    Разделение отвязывает приложение от инфраструктуры: манифест просит «10 гигабайт
+    RWO», не зная, будет это диск GCP, Ceph или NFS. Поэтому один и тот же чарт едет
+    в разные кластеры без правок — меняется только StorageClass, и обычно он вообще
+    не указан и берётся дефолтный.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-003
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое динамический провижининг?
+  answer: |
+    Создание PV **по факту заявки**: появился PVC со StorageClass — CSI-драйвер сам
+    заказал диск у облака или СХД и связал его с заявкой. Администратору не нужно
+    готовить тома заранее.
+  explanation: |
+    Без него работал бы статический сценарий: админ вручную создаёт PV, а PVC потом
+    к ним подбираются по размеру и режиму — медленно и с постоянными несовпадениями.
+    Динамика — причина, по которой `volumeClaimTemplates` у StatefulSet просто работает:
+    отскейлил до пяти реплик, получил пять новых дисков.
+  ref: "https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/"
+
+- id: k8s-storage-004
+  domain: k8s
+  subtopic: storage
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие бывают `accessModes` у PVC?
+  answer: |
+    `ReadWriteOnce` (RWO) — монтируется на **одном узле**; `ReadOnlyMany` (ROX) —
+    только чтение с многих узлов; `ReadWriteMany` (RWX) — чтение и запись с многих узлов;
+    `ReadWriteOncePod` — ровно один под.
+  explanation: |
+    Режим — не пожелание, а свойство драйвера: обычный блочный диск физически
+    не подключается к двум виртуалкам сразу, поэтому у него только RWO. RWX требует
+    сетевой файловой системы (NFS, CephFS, Filestore), и она есть далеко не везде —
+    отсюда постоянные сюрпризы при переносе манифестов между кластерами.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-005
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Deployment с тремя репликами и одним RWO-PVC. Что произойдёт?
+  options:
+    a: "Поды на одном узле поднимутся, на других — зависнут с Multi-Attach error"
+    b: "Все три пода поднимутся: RWO ограничивает одного писателя, а не монтирование"
+    c: "Ни один под не поднимется: RWO разрешает ровно один под"
+    d: "Поды поднимутся, но том будет доступен только на чтение"
+  answer: a
+  explanation: |
+    RWO — это «один **узел**», а не «один под»: несколько подов на одном и том же узле
+    спокойно разделят такой том. Проблема начинается, когда scheduler разносит реплики
+    по разным узлам — второй узел не может подключить уже подключённый диск, и под
+    зависает с `Multi-Attach error`. Отсюда правило: stateful-нагрузка — это StatefulSet
+    с `volumeClaimTemplates`, где у каждой реплики свой том.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-006
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `volumeBindingMode: WaitForFirstConsumer` и зачем это нужно?
+  answer: |
+    Откладывает создание и привязку тома до момента, когда scheduler выберет узел
+    для пода. При дефолтном `Immediate` диск создаётся сразу, ещё до планирования.
+  explanation: |
+    Проблема, которую это решает, — зональность: диск в облаке принадлежит конкретной
+    зоне, и если он создан заранее в зоне `a`, под уже не сможет уехать в зону `b`.
+    При `Immediate` получается замкнутый круг: том выбрал зону, а свободные ресурсы
+    оказались в другой, и под навсегда в `Pending`. Ожидание переворачивает порядок:
+    сначала узел, потом диск рядом с ним.
+  ref: "https://kubernetes.io/docs/concepts/storage/storage-classes/"
+
+- id: k8s-storage-007
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Чем `reclaimPolicy: Delete` отличается от `Retain` и где это больно?
+  answer: |
+    `Delete` — вместе с PVC уничтожается PV и **сам диск с данными**. `Retain` — том
+    остаётся, данные целы, но повторно использовать его нужно вручную.
+    У большинства облачных StorageClass по умолчанию стоит `Delete`.
+  explanation: |
+    Опасность в том, что удаление выглядит безобидно: `kubectl delete pvc` — обычная
+    команда над обычным объектом, а уносит она реальные данные без подтверждения
+    и без корзины. Для всего, что дороже кеша, StorageClass берут с `Retain` —
+    и это единственный момент, когда решение можно принять, потому что политика
+    у существующего PV меняется, а прошлое уже не вернуть.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-008
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Удалил PVC, а он висит в `Terminating` и не исчезает. Почему?
+  answer: |
+    На нём финализатор `kubernetes.io/pvc-protection`: пока PVC используется живым подом,
+    удаление не завершается. Объект уйдёт, когда пода не останется.
+  explanation: |
+    Финализатор — это протокол удаления, а не баг: apiserver помечает объект
+    `deletionTimestamp` и ждёт, пока ответственный контроллер снимет свою метку.
+    Так предотвращается ситуация «том выдернули из-под работающей базы». Снимать
+    финализатор руками — крайняя мера, которая ровно эту защиту и отключает.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-009
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `volumeClaimTemplates` у StatefulSet?
+  answer: |
+    Создаёт **отдельный PVC на каждую реплику** по шаблону, с именем, привязанным
+    к имени пода. `web-0` всегда получает свой том, `web-1` — свой, и после
+    пересоздания под находит именно тот, что был у него раньше.
+  explanation: |
+    Это техническая основа «стабильной идентичности» StatefulSet: без неё все реплики
+    претендовали бы на один PVC из шаблона пода, что для RWO невозможно, а для базы
+    данных бессмысленно. Обратная сторона — при уменьшении числа реплик тома
+    не удаляются: они ждут возвращения пода с тем же номером.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+
+- id: k8s-storage-010
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Коллега снёс StatefulSet, а потом PVC. В какой момент погибли данные?
+  answer: |
+    При удалении PVC — и то лишь если у StorageClass `reclaimPolicy: Delete`.
+    Удаление самого StatefulSet тома не трогает вообще.
+  explanation: |
+    Цепочка ответственности здесь трёхэтажная: StatefulSet → PVC → PV с диском, и
+    каскадного удаления вниз по ней нет **специально**. Это единственная защита данных,
+    встроенная в модель, и снимается она одной командой над PVC. Вывод простой: PVC —
+    самый опасный объект в кластере, а снапшоты CSI и живой PVC бэкапом не являются.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-011
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    PVC — это бэкап?
+  answer: |
+    Нет. Это подключённый рабочий диск: удаление данных приложением, повреждение
+    файловой системы или `DROP TABLE` доедут до него мгновенно. Снапшот CSI ближе,
+    но живёт в той же системе хранения, что и оригинал.
+  explanation: |
+    Бэкап определяется не технологией, а изоляцией: копия должна лежать отдельно
+    от источника, переживать его полную потерю и быть проверенной восстановлением.
+    Реплика и снапшот защищают от отказа железа, но не от ошибки человека
+    и не от удаления всего проекта в облаке.
+  ref: "https://kubernetes.io/docs/concepts/storage/volume-snapshots/"
+
+- id: k8s-storage-012
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Диск кончается. Можно ли расширить существующий PVC?
+  answer: |
+    Только если у StorageClass стоит `allowVolumeExpansion: true`. Тогда достаточно
+    увеличить `spec.resources.requests.storage` в PVC. Уменьшить том нельзя никогда.
+  explanation: |
+    Флаг проверяется в момент правки PVC, а не при создании тома, поэтому забытый
+    `allowVolumeExpansion` обнаруживается ровно тогда, когда место уже кончилось
+    и что-то делать поздно. Само расширение состоит из двух шагов — увеличить том
+    и растянуть файловую систему; второй у некоторых драйверов требует перезапуска пода.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+- id: k8s-storage-013
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасен `hostPath` и когда он всё-таки уместен?
+  answer: |
+    Он монтирует каталог **узла**, поэтому под привязывается к конкретной машине,
+    а данные не переезжают вместе с ним. Плюс это прямая дыра в изоляции: доступ
+    к файловой системе узла. Уместен для системных DaemonSet — сбор логов, метрики узла.
+  explanation: |
+    Коварство в том, что на одноузловом кластере `hostPath` работает прекрасно и создаёт
+    ложное ощущение рабочего решения. На нескольких узлах под уезжает и обнаруживает
+    пустой каталог. Для локального хранилища с гарантиями существует отдельный механизм —
+    `local` PV, который хотя бы привязывает под к нужному узлу явно.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-storage-014
+  domain: k8s
+  subtopic: storage
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Откуда в кластере берутся осиротевшие PVC и чем они плохи?
+  answer: |
+    Из уменьшения реплик StatefulSet и из удалённых нагрузок: тома не удаляются вместе
+    с контроллером. Плохи тем, что за каждый диск капает счёт, а по имени PVC уже
+    не понять, нужен он или нет.
+  explanation: |
+    Это прямое следствие защиты данных — Kubernetes сознательно не удаляет тома
+    каскадно. Расплата в том, что уборка становится ручной задачей, о которой никто
+    не помнит. Практика: `kubectl get pvc -A` в регулярный чек-лист и осмысленные
+    метки на PVC, чтобы через полгода можно было понять происхождение диска.
+  ref: "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+
+# --- cluster-networking: junior/middle ---
+
+- id: k8s-cluster-networking-001
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Kubernetes сам создаёт сеть между подами на разных узлах?
+  answer: |
+    Нет. Он только **задаёт требования**: у каждого пода свой IP, поды видят друг друга
+    напрямую без NAT, узлы видят поды. Реализует это CNI-плагин, который ставится отдельно.
+  explanation: |
+    Отсюда состояние свежего кластера: узлы в `NotReady`, поды в `ContainerCreating`,
+    пока не установлен CNI — и это не поломка, а незавершённая установка. Отсюда же
+    возможность выбирать реализацию под свою сеть: Calico, Cilium, Flannel решают одну
+    задачу очень по-разному.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-002
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    CNI — это одна сущность или две?
+  answer: |
+    Две. **Плагин** — короткоживущий бинарник на диске узла, который containerd
+    вызывает на создание пода, чтобы выдать адрес и настроить интерфейс.
+    **Агент** — постоянно работающий DaemonSet, который занимается маршрутизацией
+    между узлами.
+  explanation: |
+    Разделение объясняет разные симптомы отказа. Сломан бинарник — поды не создаются
+    вообще, зависают в `ContainerCreating`, ошибка видна сразу. Умер агент — новые поды
+    создаются нормально, но перестают быть доступными с других узлов: отказ отложенный
+    и потому куда более коварный.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-cluster-networking-003
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `hostNetwork: true` и чем за это платишь?
+  answer: |
+    Под получает сетевой namespace **узла**: его процессы слушают прямо на адресе узла,
+    отдельного pod IP нет. Плата — конфликты портов между подами и потеря сетевой
+    изоляции.
+  explanation: |
+    Используется там, где нужно видеть или обслуживать сеть самого узла: CNI-агенты,
+    kube-proxy, сборщики сетевых метрик. Для приложений это почти всегда ошибка —
+    два таких пода не сядут на один узел, если слушают один порт, и никакие
+    NetworkPolicy к ним уже не применяются.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-cluster-networking-004
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем overlay-сеть отличается от native routing?
+  answer: |
+    Overlay заворачивает пакет пода в дополнительный пакет между узлами (VXLAN, Geneve) —
+    работает в любой сети, но платит накладными расходами. Native routing прописывает
+    маршруты до pod-подсетей прямо в сеть — быстрее, но требует, чтобы сеть об этих
+    подсетях знала.
+  explanation: |
+    Выбор диктуется не вкусом, а тем, управляешь ли ты маршрутизацией. В своём VPC
+    маршруты добавить можно — берут routing. В чужой или сложной сети остаётся overlay.
+    Отличить их на живом кластере просто: посмотреть, есть ли на узлах интерфейс
+    вроде `vxlan.calico` или `flannel.1`.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-005
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Между подами на разных узлах: короткие запросы проходят, большие POST'ы виснут
+    без ошибки. Первая гипотеза?
+  options:
+    a: "MTU: overlay добавляет заголовки, крупные пакеты не проходят"
+    b: "NetworkPolicy режет трафик по размеру запроса"
+    c: "Перегружен CoreDNS, резолв не успевает"
+    d: "kube-proxy потерял правила для этого сервиса"
+  answer: a
+  explanation: |
+    Overlay добавляет к каждому пакету обёртку (для VXLAN порядка 50 байт), и если MTU
+    интерфейса пода не уменьшен на эту величину, полноразмерные пакеты не помещаются
+    в кадр. Мелкие запросы влезают и ходят, крупные молча теряются — соединение
+    устанавливается и виснет на передаче тела. Симптом «мелочь работает, крупное
+    висит» — почти всегда MTU.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-006
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему pod CIDR не должен пересекаться с адресами VPC?
+  answer: |
+    Потому что узел будет считать эти адреса «своими подами» и направлять трафик
+    внутрь кластера вместо реальной сети. Часть VPC — базы, внешние сервисы —
+    станет недостижимой из подов.
+  explanation: |
+    Ошибку легко не заметить при запуске: пересекающийся диапазон может долго
+    не выдаваться никому, и всё работает. Ломается позже и точечно — «этот один сервис
+    не отвечает из кластера», причём только из подов, а с узла по SSH всё доступно.
+    Диапазоны планируются один раз, до создания кластера: сменить их потом нельзя.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-007
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    За чем следит CNI-агент — за подами или за узлами?
+  answer: |
+    За **узлами**. Он смотрит, какая pod-подсеть выделена каждому узлу, и обеспечивает
+    доставку до этой подсети. Отдельные поды его не интересуют — их адреса раздаёт
+    плагин локально.
+  explanation: |
+    Отсюда масштабируемость: маршрутов в кластере столько же, сколько узлов, а не
+    сколько подов, и создание тысячи подов не создаёт тысячу записей в сети.
+    И отсюда же понятно, почему добавление узла требует времени на сходимость —
+    новую подсеть должны увидеть агенты на всех остальных узлах.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-008
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем сетевая модель пода отличается от сети Docker по умолчанию?
+  answer: |
+    В Docker контейнер сидит за NAT на bridge и снаружи виден только через проброс порта.
+    В Kubernetes у каждого пода **свой маршрутизируемый IP**, и поды общаются напрямую,
+    без NAT и без проброса.
+  explanation: |
+    Отсутствие NAT — не деталь реализации, а требование модели: приложение видит тот же
+    адрес источника, который у отправителя, что нужно для service discovery, аудита
+    и mTLS. Побочный эффект — адресов расходуется много, и pod CIDR приходится
+    планировать с запасом на рост кластера.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-cluster-networking-009
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под завис в `ContainerCreating` с ошибкой про сеть. Что проверять?
+  answer: |
+    CNI на этом узле: жив ли агент-DaemonSet, есть ли бинарник плагина и его конфиг
+    на диске узла, не кончились ли адреса в подсети узла.
+  explanation: |
+    Порядок создания пода — sandbox сначала, сеть потом: containerd поднимает
+    pause-контейнер и зовёт CNI, чтобы тот выдал адрес. Пока адреса нет, запускать
+    прикладные контейнеры бессмысленно, и kubelet ждёт. Поэтому сетевые проблемы
+    проявляются именно как затык на создании, а не как отказ уже работающего пода.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-cluster-networking-010
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает NetworkPolicy и что будет, если её применить в кластере без поддержки?
+  answer: |
+    Ограничивает, кто может обращаться к подам, отобранным селектором. Если CNI
+    не поддерживает NetworkPolicy (например Flannel), объект **создастся и будет
+    молча игнорироваться** — ограничения не появятся.
+  explanation: |
+    Это самый опасный вид отказа: политика есть, ревью пройдено, а трафик ходит как
+    ходил, и об этом никто не узнает до аудита. Вторая особенность — как только
+    на под навешена хоть одна политика, он переходит в режим «запрещено всё, кроме
+    разрешённого», поэтому забытое правило легко обрывает легитимный трафик.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-cluster-networking-011
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему нельзя поставить в кластер два CNI сразу?
+  answer: |
+    Оба будут раздавать адреса и прописывать маршруты для одних и тех же подсетей,
+    конфликтуя за одни и те же ресурсы узла. Результат — непредсказуемая сеть,
+    которую невозможно диагностировать.
+  explanation: |
+    Частая причина такой ситуации — не осознанный выбор, а остатки: поставили Flannel,
+    решили перейти на Calico, применили манифест поверх, а старые конфиги плагина
+    остались на дисках узлов. Смена CNI — это операция с полной очисткой конфигов
+    и, как правило, с пересозданием подов.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-cluster-networking-012
+  domain: k8s
+  subtopic: cluster-networking
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему MTU в кластере лучше задать явно, а не полагаться на автоопределение?
+  answer: |
+    Автоопределение смотрит на MTU интерфейса узла и не всегда учитывает то, что лежит
+    ниже: VPN, туннель между зонами, оборудование с нестандартным MTU. Ошибка проявится
+    не при старте, а под нагрузкой на крупных пакетах.
+  explanation: |
+    Цена ошибки несимметрична: заниженный MTU стоит немного производительности,
+    завышенный даёт зависающие соединения, которые ищут неделями и обычно не там.
+    Поэтому в средах со своей сетью значение проставляют руками в конфиге CNI
+    и проверяют большим пакетом с запретом фрагментации.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+# --- scheduling: junior/middle ---
+
+- id: k8s-scheduling-001
+  domain: k8s
+  subtopic: scheduling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    На что смотрит scheduler при выборе узла — на реальное потребление или на что-то другое?
+  answer: |
+    Только на **брони**: сумму `requests` уже размещённых подов против `allocatable`
+    узла. Фактическое потребление он не смотрит никогда.
+  explanation: |
+    Отсюда два симметричных сюрприза. Узел загружен на 20%, но новый под туда не садится —
+    значит, соседи забронировали больше, чем едят. И наоборот: узел задыхается под
+    реальной нагрузкой, а scheduler спокойно досаживает поды, потому что по броням
+    место есть. Requests — это не «сколько нужно», а «сколько я занял в учёте».
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/"
+
+- id: k8s-scheduling-002
+  domain: k8s
+  subtopic: scheduling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `cpu: 200m` в requests?
+  answer: |
+    200 millicores, то есть 0.2 ядра — одна пятая процессорного времени одного ядра.
+    `1000m` = `1` = целое ядро.
+  explanation: |
+    Единица дробная потому, что CPU — ресурс делимый во времени: контейнеру выдаётся
+    доля тактов, а не физическое ядро. С памятью так нельзя, поэтому она задаётся
+    абсолютными величинами (`Mi`, `Gi`) и ведёт себя принципиально иначе при превышении.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-003
+  domain: k8s
+  subtopic: scheduling
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `capacity` узла отличается от `allocatable`?
+  answer: |
+    `capacity` — всё железо узла. `allocatable` — то, что остаётся подам после вычета
+    резервов на систему и kubelet (`kube-reserved`, `system-reserved`) и порога вытеснения.
+    Планирование идёт по `allocatable`.
+  explanation: |
+    Разница объясняет, почему на узле с 8 ГБ нельзя разместить поды на 8 ГБ requests —
+    гигабайта попросту нет в наличии. Резервы существуют, чтобы kubelet и systemd
+    не умерли от голода вместе с узлом: без них перегруженный узел уходит в `NotReady`
+    и уносит все свои поды разом.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/"
+
+- id: k8s-scheduling-004
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из каких двух фаз состоит работа scheduler'а?
+  answer: |
+    Фильтрация — отсеять узлы, где под разместить **нельзя** (не хватает ресурсов,
+    не подходят taints, nodeSelector, тома). Скоринг — оценить оставшиеся и выбрать
+    лучший по сумме баллов.
+  explanation: |
+    Разделение подсказывает, как читать `Pending`: если сообщение говорит
+    «0/5 nodes are available» с перечислением причин — под не прошёл фильтрацию,
+    и надо смотреть именно на эти причины. Скоринг же объясняет, почему поды обычно
+    размазываются по узлам, а не сваливаются в кучу: за равномерность даются баллы.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/"
+
+- id: k8s-scheduling-005
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Под висит в `Pending`. Какие причины бывают и где написана точная?
+  answer: |
+    Не хватает ресурсов по броням, не подходят taints или affinity, не привязывается том,
+    упирается в квоту namespace, нет узлов вообще. Точная причина — в событиях:
+    `kubectl describe pod`, сообщение от `default-scheduler`.
+  explanation: |
+    `Pending` означает ровно одно: узел ещё не выбран, `spec.nodeName` пуст. Поэтому
+    смотреть в логи приложения бессмысленно — контейнеров не существует. Scheduler
+    при этом любезно перечисляет, сколько узлов отсеялось по каждой причине, и обычно
+    это готовый ответ.
+  ref: "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"
+
+- id: k8s-scheduling-006
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Под класса `Guaranteed` (requests == limits) упёрся в свой лимит памяти.
+    Спасёт ли его QoS-класс?
+  options:
+    a: "Нет — его убьют по OOM за превышение собственного лимита"
+    b: "Да — Guaranteed-поды не убивают по OOM никогда"
+    c: "Да, но только если на узле есть свободная память"
+    d: "Нет, но вместо убийства kubelet начнёт троттлить его память"
+  answer: a
+  explanation: |
+    QoS-класс определяет **только очередь на вытеснение при нехватке памяти на узле** —
+    кого выгонят первым, когда узел в целом задыхается. Собственный лимит контейнера
+    к этому отношения не имеет: превысил свой `limits.memory` — ядро убивает процесс,
+    независимо от класса и от того, свободна ли память на узле. Это два разных
+    механизма, которые постоянно путают.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/"
+
+- id: k8s-scheduling-007
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Узел под давлением памяти. Кого kubelet выселит первым?
+  answer: |
+    Сначала `BestEffort`, затем `Burstable`, превысившие свои `requests` — и чем сильнее
+    превысили, тем раньше. `Guaranteed` и поды, потребляющие **меньше** своих requests,
+    трогают в последнюю очередь.
+  explanation: |
+    Логика справедливая: выселяют того, кто наврал сильнее всех при бронировании.
+    Отсюда практический вывод — честные requests это не бюрократия, а страховка:
+    под, который ест меньше забронированного, фактически защищён от вытеснения,
+    даже когда на узле пожар.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/"
+
+- id: k8s-scheduling-008
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Стоит ли ставить `limits.cpu`, если узел всё равно недогружен?
+  answer: |
+    Спорно и часто вредно: лимит троттлит контейнер, **даже когда процессор на узле
+    свободен**. Пики нагрузки упираются в потолок без всякой пользы для соседей.
+  explanation: |
+    Защиту соседей обеспечивают `requests` — они гарантируют долю времени при
+    конкуренции. `limits.cpu` нужен там, где важна предсказуемость, а не скорость:
+    бенчмарки, шумные фоновые задачи, жёсткий мультитенант. С памятью всё наоборот:
+    `limits.memory` ставить обязательно, иначе одна утечка утащит узел целиком.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-009
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение регулярно получает OOMKilled, хотя утечки нет и памяти на узле полно.
+    Что смотреть?
+  answer: |
+    `limits.memory` контейнера. Скорее всего он занижен относительно реального пика:
+    ядро убивает процесс по превышению **его собственного** лимита, состояние узла
+    здесь ни при чём.
+  explanation: |
+    Ключ к диагнозу — регулярность без роста: утечка даёт растущий график и всё более
+    ранние падения, а заниженный лимит даёт стабильный цикл, привязанный к пикам
+    трафика или к тяжёлым операциям вроде импорта. Числа берут из метрик за неделю
+    по 95-му перцентилю, а не из головы.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-010
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько подов помещается на один узел и чем это ограничено?
+  answer: |
+    По умолчанию 110 подов на узел — это настройка kubelet (`maxPods`), а не следствие
+    ресурсов. Ограничение может упереться раньше, чем CPU и память.
+  explanation: |
+    Предел существует не из-за железа, а из-за накладных расходов: на каждый под нужны
+    адрес из подсети узла, набор сетевых правил, watch-соединения и место в отчётах
+    kubelet о статусе. Отсюда неожиданный `Pending` на пустом с виду узле — особенно
+    в кластерах, где много мелких подов и sidecar'ов.
+  ref: "https://kubernetes.io/docs/setup/best-practices/cluster-large/"
+
+- id: k8s-scheduling-011
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Приложение тормозит, ошибок в логах нет, поды здоровы, рестартов нет. Куда смотреть?
+  answer: |
+    На CPU throttling: контейнер упёрся в `limits.cpu`, и ядро отбирает у него такты.
+    Метрика — `container_cpu_cfs_throttled_seconds_total`.
+  explanation: |
+    Троттлинг принципиально невидим для приложения: оно не получает ошибку, ему просто
+    реже дают процессор — растёт latency, копятся очереди, а логи чистые. Именно
+    поэтому такой инцидент ищут долго: все обычные признаки поломки отсутствуют,
+    и в логи смотреть бесполезно.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+- id: k8s-scheduling-012
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Куда считается `emptyDir` с `medium: Memory`?
+  answer: |
+    В память пода: это tmpfs, и записанные файлы занимают RAM, учитываемую в лимите
+    контейнера. Заполнил такой том — получил OOMKilled.
+  explanation: |
+    Ловушка в том, что причина выглядит совершенно не связанной: приложение памяти
+    не ест, утечки нет, а под убивают. Обычно виноват кеш или временные файлы, которые
+    сложили в быстрый tmpfs и забыли, что он живёт в оперативке. Обычный `emptyDir`
+    без `medium` лежит на диске узла и в лимит памяти не попадает.
+  ref: "https://kubernetes.io/docs/concepts/storage/volumes/"
+
+- id: k8s-scheduling-013
+  domain: k8s
+  subtopic: scheduling
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем плохо задать `requests` сильно ниже реального потребления?
+  answer: |
+    Scheduler посчитает узел свободным и досадит туда поды. Все они начнут есть больше
+    брони, узел уйдёт в давление по памяти, и вытеснять начнут именно тех, кто наврал —
+    возможно, вместе с чужими подами.
+  explanation: |
+    Заниженные requests выглядят выгодно — поды плотнее садятся, кластер кажется
+    экономным. Расплата приходит под нагрузкой и не там, где сэкономили: страдают соседи
+    по узлу. Это же объясняет эффект «узлы падают по очереди» — вытесненные поды едут
+    на следующий узел и повторяют историю.
+  ref: "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+
+# --- placement: junior/middle ---
+
+- id: k8s-placement-001
+  domain: k8s
+  subtopic: placement
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `nodeSelector` отличается от node affinity?
+  answer: |
+    `nodeSelector` — простое совпадение меток узла, только жёсткое. Node affinity умеет
+    то же самое плюс операторы (`In`, `NotIn`, `Exists`) и **мягкий** вариант
+    `preferredDuringScheduling`, который лишь добавляет узлу баллов.
+  explanation: |
+    Различие «жёстко или мягко» проходит через все механизмы размещения и определяет
+    поведение при нехватке подходящих узлов: жёсткое правило оставляет под в `Pending`
+    навсегда, мягкое позволяет сесть куда получится. Выбор между ними — это выбор между
+    «лучше не запуститься» и «лучше запуститься неидеально».
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/"
+
+- id: k8s-placement-002
+  domain: k8s
+  subtopic: placement
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где живёт taint, где toleration, и что они делают?
+  answer: |
+    Taint — на **узле**, это отказ принимать поды. Toleration — на **поде**, это
+    способность такой отказ терпеть. Без toleration под на узел с taint не сядет.
+  explanation: |
+    Механизм придуман для обратной задачи по сравнению с affinity: не «притянуть под
+    к узлу», а «отогнать от узла всех, кроме избранных». Так работает защита
+    control-plane узлов и выделенных пулов с GPU — иначе туда набежала бы вся
+    обычная нагрузка.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"
+
+- id: k8s-placement-003
+  domain: k8s
+  subtopic: placement
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие бывают эффекты у taint?
+  answer: |
+    `NoSchedule` — новые поды без toleration не сядут; `PreferNoSchedule` — мягкая
+    версия, сядут при отсутствии альтернатив; `NoExecute` — вдобавок **выгоняет
+    уже работающие** поды без toleration.
+  explanation: |
+    Только `NoExecute` действует на живые поды — остальные два работают исключительно
+    в момент планирования. На этом построена реакция на отказ узла: контроллер вешает
+    `node.kubernetes.io/unreachable:NoExecute`, и поды уезжают. У toleration к нему
+    есть `tolerationSeconds` — сколько под готов ждать перед выселением.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"
+
+- id: k8s-placement-004
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Ты вытеснил обычную нагрузку с GPU-узлов через taint и добавил toleration
+    поду с моделью. Где он окажется?
+  options:
+    a: "Где угодно: toleration разрешает сесть на GPU-узел, но не притягивает к нему"
+    b: "Обязательно на GPU-узле — toleration работает как селектор"
+    c: "На GPU-узле, если там есть свободные ресурсы, иначе в Pending"
+    d: "Нигде: taint и toleration взаимно исключают друг друга"
+  answer: a
+  explanation: |
+    Toleration снимает запрет, но ничего не говорит о предпочтении — для scheduler'а
+    такой под просто стал совместим с большим числом узлов, включая все обычные.
+    Поэтому «выделенные узлы для избранных подов» всегда состоят из двух половин:
+    taint на узле, чтобы отогнать чужих, и `nodeSelector` или affinity на поде,
+    чтобы притянуть своих.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"
+
+- id: k8s-placement-005
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает pod anti-affinity и зачем она нужна?
+  answer: |
+    Запрещает или не рекомендует ставить под рядом с другими подами, подходящими
+    под селектор, в пределах указанной топологии (узел, зона). Классика — развести
+    реплики одного приложения по разным узлам.
+  explanation: |
+    Без неё три реплики вполне могут оказаться на одном узле — scheduler разносит поды
+    по баллам, но никаких гарантий не даёт. Тогда отказ одной машины уносит весь сервис,
+    а `replicas: 3` создаёт ложное чувство надёжности. Жёсткий вариант при этом опасен
+    сам по себе: узлов меньше, чем реплик — и лишние поды навсегда в `Pending`.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/"
+
+- id: k8s-placement-006
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что задают `maxSkew` и `whenUnsatisfiable` в topology spread constraints?
+  answer: |
+    `maxSkew` — максимально допустимая разница в числе подов между самой полной
+    и самой пустой топологической областью. `whenUnsatisfiable` — что делать, если
+    условие не выполняется: `DoNotSchedule` (жёстко) или `ScheduleAnyway` (мягко).
+  explanation: |
+    Это тот же выбор «жёстко или мягко», но с числом: `maxSkew: 1` требует почти
+    идеального равенства, что при нехватке узлов легко оставляет поды в `Pending`.
+    Отсюда типовая пара: `maxSkew: 1` с `ScheduleAnyway` для распределения без риска,
+    и `DoNotSchedule` только там, где перекос действительно недопустим.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/"
+
+- id: k8s-placement-007
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Topology spread распределяет по зонам. Считается ли зона, где ни один под
+    физически не влезет?
+  answer: |
+    Да. Перекос считается по **наличию узлов с нужной меткой топологии**, а не по тому,
+    есть ли там место. Забитая зона всё равно участвует в расчёте как область
+    с нулём подов.
+  explanation: |
+    Отсюда неожиданный `Pending` при жёстком `DoNotSchedule`: под обязан поехать
+    в «пустую» зону, чтобы выровнять перекос, а там нет ресурсов — и он не едет
+    никуда, хотя место в других зонах есть. Разбирается это только чтением событий
+    scheduler'а: причина в них написана явно.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/"
+
+- id: k8s-placement-008
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое PriorityClass и preemption?
+  answer: |
+    PriorityClass задаёт поду числовой приоритет. Если высокоприоритетному поду негде
+    разместиться, scheduler может **вытеснить** (preempt) поды с меньшим приоритетом,
+    освободив место.
+  explanation: |
+    Важно, что preemption живёт в scheduler'е и считает **брони**, а не реальную
+    загрузку: жертвы выбираются по requests. Этим он отличается от вытеснения
+    по node pressure, которым занимается kubelet и которое смотрит на фактическое
+    потребление памяти. Два разных механизма с разными критериями и разными акторами.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/"
+
+- id: k8s-placement-009
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Добавил в кластер новый пустой узел. Переедут ли на него уже работающие поды,
+    чтобы выровнять нагрузку?
+  answer: |
+    Нет. Переезда живых подов не существует: решение о размещении принимается **один раз**,
+    при создании пода. Перераспределение случится само собой при следующем выкате
+    или отказе узла.
+  explanation: |
+    Это следствие того, что scheduler работает с несозданными подами, а не с картиной
+    кластера целиком. Для принудительной перебалансировки существует отдельный
+    компонент, descheduler, который просто удаляет неудачно стоящие поды, чтобы
+    контроллер создал их заново — и уже новые пройдут через планирование.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/"
+
+- id: k8s-placement-010
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем topology spread отличается от DaemonSet, если оба «раскидывают поды по узлам»?
+  answer: |
+    DaemonSet ставит под на **каждый** подходящий узел и число реплик не имеет.
+    Topology spread работает с фиксированным числом реплик обычного Deployment
+    и лишь следит, чтобы они распределялись равномерно.
+  explanation: |
+    Разные задачи: DaemonSet — про покрытие инфраструктуры (агент должен быть везде),
+    spread — про отказоустойчивость приложения (три реплики не должны лежать в одной
+    зоне). Путаница возникает из-за похожего результата на маленьком кластере, где
+    число реплик совпадает с числом узлов.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/"
+
+- id: k8s-placement-011
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает PodDisruptionBudget и от чего он **не** защищает?
+  answer: |
+    Ограничивает, сколько подов приложения может быть недоступно при **добровольных**
+    нарушениях: `kubectl drain`, обновление узлов, работа автоскейлера. От падения узла,
+    OOM и вытеснения по нехватке памяти он не защищает никак.
+  explanation: |
+    Граница ровно между «кто-то решил» и «так вышло»: PDB — это протокол вежливости
+    для операций обслуживания, а не гарантия доступности. Обратная сторона — слишком
+    строгий бюджет (`minAvailable` равен числу реплик) намертво блокирует drain,
+    и обновление кластера встаёт.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/"
+
+- id: k8s-placement-012
+  domain: k8s
+  subtopic: placement
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Preemption и eviction по node pressure — кто из них смотрит на реальную загрузку?
+  answer: |
+    Eviction по node pressure: им занимается **kubelet**, и он реагирует на фактическую
+    нехватку памяти или диска на узле. Preemption делает **scheduler** и считает
+    только брони и приоритеты.
+  explanation: |
+    Разделение объясняет, почему поды иногда выселяются с узла, который по броням
+    свободен, а иногда не выселяются с узла, который задыхается. Это два независимых
+    контура с разными входными данными. Диагностика тоже разная: preemption видно
+    в событиях от `default-scheduler`, node-pressure eviction — в событиях от `kubelet`.
+  ref: "https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/"
+
+# --- rbac: junior/middle ---
+
+- id: k8s-rbac-001
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что описывает Role и что описывает RoleBinding?
+  answer: |
+    Role — **что** можно делать: набор глаголов (`get`, `list`, `create`) над набором
+    ресурсов. RoleBinding — **кому и где**: связывает Role с пользователем, группой
+    или ServiceAccount в конкретном namespace.
+  explanation: |
+    Права никогда не висят на человеке напрямую — между ними всегда стоит роль.
+    Отсюда самая частая ошибка новичка: написали Role, обрадовались, а Binding забыли,
+    и прав не появилось. Отсюда же удобство: чтобы отозвать доступ, достаточно убрать
+    субъект из Binding, не трогая описание прав.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-002
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем ClusterRole отличается от Role, кроме зоны действия?
+  answer: |
+    ClusterRole умеет то, что Role не может в принципе: права на **кластерные** ресурсы
+    (узлы, namespace, PV, CRD) и на подресурсы вроде `nodes/proxy`. Такие объекты
+    не принадлежат ни одному namespace, поэтому Role их не выражает.
+  explanation: |
+    Отсюда рабочий дефолт, который путает всех при первой встрече: **ClusterRole
+    в паре с RoleBinding**. Роль описана один раз глобально, а привязка даёт права
+    только в одном namespace. Так не приходится копировать одинаковые Role в каждый
+    namespace, и при этом никто не получает лишнего.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-003
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Есть ли в Kubernetes объект User?
+  answer: |
+    Нет. Пользователей как объектов не существует — их нельзя создать, перечислить
+    или удалить. Есть только способ доказать личность (сертификат, токен, OIDC),
+    из которого apiserver берёт имя, и RBAC, привязывающий права к этому имени.
+    А вот ServiceAccount — настоящий объект в API.
+  explanation: |
+    Отсюда неочевидное следствие: `kubectl get users` не существует, и узнать список
+    людей с доступом можно только через внешнюю систему или через разбор всех Binding.
+    Отсюда же вопрос «как отозвать доступ уволившемуся» — не «удалить пользователя»,
+    а отозвать сертификат или убрать его группу из OIDC.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authentication/"
+
+- id: k8s-rbac-004
+  domain: k8s
+  subtopic: rbac
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое ServiceAccount и как он попадает в под?
+  answer: |
+    Это identity **процесса в поде**. kubelet монтирует в контейнер короткоживущий
+    токен, которым приложение представляется apiserver. Не указан явно — используется
+    `default` из namespace.
+  explanation: |
+    В RBAC такой субъект записывается жёстким форматом
+    `system:serviceaccount:<namespace>:<имя>`, и ошибка в нём — частая причина
+    необъяснимого `Forbidden`. Практика — отдельный SA на каждое приложение
+    с минимальными правами, а не общий `default`, у которого права имеют свойство
+    накапливаться незаметно.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/"
+
+- id: k8s-rbac-005
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Роль запрещает `delete pods`, другая привязка разрешает. Что победит?
+  options:
+    a: "Разрешение: модель RBAC чисто разрешающая, запретов в ней нет"
+    b: "Запрет: явное запрещение всегда сильнее разрешения"
+    c: "Победит правило из более узкой области — из namespace, а не из кластера"
+    d: "Запрос будет отклонён как противоречивый"
+  answer: a
+  explanation: |
+    В RBAC нет глагола «запретить» — роль может только разрешать, а итоговые права это
+    объединение всех привязок субъекта. Формулировка «роль запрещает» некорректна
+    в принципе: роль просто не упоминает действие. Отсюда практическое следствие —
+    урезать доступ нужно, убирая привязки, а не добавляя новые; проверять же итог
+    удобно через `kubectl auth can-i`.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-006
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем отличаются ответы `Unauthorized` и `Forbidden` от apiserver?
+  answer: |
+    `401 Unauthorized` — не прошла аутентификация: тебя не опознали, сертификат
+    или токен невалиден. `403 Forbidden` — опознали, но RBAC не разрешает эту операцию.
+  explanation: |
+    Разница сразу указывает, где чинить: первый случай — kubeconfig, протухший
+    сертификат, неправильный контекст; второй — Role и Binding. В тексте `403`
+    apiserver обычно называет и субъект, и ресурс, и глагол — то есть готовый рецепт,
+    какую роль дописать.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authorization/"
+
+- id: k8s-rbac-007
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как быстро проверить, есть ли у субъекта конкретное право?
+  answer: |
+    `kubectl auth can-i <глагол> <ресурс>` — для себя;
+    `kubectl auth can-i list secrets --as=system:serviceaccount:prod:app -n prod` —
+    от имени другого субъекта.
+  explanation: |
+    Ответ даёт сам apiserver по своим правилам, поэтому он учитывает все привязки разом,
+    включая унаследованные от групп. Читать десяток YAML и складывать права в голове
+    не нужно и опасно — легко пропустить `ClusterRoleBinding`, который выдаёт права
+    во всех namespace сразу.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/authorization/"
+
+- id: k8s-rbac-008
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Role и RoleBinding созданы, права всё равно не работают. Две типовые причины?
+  answer: |
+    Binding создан **не в том namespace** (он действует только в своём) или
+    в `subjects` указано неточное имя субъекта — чаще всего ServiceAccount без
+    полного формата или с другим namespace.
+  explanation: |
+    Обе ошибки молчаливые: apiserver принимает Binding, ссылающийся на несуществующий
+    субъект, потому что субъект может появиться позже — и `User` вообще не объект,
+    проверить его нечем. Поэтому единственный надёжный способ убедиться — не читать
+    манифесты, а спросить `kubectl auth can-i --as=...`.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-009
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Почему право `list secrets` в namespace — это фактически доступ ко всем секретам?
+  answer: |
+    Потому что `list` возвращает объекты **целиком**, вместе с данными. Отдельного
+    права «видеть имена, но не содержимое» в RBAC нет.
+  explanation: |
+    Это ломает интуицию: `list` кажется безобидным «посмотреть список», как `ls`.
+    На деле разрешение читать секреты в namespace эквивалентно выдаче всех паролей
+    и токенов этого namespace, включая токены ServiceAccount, через которые можно
+    получить и чужие права. Отсюда правило — `secrets` в ролях перечисляют поимённо
+    через `resourceNames`.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-010
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем ставить `automountServiceAccountToken: false`?
+  answer: |
+    Чтобы в под не монтировался токен ServiceAccount. Приложению, которое не ходит
+    в API Kubernetes, он не нужен, а его наличие даёт злоумышленнику при взломе
+    готовые учётные данные к кластеру.
+  explanation: |
+    По умолчанию токен монтируется **всем** подам, включая nginx и статику, которым он
+    заведомо не нужен. Это классическая точка эскалации: пробили приложение — получили
+    токен — пошли в apiserver с правами его SA. Флаг ставится на уровне пода
+    или самого ServiceAccount.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/"
+
+- id: k8s-rbac-011
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему права принято вешать на группу, а не на конкретного человека?
+  answer: |
+    Потому что группа приходит из внешней системы (OIDC, сертификат), и управление
+    доступом сводится к членству в ней. Иначе на каждого нового сотрудника нужен
+    новый Binding, а на уволившегося — ревизия всех манифестов.
+  explanation: |
+    Особенно это важно из-за того, что объекта User не существует: «удалить
+    пользователя» в кластере нельзя, отзыв доступа происходит там, где выдаются
+    удостоверения. Привязка к группе делает кластер согласованным с этим фактом —
+    убрали человека из группы в SSO, и права исчезли везде разом.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+- id: k8s-rbac-012
+  domain: k8s
+  subtopic: rbac
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасна связка ClusterRole + ClusterRoleBinding?
+  answer: |
+    Она даёт права **во всех namespace сразу**, включая будущие. Легко получить
+    случайный кластер-админ, когда хотелось выдать доступ к одному окружению.
+  explanation: |
+    Разница с парой ClusterRole + RoleBinding ровно в области действия, а выглядят
+    манифесты почти одинаково — отличается одно слово в `kind`. Поэтому при ревизии
+    прав начинают именно с `kubectl get clusterrolebindings`: там обычно и находится
+    забытый доступ, выданный «на время отладки».
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
