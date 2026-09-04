@@ -298,3 +298,64 @@
     дописал поле, которое затем забраковали. Серверный показывает **фактический**
     результат применения, включая изменения от чужих контроллеров.
   ref: "https://kubernetes.io/docs/reference/using-api/api-concepts/"
+
+- id: k8s-api-model-016
+  domain: k8s
+  subtopic: api-model
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    `apply` падает с ошибкой «field is immutable». Какие поля так себя ведут
+    и почему?
+  answer: |
+    Те, изменение которых нельзя выполнить безопасно: `spec.selector` у Deployment
+    и Service, `clusterIP` у Service, `volumeClaimTemplates` у StatefulSet,
+    уменьшение размера PVC. Единственный путь — пересоздать объект.
+  explanation: |
+    Общий признак у всех: изменение оторвало бы объект от того, чем он уже управляет,
+    или потребовало бы операции без безопасного исхода — переподписать существующие
+    поды на новый селектор или ужать файловую систему с данными. API отказывает сразу,
+    а не оставляет систему в половинчатом состоянии.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-api-model-017
+  domain: k8s
+  subtopic: api-model
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `kubectl apply --prune` и почему им пользуются осторожно?
+  answer: |
+    Удаляет из кластера объекты, которые раньше применялись, но исчезли из текущего
+    набора манифестов. Опасен тем, что область удаления задаётся селектором,
+    и слишком широкий селектор сносит чужое.
+  explanation: |
+    Задача решается правильно, потому что обычный `apply` не умеет удалять —
+    и без этого в кластере копятся объекты, которых уже нет в git. Но цена ошибки
+    несимметрична, поэтому в проде ту же задачу решают GitOps-агентом: у него
+    область владения задана явно приложением, а не селектором в командной строке.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/"
+
+- id: k8s-api-model-018
+  domain: k8s
+  subtopic: api-model
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как узнать заранее, что апгрейд кластера сломает существующие манифесты?
+  answer: |
+    Проверить используемые версии API против политики устаревания: старая версия
+    ресурса сначала помечается deprecated, потом перестаёт обслуживаться. Ищут
+    такие обращения по метрикам apiserver и специальными сканерами манифестов.
+  explanation: |
+    Ломается это тихо и в самый неудобный момент: кластер обновили, всё работает,
+    а первый же выкат падает с «no matches for kind». Причина в том, что уже
+    созданные объекты продолжают жить, а вот применить манифест старой версии
+    больше нельзя. Отсюда практика — проверять манифесты до апгрейда, а не после.
+  ref: "https://kubernetes.io/docs/reference/using-api/deprecation-policy/"

@@ -354,3 +354,43 @@
     не уменьшилась» — штатное поведение, а не поломка. Отсюда и профилактика:
     ограничивать историю Job и событий, не хранить в кластере крупные объекты.
   ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-018
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает graceful node shutdown и что будет без него?
+  answer: |
+    Kubelet перехватывает сигнал выключения узла и даёт подам отработать
+    завершение — сначала обычным, потом системным, с отдельными бюджетами времени.
+    Без него поды умирают вместе с узлом, без `SIGTERM` и без слива соединений.
+  explanation: |
+    Разница видна на плановых операциях: перезагрузка узла для обновления ядра
+    без graceful shutdown выглядит для пользователей как отказ, а с ним — как
+    штатный выкат. Механизм не заменяет `drain`: тот убирает поды заранее и уважает
+    PDB, а graceful shutdown лишь смягчает то, что уже происходит.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/"
+
+- id: k8s-bootstrap-019
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Снапшот etcd есть. Достаточно ли этого для восстановления приложений?
+  answer: |
+    Нет. Снапшот возвращает **объекты** — Deployment, Service, PVC как записи, —
+    но не содержимое томов. Данные приложений восстанавливаются отдельно:
+    снапшотами дисков или инструментом уровня кластера вроде Velero.
+  explanation: |
+    Разрыв возникает потому, что PVC в etcd это лишь заявка со ссылкой на том,
+    а сам том живёт в системе хранения. Восстановив etcd, получишь объекты,
+    указывающие на диски, которых может уже не быть. Отсюда требование к процедуре
+    восстановления — покрывать оба слоя и проверяться целиком, а не по частям.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"

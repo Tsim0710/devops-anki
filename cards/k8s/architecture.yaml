@@ -348,3 +348,24 @@
     существуют из-за объёма и чувствительности: `RequestResponse` на секретах пишет
     их содержимое в лог, поэтому политику пишут адресно, а не одним правилом на всё.
   ref: "https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/"
+
+- id: k8s-architecture-018
+  domain: k8s
+  subtopic: architecture
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Apiserver начал отвечать `429` на запросы контроллера. Что это за механизм?
+  answer: |
+    Управление приоритетом и справедливостью запросов: apiserver раскладывает
+    входящие обращения по классам и очередям, чтобы один шумный клиент не вытеснил
+    остальных. Превысивший свою долю получает `429` с `Retry-After`.
+  explanation: |
+    Без такого механизма один цикл `list` по всем подам кластера способен положить
+    control plane для всех. Практический вывод для авторов контроллеров и скриптов:
+    `429` от apiserver — не ошибка, а сигнал сбавить темп, и правильная реакция —
+    повтор с задержкой, а не немедленный retry. Он же подсказывает искать того,
+    кто выбирает квоту.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/flow-control/"

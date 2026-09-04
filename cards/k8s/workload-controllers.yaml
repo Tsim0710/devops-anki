@@ -441,3 +441,63 @@
     для `backoffLimit` невидима вовсе: попытка одна, она всё ещё идёт. Дедлайн при этом
     имеет приоритет и прекращает Job насовсем, без новых попыток.
   ref: "https://kubernetes.io/docs/concepts/workloads/controllers/job/"
+
+- id: k8s-workload-controllers-023
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В какой временной зоне выполняется расписание CronJob, если `.spec.timeZone`
+    не задан?
+  answer: |
+    В локальной зоне **kube-controller-manager**, а не в UTC и не в зоне пода.
+    Явно задаётся полем `.spec.timeZone` (стабильно с 1.27), например `"Etc/UTC"`.
+  explanation: |
+    Отсюда классический сюрприз при переезде между кластерами: то же расписание
+    срабатывает на три часа раньше, потому что у нового control plane другая зона.
+    Отдельная ловушка — попытка указать зону через `CRON_TZ` или `TZ` прямо
+    в строке расписания: это не поддерживается, и объект будет отклонён
+    с ошибкой валидации.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+
+- id: k8s-workload-controllers-024
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает поле `suspend` у Job и зачем оно нужно?
+  answer: |
+    Приостанавливает выполнение: при `suspend: true` Job создан, но поды не запускаются,
+    а уже запущенные удаляются. Снятие флага запускает работу заново.
+  explanation: |
+    Это основа очередей задач в кластере: планировщик более высокого уровня создаёт
+    Job'ы в приостановленном виде и снимает флаг, когда появились ресурсы или подошла
+    очередь. Без этого пришлось бы либо держать задачи вне кластера, либо создавать
+    их только в момент запуска, теряя видимость того, что стоит в ожидании.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/job/"
+
+- id: k8s-workload-controllers-025
+  domain: k8s
+  subtopic: workload-controllers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как технически работает `kubectl rollout restart`, если образ и манифест
+    не изменились?
+  answer: |
+    Он дописывает в pod-template аннотацию с текущей меткой времени. Шаблон меняется —
+    значит появляется новый ReplicaSet, и запускается обычный rolling update.
+  explanation: |
+    Понимание механики объясняет две вещи. Во-первых, почему рестарт безопасен:
+    это штатный выкат со всеми его гарантиями, а не массовое удаление подов.
+    Во-вторых, почему GitOps-агент может показать дрейф после такой команды —
+    в кластере появилось поле, которого нет в git.
+  ref: "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/"

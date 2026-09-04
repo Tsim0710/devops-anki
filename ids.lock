@@ -18,6 +18,9 @@ k8s-api-model-012 2026-09-04 active
 k8s-api-model-013 2026-09-04 active
 k8s-api-model-014 2026-09-04 active
 k8s-api-model-015 2026-09-04 active
+k8s-api-model-016 2026-09-05 active
+k8s-api-model-017 2026-09-05 active
+k8s-api-model-018 2026-09-05 active
 k8s-architecture-001 2026-09-04 active
 k8s-architecture-002 2026-09-04 active
 k8s-architecture-003 2026-09-04 active
@@ -35,6 +38,7 @@ k8s-architecture-014 2026-09-04 active
 k8s-architecture-015 2026-09-04 active
 k8s-architecture-016 2026-09-04 active
 k8s-architecture-017 2026-09-04 active
+k8s-architecture-018 2026-09-05 active
 k8s-autoscaling-001 2026-09-04 active
 k8s-autoscaling-002 2026-09-04 active
 k8s-autoscaling-003 2026-09-04 active
@@ -70,6 +74,8 @@ k8s-bootstrap-014 2026-09-04 active
 k8s-bootstrap-015 2026-09-04 active
 k8s-bootstrap-016 2026-09-04 active
 k8s-bootstrap-017 2026-09-04 active
+k8s-bootstrap-018 2026-09-05 active
+k8s-bootstrap-019 2026-09-05 active
 k8s-cluster-dns-001 2026-09-04 active
 k8s-cluster-dns-002 2026-09-04 active
 k8s-cluster-dns-003 2026-09-04 active
@@ -154,6 +160,7 @@ k8s-ingress-011 2026-09-04 active
 k8s-ingress-012 2026-09-04 active
 k8s-ingress-013 2026-09-04 active
 k8s-ingress-014 2026-09-04 active
+k8s-ingress-015 2026-09-05 active
 k8s-kubelet-runtime-001 2026-09-04 active
 k8s-kubelet-runtime-002 2026-09-04 active
 k8s-kubelet-runtime-003 2026-09-04 active
@@ -288,6 +295,7 @@ k8s-pods-014 2026-09-04 active
 k8s-pods-015 2026-09-04 active
 k8s-pods-016 2026-09-04 active
 k8s-pods-017 2026-09-04 active
+k8s-pods-018 2026-09-05 active
 k8s-probes-001 2026-09-03 active
 k8s-probes-002 2026-09-03 active
 k8s-probes-003 2026-09-03 active
@@ -336,6 +344,9 @@ k8s-scheduling-012 2026-09-04 active
 k8s-scheduling-013 2026-09-04 active
 k8s-scheduling-014 2026-09-04 active
 k8s-scheduling-015 2026-09-04 active
+k8s-scheduling-016 2026-09-05 active
+k8s-scheduling-017 2026-09-05 active
+k8s-scheduling-018 2026-09-05 active
 k8s-service-mesh-001 2026-09-04 active
 k8s-service-mesh-002 2026-09-04 active
 k8s-service-mesh-003 2026-09-04 active
@@ -383,6 +394,7 @@ k8s-storage-014 2026-09-04 active
 k8s-storage-015 2026-09-04 active
 k8s-storage-016 2026-09-04 active
 k8s-storage-017 2026-09-04 active
+k8s-storage-018 2026-09-05 active
 k8s-troubleshooting-001 2026-09-04 active
 k8s-troubleshooting-002 2026-09-04 active
 k8s-troubleshooting-003 2026-09-04 active
@@ -430,6 +442,9 @@ k8s-workload-controllers-019 2026-09-04 active
 k8s-workload-controllers-020 2026-09-04 active
 k8s-workload-controllers-021 2026-09-04 active
 k8s-workload-controllers-022 2026-09-04 active
+k8s-workload-controllers-023 2026-09-05 active
+k8s-workload-controllers-024 2026-09-05 active
+k8s-workload-controllers-025 2026-09-05 active
 networks-bgp-ospf-001 2026-09-04 active
 networks-bgp-ospf-002 2026-09-04 active
 networks-bgp-ospf-003 2026-09-04 active
@@ -477,6 +492,8 @@ networks-diagnostics-010 2026-09-05 active
 networks-diagnostics-011 2026-09-05 active
 networks-diagnostics-012 2026-09-05 active
 networks-diagnostics-013 2026-09-05 active
+networks-diagnostics-014 2026-09-05 active
+networks-diagnostics-015 2026-09-05 active
 networks-dns-001 2026-09-04 active
 networks-dns-002 2026-09-04 active
 networks-dns-003 2026-09-04 active
@@ -487,6 +504,7 @@ networks-dns-007 2026-09-04 active
 networks-dns-008 2026-09-04 active
 networks-dns-009 2026-09-04 active
 networks-dns-010 2026-09-04 active
+networks-dns-011 2026-09-05 active
 networks-ethernet-arp-001 2026-09-04 active
 networks-ethernet-arp-002 2026-09-04 active
 networks-ethernet-arp-003 2026-09-04 active
@@ -521,6 +539,9 @@ networks-http-010 2026-09-04 active
 networks-http-011 2026-09-04 active
 networks-http-012 2026-09-04 active
 networks-http-013 2026-09-04 active
+networks-http-014 2026-09-05 active
+networks-http-015 2026-09-05 active
+networks-http-016 2026-09-05 active
 networks-ipv4-addressing-001 2026-09-04 active
 networks-ipv4-addressing-002 2026-09-04 active
 networks-ipv4-addressing-003 2026-09-04 active
@@ -559,6 +580,8 @@ networks-load-balancing-008 2026-09-05 active
 networks-load-balancing-009 2026-09-05 active
 networks-load-balancing-010 2026-09-05 active
 networks-load-balancing-011 2026-09-05 active
+networks-load-balancing-012 2026-09-05 active
+networks-load-balancing-013 2026-09-05 active
 networks-nat-001 2026-09-04 active
 networks-nat-002 2026-09-04 active
 networks-nat-003 2026-09-04 active
@@ -569,6 +592,7 @@ networks-nat-007 2026-09-04 active
 networks-nat-008 2026-09-04 active
 networks-nat-009 2026-09-04 active
 networks-nat-010 2026-09-04 active
+networks-nat-011 2026-09-05 active
 networks-osi-model-001 2026-09-04 active
 networks-osi-model-002 2026-09-04 active
 networks-osi-model-003 2026-09-04 active
@@ -609,6 +633,8 @@ networks-tcp-udp-009 2026-09-04 active
 networks-tcp-udp-010 2026-09-04 active
 networks-tcp-udp-011 2026-09-04 active
 networks-tcp-udp-012 2026-09-04 active
+networks-tcp-udp-013 2026-09-05 active
+networks-tcp-udp-014 2026-09-05 active
 networks-tls-001 2026-09-04 active
 networks-tls-002 2026-09-04 active
 networks-tls-003 2026-09-04 active
@@ -620,6 +646,7 @@ networks-tls-008 2026-09-04 active
 networks-tls-009 2026-09-04 active
 networks-tls-010 2026-09-04 active
 networks-tls-011 2026-09-04 active
+networks-tls-012 2026-09-05 active
 networks-vpn-tunnels-001 2026-09-05 active
 networks-vpn-tunnels-002 2026-09-05 active
 networks-vpn-tunnels-003 2026-09-05 active
