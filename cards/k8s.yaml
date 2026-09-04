@@ -6520,3 +6520,1828 @@
     правило — инфраструктурная функция, привязанная к узлу, живёт в DaemonSet;
     в под она переезжает, только когда требует контекста самого приложения.
   ref: "https://kubernetes.io/docs/concepts/cluster-administration/logging/"
+
+# --- kubelet-runtime ---
+
+- id: k8s-kubelet-runtime-001
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое CRI и зачем он появился?
+  answer: |
+    Container Runtime Interface — API, по которому **kubelet разговаривает с любым
+    container runtime**. Благодаря ему Kubernetes не зависит от конкретной реализации:
+    containerd, CRI-O и другие подключаются одинаково.
+  explanation: |
+    До CRI поддержка Docker была вкомпилена в kubelet, и добавление нового runtime
+    означало правку ядра Kubernetes. Именно этот слой позволил в 1.24 убрать
+    dockershim — прослойку, переводившую CRI в язык Docker, — не сломав ничего,
+    кроме кластеров, которые за годы так и не переехали.
+  ref: "https://kubernetes.io/docs/concepts/architecture/cri/"
+
+- id: k8s-kubelet-runtime-002
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Kubernetes убрал поддержку Docker. Перестанут ли работать образы, собранные
+    через `docker build`?
+  answer: |
+    Нет. Образы соответствуют стандарту **OCI**, и containerd их прекрасно запускает.
+    Убрали не формат образов, а прослойку `dockershim`, через которую kubelet
+    разговаривал с демоном Docker.
+  explanation: |
+    Путаница возникает из-за того, что словом «Docker» называют три разные вещи: формат
+    образа (стандартизован в OCI), инструмент сборки (продолжает работать) и демон
+    как runtime (вот его и убрали). Разделять их полезно и на собесе, и в жизни:
+    большинство паник вокруг этой новости было именно из-за смешения понятий.
+  ref: "https://kubernetes.io/docs/concepts/architecture/cri/"
+
+- id: k8s-kubelet-runtime-003
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какие три спецификации входят в OCI?
+  answer: |
+    `image-spec` — как устроен образ; `runtime-spec` — как запускается контейнер
+    из распакованного образа; `distribution-spec` — как образы отдаются и забираются
+    из реестра.
+  explanation: |
+    Разделение объясняет, почему компоненты экосистемы взаимозаменяемы: собрать образ
+    можно чем угодно (`docker build`, Kaniko, Buildah), хранить в любом реестре,
+    запускать любым runtime — все стороны следуют одним и тем же спецификациям.
+    Именно поэтому «сборка» и «запуск» в Kubernetes — независимые задачи разных
+    инструментов.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-004
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какое значение `imagePullPolicy` по умолчанию?
+  answer: |
+    `IfNotPresent` — если тег указан явно. Но если тег `latest` или не указан вовсе,
+    по умолчанию берётся `Always`.
+  explanation: |
+    Это правило объясняет классическую путаницу «почему у одного пода новый образ,
+    а у другого старый». С фиксированным тегом узел, у которого образ уже есть,
+    заново его не тянет — а перезаписанный в реестре тег с тем же именем до него
+    не доедет. Отсюда практика пинить теги, а лучше digest: тогда имя однозначно
+    определяет содержимое.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-005
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    `ImagePullBackOff`. Куда смотреть первым делом?
+  answer: |
+    В события пода: там написана конкретная причина — `not found` (нет такого образа
+    или тега), `unauthorized` (нет доступа к приватному реестру), таймаут (реестр
+    недоступен с узла).
+  explanation: |
+    Три причины ведут в три разных места: опечатка в манифесте, отсутствующий
+    `imagePullSecret`, сетевая доступность реестра с узла. Различать важно ещё
+    и потому, что тянет образ **kubelet**, а не приложение: проверять доступ надо
+    с узла и от имени его конфигурации, а не из своего терминала.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-006
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему все контейнеры пода видят один и тот же IP и общий localhost?
+  answer: |
+    Потому что сетевой namespace принадлежит **pause-контейнеру** (sandbox), а прикладные
+    контейнеры подключаются к уже существующему namespace, а не создают свои.
+  explanation: |
+    Механика объясняет и порядок запуска, и живучесть адреса: sandbox создаётся первым,
+    CNI настраивает сеть именно ему, и пока он жив — IP пода не меняется, сколько бы
+    раз ни перезапускались прикладные контейнеры. Отсюда же следует, почему два
+    контейнера пода не могут слушать один порт: пространство портов у них общее.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/"
+
+- id: k8s-kubelet-runtime-007
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Через какие этапы containerd проводит образ от реестра до запущенного контейнера?
+  answer: |
+    Скачивает слои и манифест в **content store** (по хешам), распаковывает их
+    в **snapshotter** (готовая файловая система), затем создаёт контейнер поверх
+    снапшота с writable-слоем.
+  explanation: |
+    Разделение объясняет две наблюдаемые вещи. Первая — экономия: одинаковые слои
+    разных образов лежат в content store в одном экземпляре, поэтому второй похожий
+    образ тянется почти мгновенно. Вторая — расход диска на узле: место занимают
+    и скачанные слои, и распакованные снапшоты, и именно поэтому узлы регулярно
+    упираются в `DiskPressure` и запускают сборку мусора по образам.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-008
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где правильнее держать `imagePullSecrets` — в каждом поде или в ServiceAccount?
+  answer: |
+    В ServiceAccount namespace'а: тогда секрет автоматически применяется ко всем подам,
+    которые под ним запускаются, и его не нужно дублировать в каждом манифесте.
+  explanation: |
+    Практическая выгода в эксплуатации: смена кредов реестра — правка одного объекта
+    вместо ревизии всех манифестов. Плюс исчезает целый класс инцидентов, когда новый
+    Deployment забыли снабдить секретом и он падает в `ImagePullBackOff` уже в проде.
+    Важно помнить, что секрет обязан лежать **в том же namespace**, что и под.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/"
+
+- id: k8s-kubelet-runtime-009
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    «На одном узле работает, на другом нет» при одинаковом манифесте. Гипотезы?
+  answer: |
+    Разные версии образа в локальном кеше узлов (перезаписанный тег), разные версии
+    ядра или runtime, разная конфигурация kubelet, отсутствие доступа к реестру
+    с конкретного узла, разное железо в пуле.
+  explanation: |
+    Манифест одинаков — значит различие приходит с уровня узла, и это резко сужает
+    поиск. Самая частая из причин именно первая: тег указывает на разное содержимое
+    на разных машинах, потому что `IfNotPresent` не перетягивает уже имеющийся образ.
+    Проверяется сравнением `imageID` в статусе подов: он содержит digest.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-010
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает kubelet, обнаружив нехватку места на диске узла?
+  answer: |
+    Запускает сборку мусора: удаляет неиспользуемые образы и завершённые контейнеры.
+    Если не помогает — вешает на узел состояние `DiskPressure` и начинает вытеснять
+    поды.
+  explanation: |
+    Отсюда неочевидная связь: приложение, активно пишущее в `emptyDir` или в слой
+    контейнера, способно вызвать вытеснение **чужих** подов с того же узла. Место
+    на узле — общий ресурс, и по умолчанию его никто не квотирует, в отличие от CPU
+    и памяти. Ограничить можно через `ephemeral-storage` в requests и limits.
+  ref: "https://kubernetes.io/docs/concepts/architecture/garbage-collection/"
+
+- id: k8s-kubelet-runtime-011
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Кто физически запускает контейнер при создании пода?
+  options:
+    a: "kubelet просит container runtime по CRI, тот запускает"
+    b: "kube-scheduler после выбора узла"
+    c: "kube-controller-manager через ReplicaSet"
+    d: "apiserver, записав объект в etcd"
+  answer: a
+  explanation: |
+    Цепочка ответственности здесь строгая, и её путают постоянно: scheduler только
+    проставляет `nodeName`, controller-manager только создаёт объекты, apiserver только
+    хранит. Единственный компонент, который действительно доходит до запуска процессов,
+    это kubelet — и делает он это не сам, а через runtime по CRI. Понимание этой
+    границы сразу говорит, чьи логи читать при отказе.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-kubelet-runtime-012
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем пинить образ по digest, если тег и так указан явно?
+  answer: |
+    Тег — изменяемая ссылка: его можно перезаписать в реестре, и одно и то же имя
+    начнёт означать другое содержимое. Digest — хеш содержимого, он неизменен
+    по определению.
+  explanation: |
+    Разница проявляется в двух местах. Воспроизводимость: откат на «ту же версию»
+    через тег не гарантирует того же образа, если тег переписали. Безопасность:
+    компрометация реестра позволяет подменить содержимое под известным тегом, а digest
+    такую подмену делает невозможной. Ценой становится менее читаемый манифест,
+    который обычно генерирует CI.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-013
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `imagePullPolicy: Always` в проде — спорное решение?
+  answer: |
+    Каждый запуск пода идёт в реестр за манифестом. Недоступность реестра превращается
+    в невозможность **перезапустить** уже работающие сервисы — то есть внешняя система
+    становится точкой отказа кластера в самый неподходящий момент.
+  explanation: |
+    Ирония в том, что политика ставится ради надёжности выката. Правильное решение
+    той же задачи — неизменяемые теги или digest: тогда одно имя всегда означает
+    один образ, перетягивать нечего, и локальный кеш узла становится преимуществом,
+    а не источником расхождений.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-kubelet-runtime-014
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт runtime вроде gVisor или Kata Containers и когда он оправдан?
+  answer: |
+    Дополнительную границу изоляции: gVisor перехватывает системные вызовы в
+    пользовательском пространстве, Kata запускает контейнер в лёгкой виртуальной машине.
+    Оправданы там, где выполняется **недоверенный** код.
+  explanation: |
+    Обычные контейнеры делят ядро с узлом, поэтому уязвимость в ядре пробивает всю
+    изоляцию сразу — для мультитенантности с чужим кодом этого мало. Подключаются такие
+    runtime через `RuntimeClass`, то есть выбираются на уровне пода. Плата —
+    производительность и совместимость: не все системные вызовы поддерживаются.
+  ref: "https://kubernetes.io/docs/concepts/containers/runtime-class/"
+
+- id: k8s-kubelet-runtime-015
+  domain: k8s
+  subtopic: kubelet-runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему нельзя собирать образы внутри кластера, монтируя сокет container runtime?
+  answer: |
+    Доступ к сокету runtime эквивалентен root на узле: через него можно запустить
+    привилегированный контейнер, смонтировать корень узла и получить всё остальное.
+    Для сборки без такого доступа существуют Kaniko, Buildah и BuildKit
+    в непривилегированном режиме.
+  explanation: |
+    Опасность усугубляется контекстом: сборка почти всегда выполняет код из репозитория,
+    то есть потенциально недоверенный, и делает это на узле с чужими нагрузками.
+    Отсюда правило — сборочные джобы либо выносят из кластера, либо запускают
+    инструментами, которым сокет runtime не нужен вовсе.
+  ref: "https://kubernetes.io/docs/concepts/security/"
+
+# --- packaging-gitops ---
+
+- id: k8s-packaging-gitops-001
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что Helm делает помимо шаблонизации манифестов?
+  answer: |
+    Управляет **релизами**: хранит в кластере историю применённых версий, умеет
+    откатываться (`helm rollback`), знает, какие объекты принадлежат релизу, и удаляет
+    их при `helm uninstall`.
+  explanation: |
+    Именно менеджер релизов, а не шаблонизатор, отличает Helm от простого рендеринга
+    YAML. Он ведёт учёт принадлежности объектов — поэтому умеет то, чего не умеет
+    `kubectl apply`: удалить ровно то, что установил, включая объекты, исчезнувшие
+    из новой версии чарта.
+  ref: "https://helm.sh/docs/"
+
+- id: k8s-packaging-gitops-002
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем Kustomize принципиально отличается от Helm по подходу?
+  answer: |
+    Kustomize не шаблонизирует, а **патчит**: берёт валидный YAML-базис и накладывает
+    на него изменения для конкретного окружения. Helm генерирует YAML из текстового
+    шаблона с подстановками.
+  explanation: |
+    Отсюда следует главное различие в ощущениях: базис Kustomize всегда остаётся
+    корректным манифестом, который можно применить и прочитать, а шаблон Helm сам
+    по себе не YAML и вне рендеринга нечитаем. Отсюда же индустриальный расклад —
+    Kustomize для своих приложений, Helm для чужого софта, который поставляется
+    чартами.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"
+
+- id: k8s-packaging-gitops-003
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сформулируй четыре принципа GitOps.
+  answer: |
+    Желаемое состояние описано **декларативно**; оно версионируется и неизменяемо
+    (git); изменения **забираются** агентом автоматически; агент **непрерывно**
+    сверяет факт с желаемым и устраняет расхождения.
+  explanation: |
+    Четвёртый пункт и есть настоящее отличие от «деплоя из CI»: непрерывная сверка
+    означает, что ручное изменение в кластере будет замечено и откатано. Без него
+    получается обычный push-деплой, просто с манифестами в git — а это принципиально
+    более слабая гарантия.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/"
+
+- id: k8s-packaging-gitops-004
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть, что чарт реально сгенерирует, не применяя его в кластер?
+  answer: |
+    `helm template` — рендерит манифесты локально. `--debug` дополнительно показывает
+    итоговые значения. Для проверки против живого кластера — `helm install --dry-run`.
+  explanation: |
+    Это первое, что делают при разборе непонятного поведения чарта: между `values.yaml`
+    и объектом в кластере лежит слой текстовых подстановок, условий и циклов, и ошибка
+    почти всегда именно там. Смотреть надо на результат, а не на шаблон, — по той же
+    причине, по которой при разборе admission-политик смотрят на объект, а не
+    на манифест.
+  ref: "https://helm.sh/docs/helm/helm_template/"
+
+- id: k8s-packaging-gitops-005
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    Чем pull-модель GitOps принципиально сильнее push-деплоя из CI?
+  options:
+    a: "Она непрерывно сверяет факт с git и чинит ручные изменения в кластере"
+    b: "Она быстрее выкатывает изменения после коммита"
+    c: "Она не требует хранить манифесты в репозитории"
+    d: "Она позволяет выкатывать без сборки образа"
+  answer: a
+  explanation: |
+    Push применяет изменение **разово**: сработал пайплайн, применил, забыл. Что
+    произошло с кластером между запусками, он не знает. Pull-агент живёт внутри
+    и сверяет состояние постоянно, поэтому ручная правка «на пять минут» будет
+    отменена. Побочная выгода — у CI больше нет кредов к кластеру: агент сам ходит
+    в git, а не наоборот.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-006
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Helm-релиз застрял в статусе `pending-upgrade`. Что произошло и что делать?
+  answer: |
+    Предыдущая операция прервалась, не сняв блокировку: упал pipeline, оборвался
+    таймаут, убили процесс. Helm считает релиз занятым. Лечится `helm rollback`
+    на последнюю успешную ревизию.
+  explanation: |
+    Состояние релиза Helm хранит в Secret'ах внутри namespace, и оно не самовосстанавливается —
+    в этом принципиальная разница с контроллером, который просто продолжил бы сверку
+    на следующем витке. Отсюда практический вывод: Helm императивен по природе,
+    и прерванная операция оставляет систему в подвешенном состоянии, требующем человека.
+  ref: "https://helm.sh/docs/helm/helm_rollback/"
+
+- id: k8s-packaging-gitops-007
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Kustomize-патч «не применился», при этом ошибки нет. Первая гипотеза?
+  answer: |
+    Патч не нашёл цель: не совпали `kind`, `name`, `namespace` или `apiVersion`
+    в селекторе патча. Несуществующая цель для Kustomize — не ошибка, он просто
+    ничего не делает.
+  explanation: |
+    Молчаливость здесь — самая дорогая черта инструмента: результат выглядит успешным,
+    а изменение потеряно. Проверяется единственным правильным способом — рендерингом
+    (`kubectl kustomize .`) и сравнением с ожидаемым. Это тот же класс ошибок,
+    что аннотация с опечаткой или селектор, не совпавший с метками: объект валиден,
+    смысла нет.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"
+
+- id: k8s-packaging-gitops-008
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Argo CD показывает приложение как `OutOfSync`, хотя в git ничего не меняли. Почему?
+  answer: |
+    Дрейф: объект в кластере отличается от манифеста. Чаще всего его изменил кто-то
+    другой — HPA правит `replicas`, mutating webhook дописал sidecar, оператор
+    проставил поля в `spec`, или кто-то поправил руками.
+  explanation: |
+    Argo CD сравнивает желаемое с фактическим, и «лишний» автор поля выглядит для него
+    как расхождение. Разбор всегда идёт от diff'а: он показывает конкретное поле,
+    а по полю понятен виновник. Лечится либо исключением поля из сравнения,
+    либо приведением git в соответствие с реальностью — но не отключением self-heal.
+  ref: "https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+
+- id: k8s-packaging-gitops-009
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как хранить секреты при GitOps, если в git их класть нельзя?
+  answer: |
+    Три подхода: шифровать в репозитории (SOPS, Sealed Secrets — в git лежит шифротекст);
+    держать ссылку на внешний менеджер (External Secrets, Vault); монтировать значения
+    напрямую в под через CSI-драйвер, не создавая объект Secret.
+  explanation: |
+    Общий принцип один: в git уезжает либо шифротекст, либо **ссылка**, но никогда
+    открытое значение. Различаются подходы тем, где живёт правда и что сломается
+    при отказе: у SOPS всё самодостаточно, но ротация ручная; у External Secrets
+    ротация автоматическая, но внешний менеджер становится зависимостью кластера.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"
+
+- id: k8s-packaging-gitops-010
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем в Argo CD нужны sync waves?
+  answer: |
+    Чтобы задать порядок применения объектов внутри одной синхронизации: сначала CRD
+    и namespace, потом операторы, потом приложения, которые от них зависят. Порядок
+    задаётся аннотацией с номером волны.
+  explanation: |
+    Без порядка часть объектов гарантированно не применится с первой попытки:
+    CR нельзя создать раньше его CRD, под — раньше namespace. Обычно это
+    самоисправляется на следующей сверке, но выглядит как мигающий `Degraded`
+    и мешает отличить реальную поломку от гонки при установке.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-packaging-gitops-011
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как разделяются роли CI и CD в правильном контуре?
+  answer: |
+    CI собирает и тестирует **артефакт** (образ) и записывает новую версию в манифест
+    или в git. CD применяет манифесты в кластер. Границей служит git-коммит,
+    а не запуск пайплайна.
+  explanation: |
+    Смешение ролей — источник двух типичных бед: у CI появляются админские креды
+    к прод-кластеру, и выкат становится непрослеживаемым, потому что «что сейчас
+    в кластере» знает только история пайплайнов. При разделении текущее состояние
+    всегда читается из git, а откат — это git revert, а не поиск нужной кнопки.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-012
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое app-of-apps в Argo CD?
+  answer: |
+    Приложение, содержимое которого — манифесты **других** Argo-приложений. Один корневой
+    объект разворачивает весь набор компонентов кластера, и добавление нового сводится
+    к коммиту в его репозиторий.
+  explanation: |
+    Паттерн решает бутстрап: без него каждое приложение приходится заводить руками,
+    то есть кластер перестаёт быть воспроизводимым из git. С ним поднятие нового
+    окружения — это установка Argo CD и одного корневого приложения. Обратная сторона —
+    корневой объект становится единой точкой, ошибка в которой задевает всё сразу.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-013
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что дают Argo Rollouts и Flagger сверх обычного RollingUpdate?
+  answer: |
+    Прогрессивную доставку: canary и blue-green с **автоматическим анализом метрик**.
+    Новая версия получает долю трафика, инструмент смотрит на ошибки и latency
+    и сам решает — продолжать выкат или откатить.
+  explanation: |
+    Штатный RollingUpdate знает только про готовность подов: приложение, которое
+    стартует и проходит readiness, но отдаёт пятисотки, будет успешно раскатано
+    на все реплики. Прогрессивная доставка добавляет недостающий критерий — как
+    новая версия ведёт себя **под реальным трафиком**, и делает откат автоматическим,
+    а не ручным.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: k8s-packaging-gitops-014
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Обновил чарт оператора, в новой версии у CRD появились поля — но в кластере
+    их нет. Почему `helm upgrade` их не добавил?
+  answer: |
+    Helm ставит CRD из каталога `crds/` **только при установке**. На `helm upgrade`
+    он их не трогает, и на `helm uninstall` не удаляет. Обновлять схему приходится
+    вручную, через `kubectl apply`.
+  explanation: |
+    Поведение намеренное и защитное: обновление CRD может сделать существующие CR
+    невалидными, а удаление CRD уносит вместе с ним все объекты этого типа — Helm
+    отказывается брать на себя такую операцию. Отсюда практика: схемы операторов
+    обновлять отдельным осознанным шагом и читать release notes, а не надеяться,
+    что `upgrade` приведёт кластер в нужное состояние целиком.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-packaging-gitops-015
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем плох образ по тегу `latest` в связке с GitOps?
+  answer: |
+    Тем, что манифест перестаёт описывать состояние: в git всё то же самое, а в кластере
+    может быть что угодно. Агент не видит расхождения — с его точки зрения всё
+    синхронизировано, — и воспроизвести прошлое состояние по git невозможно.
+  explanation: |
+    Это подрывает базовый принцип: git обязан быть источником правды о том, **что
+    именно** работает. С плавающим тегом откат перестаёт быть откатом, а расследование
+    инцидента упирается в вопрос «какой образ там был вчера», на который нет ответа.
+    Отсюда практика — CI записывает в манифест конкретный тег или digest.
+  ref: "https://kubernetes.io/docs/concepts/containers/images/"
+
+- id: k8s-packaging-gitops-016
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему у Helm-чартов есть репутация «нечитаемой лапши» и что с этим делают?
+  answer: |
+    Потому что шаблоны текстовые: условия и циклы генерируют YAML на уровне строк,
+    а не структуры, и отступ становится частью логики. Чарт с десятком флагов
+    превращается в неотлаживаемое полотно.
+  explanation: |
+    Отсюда индустриальный расклад: чужой софт ставят чартом, потому что гибкость нужна
+    его автору, а своё описывают Kustomize, где базис остаётся валидным YAML.
+    Промежуточный приём — рендерить чарт в манифесты и патчить их Kustomize:
+    гибкость остаётся у поставщика, а читаемость у тебя.
+  ref: "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"
+
+- id: k8s-packaging-gitops-017
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасно включить auto-sync с self-heal, не предупредив команду?
+  answer: |
+    Тем, что любые ручные изменения в кластере начнут молча откатываться. Отладка
+    «поправил — через минуту вернулось» превращается в мистику, а в инциденте
+    временная мера не доживает до конца разбора.
+  explanation: |
+    Технически поведение абсолютно правильное — в этом и смысл GitOps. Проблема
+    организационная: контур меняет правила работы с кластером для всех, а узнают
+    об этом по симптомам. Отсюда практика включать self-heal как командное решение
+    и заранее описывать процедуру аварийного отключения синхронизации.
+  ref: "https://kubernetes.io/docs/concepts/overview/"
+
+- id: k8s-packaging-gitops-018
+  domain: k8s
+  subtopic: packaging-gitops
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Секрет уехал в git в открытом виде. Достаточно ли удалить его следующим коммитом?
+  answer: |
+    Нет. История git хранит все версии: значение остаётся доступным в старых коммитах,
+    у всех, кто делал clone, и в зеркалах. Единственный надёжный ответ — считать
+    секрет скомпрометированным и **ротировать** его.
+  explanation: |
+    Переписывание истории помогает лишь частично и только если репозиторий не успели
+    склонировать. Отсюда практика профилактики: сканер секретов в pre-commit и в CI,
+    потому что цена обнаружения после пуша всегда включает ротацию, а она бывает
+    болезненной.
+  ref: "https://kubernetes.io/docs/concepts/configuration/secret/"
+
+# --- crd-operators ---
+
+- id: k8s-crd-operators-001
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое CRD и что такое CR?
+  answer: |
+    CRD (CustomResourceDefinition) — **описание нового типа** объекта: apiserver
+    начинает понимать `kind: Certificate` и валидировать его по схеме. CR — конкретный
+    экземпляр этого типа.
+  explanation: |
+    После установки CRD новый тип ведёт себя как родной: работают `kubectl get`,
+    RBAC, watch, `kubectl explain`. Именно поэтому расширение Kubernetes не требует
+    менять его код — apiserver умеет хранить и отдавать произвольные типы, а смысл
+    им придаёт уже контроллер.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-crd-operators-002
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит оператор?
+  answer: |
+    Из **CRD** (новый тип объекта) и **контроллера** (под, который следит за объектами
+    этого типа и приводит реальный мир к их `spec`).
+  explanation: |
+    Оператор — это кодификация работы администратора: знания о том, как поднять кластер
+    БД, сделать бэкап, провести обновление, переложены в непрерывную петлю сверки.
+    Отсюда главное следствие: CRD **без** контроллера — мёртвая запись, объект создаётся
+    и не делает ничего, потому что придавать ему смысл некому.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-003
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Ошибка `no matches for kind "Certificate"`. Что это значит?
+  answer: |
+    Кластер не знает такого типа: CRD не установлен или ещё не успел появиться.
+    Проверяется `kubectl get crd` и `kubectl api-resources`.
+  explanation: |
+    Ошибка приходит от apiserver на этапе распознавания объекта — то есть до всякой
+    валидации и RBAC. Самая частая её причина не «забыли поставить оператор», а гонка
+    при установке: CR применили в одном пакете с CRD, и первый успел раньше второго.
+    Отсюда требование выкатывать CRD отдельным, более ранним шагом.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-crd-operators-004
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Создал `Certificate`, сертификат не выпустился, ошибок нет. Куда смотреть?
+  answer: |
+    Сначала в `status` и `conditions` самого CR — операторы пишут туда причину словами.
+    Потом в события объекта. Потом в логи пода-контроллера оператора.
+  explanation: |
+    Лестница разбора чужого оператора всегда одинакова и идёт от объекта к исполнителю.
+    Начинать с логов оператора — типичная ошибка: там шум по всем объектам кластера,
+    а в `status` конкретного CR лежит адресный ответ. Пустой `status` при этом сам
+    по себе диагноз — значит контроллер объект вообще не увидел.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-005
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    CR висит в `Terminating` и не удаляется, оператор при этом уже снесён. Что произошло?
+  answer: |
+    На объекте остался финализатор оператора: apiserver ждёт, пока контроллер выполнит
+    уборку и снимет метку, а контроллера больше нет. Объект будет висеть вечно.
+  explanation: |
+    Это самая частая ловушка при удалении операторов: сносят контроллер, потом пытаются
+    убрать его CR — и получают неудаляемые объекты, а следом и неудаляемый namespace.
+    Правильный порядок обратный: сначала удалить все CR **живым** оператором, потом
+    сам оператор. Снятие финализатора руками оставляет за собой сирот во внешних
+    системах.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/"
+
+- id: k8s-crd-operators-006
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Что произойдёт, если удалить CRD, по которому в кластере есть объекты?
+  options:
+    a: "Все CR этого типа будут удалены вместе с определением"
+    b: "Удаление будет отклонено, пока существует хотя бы один CR"
+    c: "CR останутся, но станут недоступны через kubectl"
+    d: "CR будут преобразованы в ConfigMap"
+  answer: a
+  explanation: |
+    Определение типа и его экземпляры связаны жёстко: нет схемы — нет и объектов,
+    apiserver вычищает их каскадно. Практическая опасность в том, что операция выглядит
+    как удаление одного технического объекта, а уносит все базы, сертификаты или
+    очереди, описанные этим типом. Если у CR есть финализаторы, удаление вдобавок
+    может зависнуть на полпути.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"
+
+- id: k8s-crd-operators-007
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как понять, что делает незнакомый оператор в кластере?
+  answer: |
+    Посмотреть его CRD (`kubectl get crd`, `kubectl explain <kind>`) — какие сущности
+    он вводит; его ClusterRole — к чему он имеет доступ; его webhook'и — во что
+    он вмешивается; и логи контроллера.
+  explanation: |
+    Порядок идёт от намерения к полномочиям. Особенно важен второй шаг: оператор часто
+    просит очень широкие права, и его ClusterRole фактически определяет, что он может
+    сломать. Это же обязательная проверка **перед** установкой: оператор с правами
+    на секреты во всех namespace — сознательное решение, а не деталь.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-008
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Оператор дописал поле в мой объект, и Argo CD считает это дрейфом. Кто прав?
+  answer: |
+    Оба: оператор обязан проставлять поля, GitOps обязан следить за расхождением.
+    Решается исключением поля из сравнения либо переходом на владение полями
+    через server-side apply.
+  explanation: |
+    Это общий класс конфликтов «у одного объекта несколько авторов»: тот же сюжет
+    с HPA и `replicas`, с mutating webhook и sidecar'ом. Правильная реакция —
+    не отключать self-heal, а явно описать, какое поле кому принадлежит. Отключение
+    сверки лечит симптом и убивает главное свойство контура.
+  ref: "https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+
+- id: k8s-crd-operators-009
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое reconcile-петля и почему контроллеры обязаны быть идемпотентными?
+  answer: |
+    Петля читает желаемое состояние, сравнивает с фактическим и делает шаг к
+    выравниванию — и так бесконечно. Идемпотентность нужна потому, что один и тот же
+    объект обрабатывается многократно: после resync, рестарта контроллера, повтора
+    при ошибке.
+  explanation: |
+    Контроллер, который при каждом вызове создаёт что-то новое вместо проверки
+    «а есть ли уже», за сутки наплодит тысячи дубликатов. Отсюда же стандартная
+    обработка ошибок — вернуть объект в очередь с экспоненциальным backoff:
+    повтор безопасен по построению, поэтому проще повторить, чем разбираться.
+  ref: "https://kubernetes.io/docs/concepts/architecture/controller/"
+
+- id: k8s-crd-operators-010
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем mutating webhook отличается от validating?
+  answer: |
+    Mutating **меняет** объект: дописывает поля, инжектит sidecar, подставляет дефолты.
+    Validating только выносит вердикт да или нет. Порядок строгий: сначала все mutating,
+    потом все validating.
+  explanation: |
+    Порядок вытекает из смысла: валидировать нужно финальный объект, а не тот, что
+    прислал пользователь. Отсюда практическое следствие для отладки: отказ может
+    касаться поля, которого ты не писал, — его дописал mutating webhook, а validating
+    забраковал. Смотреть надо на итоговый объект.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-crd-operators-011
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Sidecar от service mesh не инжектнулся в под. Что проверять?
+  answer: |
+    Метку namespace или пода, включающую инъекцию; жив ли под webhook-сервера;
+    попадает ли под под `namespaceSelector` конфигурации webhook'а; не был ли под
+    создан **до** включения инъекции.
+  explanation: |
+    Последний пункт объясняет большинство случаев: mutating webhook работает только
+    в момент создания, к существующим подам он не применяется. Поэтому включение mesh
+    в namespace требует пересоздания подов — обычным `rollout restart`. По той же
+    причине включение PSA не ломает уже работающие поды.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-crd-operators-012
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем у CRD нужны версии (`v1alpha1`, `v1beta1`, `v1`) и conversion?
+  answer: |
+    Чтобы схема могла развиваться без поломки существующих объектов: apiserver хранит
+    одну каноническую версию и умеет отдавать её в других через conversion webhook.
+    Клиенты со старой версией продолжают работать.
+  explanation: |
+    Без этого любое изменение схемы оператора ломало бы все написанные манифесты.
+    Практическое следствие при обновлении операторов — читать, какие версии объявлены
+    `storage` и `served`: выключение старой версии в новом релизе делает существующие
+    манифесты неприменимыми, и это самый частый сюрприз при апгрейде.
+  ref: "https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/"
+
+- id: k8s-crd-operators-013
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Webhook оператора с `failurePolicy: Fail` упал и заблокировал деплои.
+    Как выйти из ситуации?
+  answer: |
+    Удалить или отредактировать саму `ValidatingWebhookConfiguration` /
+    `MutatingWebhookConfiguration` — это обычный объект API, и его удаление снимает
+    блокировку. После восстановления оператора конфигурацию возвращают.
+  explanation: |
+    Знать этот аварийный выход стоит заранее: в момент инцидента кластер не даёт
+    создавать объекты, и соблазн лечить симптом внутри — тупик, потому что для подъёма
+    оператора нужно создать под, а создание подов заблокировано именно им. Профилактика:
+    исключать `kube-system` и namespace самого оператора из области действия webhook'а.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-crd-operators-014
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Когда писать собственный оператор — оверинжиниринг?
+  answer: |
+    Когда задача решается манифестами, Helm-чартом или Job'ом. Оператор оправдан там,
+    где нужна **непрерывная** реакция на состояние: обслуживание кластерных БД,
+    выборы лидера, бэкапы по расписанию с проверкой, сложные обновления с миграциями.
+  explanation: |
+    Оператор — это долгоживущий код с широкими правами в кластере, который нужно
+    сопровождать, обновлять и отлаживать. Если действие выполняется один раз
+    и не требует наблюдения за состоянием, петля сверки не даёт ничего, кроме
+    расходов. Отсюда практика — брать зрелые чужие операторы и очень редко писать свои.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"
+
+- id: k8s-crd-operators-015
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему у CRD нельзя просто так уменьшить область валидации схемы в новой версии?
+  answer: |
+    Потому что в etcd уже лежат объекты, созданные по старой, более свободной схеме.
+    Ужесточение делает их невалидными: чтение может ломаться, а любое обновление
+    такого объекта будет отклонено.
+  explanation: |
+    Это общее свойство эволюции API: расширять безопасно, сужать — нет. Отсюда порядок
+    действий при ужесточении: сначала новая версия схемы рядом со старой, потом
+    миграция существующих объектов, и только затем отключение старой версии.
+    Тот же принцип объясняет, почему поля в API депрекируют годами, а не удаляют.
+  ref: "https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/"
+
+- id: k8s-crd-operators-016
+  domain: k8s
+  subtopic: crd-operators
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Оператор с ClusterRole на секреты во всех namespace — какова цена этого решения?
+  answer: |
+    Компрометация оператора равна компрометации всех секретов кластера. Оператор —
+    обычный под, доступный по сети и собранный из чужого кода, и его ServiceAccount
+    становится самой ценной учётной записью в кластере.
+  explanation: |
+    Про эту цену забывают, потому что права запрашивает установочный чарт, и решение
+    принимается одной командой без чтения. Практика — читать ClusterRole перед
+    установкой и по возможности ограничивать оператора namespace'ами через
+    Role вместо ClusterRole, если он это поддерживает.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+
+# --- bootstrap ---
+
+- id: k8s-bootstrap-001
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `kubeadm init`?
+  answer: |
+    Генерирует PKI (несколько независимых CA), пишет kubeconfig'и, раскладывает
+    манифесты static pod'ов для apiserver, controller-manager, scheduler и etcd,
+    дожидается их подъёма и создаёт bootstrap-токен для присоединения узлов.
+  explanation: |
+    Ключевой приём здесь — static pods: они разрывают проблему курицы и яйца.
+    Компоненты control plane сами живут в контейнерах, но запустить их через API
+    невозможно, пока API не поднят, — поэтому kubelet запускает их напрямую с диска,
+    не спрашивая никого.
+  ref: "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/"
+
+- id: k8s-bootstrap-002
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему свежий узел после `kubeadm join` остаётся в состоянии `NotReady`?
+  answer: |
+    Потому что не установлен CNI. Kubelet сообщает, что сеть подов не готова,
+    и узел не принимает нагрузку до появления сетевого плагина.
+  explanation: |
+    Это не поломка, а незавершённая установка: Kubernetes сознательно не поставляет
+    сеть в комплекте, а лишь задаёт требования к ней. Проверяется мгновенно —
+    в `kubectl describe node` условие `Ready` будет с сообщением про неинициализированную
+    сеть. В облаке к этому добавляется второй кандидат: taint от cloud-controller-manager,
+    который снимается после инициализации узла.
+  ref: "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-join/"
+
+- id: k8s-bootstrap-003
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Сколько узлов должно быть в кластере etcd и почему нечётное число?
+  answer: |
+    Нечётное: 3 для прода, 5 для крупного. Кворум — это большинство, `(n/2)+1`,
+    и чётное число узлов даёт ту же отказоустойчивость, что и предыдущее нечётное,
+    но при большей стоимости записи.
+  explanation: |
+    Считается легко: из трёх узлов кворум равен двум, значит переживается отказ одного.
+    Из четырёх кворум равен трём — переживается тоже один. Четвёртый узел не добавил
+    надёжности, зато каждая запись теперь требует подтверждения от большего числа
+    участников. Отсюда и общее правило: etcd масштабируют ради надёжности, а не
+    ради производительности.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-004
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что теряется при потере etcd без бэкапа?
+  answer: |
+    Всё состояние кластера: объекты, секреты, RBAC, конфигурация. Восстановить это
+    неоткуда — узлы и запущенные контейнеры про объекты ничего не знают.
+  explanation: |
+    etcd — единственная точка невозврата в кластере: любой другой компонент
+    переустанавливается, а состояние — нет. Отсюда два обязательных требования:
+    снапшоты по расписанию (`etcdctl snapshot save`) и **регулярная проверка
+    восстановления** — непроверенный бэкап статистически часто оказывается нерабочим
+    именно в тот момент, когда нужен.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-005
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке обновляется кластер и почему именно так?
+  answer: |
+    Сначала control plane, потом узлы, по одной минорной версии за раз.
+    Причина — правила version skew: kubelet может отставать от apiserver,
+    но не может быть новее.
+  explanation: |
+    Порядок вытекает из совместимости API: новый kubelet может обратиться к apiserver
+    с полем, которого тот ещё не знает. Отсюда же запрет прыгать через минорную версию —
+    гарантии совместимости даются только для соседних релизов, и перепрыгивание
+    выводит кластер в непроверенное состояние.
+  ref: "https://kubernetes.io/docs/setup/release/version-skew-policy/"
+
+- id: k8s-bootstrap-006
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем `cordon` отличается от `drain`?
+  answer: |
+    `cordon` только помечает узел как непланируемый: новые поды туда не сядут,
+    существующие остаются. `drain` дополнительно **выселяет** уже работающие поды,
+    соблюдая PodDisruptionBudget.
+  explanation: |
+    Разделение даёт двухшаговое обслуживание: сначала перекрыть приток и посмотреть,
+    как система себя чувствует, потом освобождать. `drain` при этом использует API
+    вытеснения, а не грубое удаление, — поэтому он и уважает PDB, и поэтому же может
+    зависнуть, если бюджет не позволяет убрать под.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"
+
+- id: k8s-bootstrap-007
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: [theory, interview]
+  type: mcq
+  verified: false
+  prompt: |
+    `kubectl` внезапно перестал работать с ошибкой `x509: certificate has expired`.
+    Что произошло?
+  options:
+    a: "Истёк срок сертификатов kubeadm — они выдаются на год"
+    b: "Кластер потерял связь с etcd"
+    c: "Сломался CNI, и apiserver недоступен по сети"
+    d: "Был отозван доступ через RBAC"
+  answer: a
+  explanation: |
+    Сертификаты, которые генерирует `kubeadm`, живут год, и обновляются они при
+    штатном апгрейде кластера. Кластер, который год не трогали, в какой-то день просто
+    перестаёт слушаться — и это одна из немногих поломок, наступающих строго
+    по календарю. Отличать её просто: сообщение прямо называет причину.
+    Клиентский сертификат kubelet при этом ротируется автоматически.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/"
+
+- id: k8s-bootstrap-008
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Где проходит граница ответственности в managed-кластере?
+  answer: |
+    Провайдер отвечает за control plane: apiserver, etcd, их обновление, бэкапы и HA.
+    Ты отвечаешь за узлы, нагрузки, сеть внутри кластера, политики, права и данные
+    приложений.
+  explanation: |
+    Граница объясняет, что можно требовать, а что нет: восстановление etcd — забота
+    провайдера, а вот пропавший PVC или неудачный выкат — целиком твоя. Она же
+    объясняет отсутствие некоторых ручек: флаги apiserver и admission-плагины лежат
+    на его стороне. Практический вывод — managed берут по умолчанию, если нет причин
+    обратного.
+  ref: "https://kubernetes.io/docs/concepts/architecture/"
+
+- id: k8s-bootstrap-009
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему `kubectl delete pod kube-apiserver-node1` не удаляет apiserver?
+  answer: |
+    Это static pod: kubelet запускает его по файлу на узле, а в API виден лишь
+    mirror pod — зеркало. Удаление зеркала приводит к тому, что kubelet создаёт
+    его заново.
+  explanation: |
+    Так и задумано: компоненты control plane не должны зависеть от собственной
+    работоспособности. Чтобы действительно остановить apiserver, нужно убрать
+    его манифест из `/etc/kubernetes/manifests` на узле. Побочный эффект приятный —
+    случайной командой control plane не снести.
+  ref: "https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/"
+
+- id: k8s-bootstrap-010
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что нужно сделать перед `drain` узла, чтобы обновление не сломало сервисы?
+  answer: |
+    Убедиться, что у нагрузок есть PodDisruptionBudget и достаточно реплик, чтобы
+    выселение не оставило сервис без бэкендов. И что реплики не привязаны жёстко
+    к этому узлу.
+  explanation: |
+    PDB — это одновременно и защита, и главный источник зависших drain'ов: слишком
+    строгий бюджет блокирует обслуживание навсегда. Поэтому обновление узлов идёт
+    по одному, с проверкой между шагами: так видно, что сервисы пережили первый узел,
+    прежде чем трогать второй.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"
+
+- id: k8s-bootstrap-011
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт HA control plane из трёх узлов и чего он не даёт?
+  answer: |
+    Даёт переживание отказа одного узла: кворум etcd сохраняется, apiserver доступен
+    через балансировщик. Не даёт производительности — контроллеры и scheduler
+    работают в единственном экземпляре благодаря leader election.
+  explanation: |
+    Путаница между отказоустойчивостью и масштабированием здесь стоит денег: три узла
+    берут ради «мощнее», а получают «надёжнее». Горизонтально масштабируется только
+    приём запросов apiserver'ом, поскольку он stateless; всё, что принимает решения,
+    осознанно сделано одиночным во избежание гонок.
+  ref: "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/"
+
+- id: k8s-bootstrap-012
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Восстановились из снапшота etcd, а кластер «помнит» старое состояние.
+    Что это значит?
+  answer: |
+    Снапшот вернул состояние на момент бэкапа, а реальный мир ушёл вперёд: на узлах
+    работают поды, которых в восстановленном etcd нет, в облаке живут диски
+    и балансировщики, созданные позже.
+  explanation: |
+    Восстановление etcd — это не машина времени для кластера, а откат только его
+    «памяти». Дальше контроллеры начнут приводить мир к устаревшему представлению:
+    удалять «лишние» объекты и пересоздавать «недостающие». Поэтому восстановление
+    планируют как отдельную процедуру со сверкой внешних ресурсов, а не как
+    одну команду.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-013
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    etcd потерял кворум. В каком состоянии кластер и что делать?
+  answer: |
+    Кластер становится доступен только на чтение: запись в etcd невозможна, значит
+    никакие изменения не применяются. Запущенные поды продолжают работать.
+    Выход — вернуть отсутствующие узлы или восстановиться из снапшота.
+  explanation: |
+    Поведение вытекает из консенсуса: без большинства участников etcd не может
+    гарантировать согласованность записи и честно отказывается писать, вместо того
+    чтобы рискнуть расхождением. Отсюда практическое следствие для дежурного:
+    «кластер не принимает изменения, но всё работает» — характерная подпись
+    именно кворума, а не сети или прав.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+- id: k8s-bootstrap-014
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему PKI кластера — это несколько независимых CA, а не один?
+  answer: |
+    Чтобы разграничить доверие: отдельный CA для клиентов apiserver, отдельный для
+    etcd, отдельный для front-proxy. Сертификат, выданный для одной подсистемы,
+    не годится для другой.
+  explanation: |
+    Один общий CA означал бы, что любой валидный сертификат кластера открывает доступ
+    ко всему, включая прямую запись в etcd мимо apiserver — то есть мимо всей
+    авторизации и аудита. Разделение ограничивает радиус поражения при компрометации
+    ключа и объясняет, почему в `/etc/kubernetes/pki` лежит не одна пара файлов,
+    а целый набор.
+  ref: "https://kubernetes.io/docs/setup/best-practices/certificates/"
+
+- id: k8s-bootstrap-015
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Апгрейд кластера сломался на середине: часть узлов новой версии, часть старой.
+    Насколько это опасно?
+  answer: |
+    Само по себе состояние штатное — политика version skew допускает отставание
+    kubelet от apiserver на несколько минорных версий, и кластер продолжает работать.
+    Опасно застревать в нём надолго: поведение узлов расходится, а следующий апгрейд
+    из смешанного состояния усложняется.
+  explanation: |
+    Именно ради этой безопасной середины апгрейд и делают по одному узлу: система
+    спроектирована так, чтобы жить в промежуточном состоянии, пока идёт обновление.
+    Опасны обратные ситуации — kubelet новее apiserver и прыжок через минорную
+    версию: обе выходят за рамки гарантий совместимости.
+  ref: "https://kubernetes.io/docs/setup/release/version-skew-policy/"
+
+- id: k8s-bootstrap-016
+  domain: k8s
+  subtopic: bootstrap
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    В каком порядке думать при восстановлении кластера после катастрофы?
+  answer: |
+    Сначала — что можно пересоздать из кода: узлы, компоненты, приложения из git.
+    Потом — что восстанавливается только из бэкапа: etcd. Потом — данные приложений:
+    PV и внешние базы, у которых свой цикл резервного копирования.
+  explanation: |
+    Порядок выстроен по невосполнимости: чем меньше вариантов восстановления,
+    тем раньше о ресурсе надо думать. Отсюда и практический критерий зрелости —
+    кластер описан как код, а невосполнимым остаётся ровно etcd и данные,
+    и для обоих есть проверенная процедура восстановления, а не только бэкап.
+  ref: "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"
+
+# --- service-mesh ---
+
+- id: k8s-service-mesh-001
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит service mesh?
+  answer: |
+    Data plane — прокси (обычно Envoy) рядом с каждой нагрузкой, через который идёт
+    весь трафик. Control plane — компонент, который эти прокси настраивает
+    и раздаёт им сертификаты.
+  explanation: |
+    Разделение то же, что в Ingress: правило и исполнитель. Ключевая идея mesh в том,
+    что прокси перехватывает трафик **прозрачно** — приложение продолжает ходить
+    по обычным адресам и не знает, что его трафик кто-то обрабатывает.
+    Отсюда и главный аргумент: возможности добавляются без правки кода.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-002
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что mesh даёт без изменения кода приложения?
+  answer: |
+    Взаимный TLS между сервисами, устойчивость (ретраи, таймауты, circuit breaking),
+    управление трафиком (canary, зеркалирование, разбиение по весам) и единую
+    телеметрию — метрики и трейсы по всем вызовам.
+  explanation: |
+    Ценность именно в том, что это одинаково работает для всех сервисов независимо
+    от языка: иначе каждую из этих возможностей пришлось бы реализовывать в библиотеке
+    для Go, для Java, для Python — и поддерживать три разные реализации ретраев.
+    Mesh переносит эту логику из приложения в инфраструктуру.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-003
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как sidecar-прокси попадает в под?
+  answer: |
+    Его добавляет **mutating admission webhook** при создании пода. Включается обычно
+    меткой на namespace, манифест приложения не меняется.
+  explanation: |
+    Отсюда два практических следствия. Первое: включение mesh требует пересоздания
+    подов — существующие webhook не трогает. Второе: в git один контейнер, в кластере
+    два, и при разборе смотреть надо на фактический объект. Тот же механизм стоит
+    за инжекцией агентов секретов и наблюдаемости.
+  ref: "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/"
+
+- id: k8s-service-mesh-004
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен режим mTLS `PERMISSIVE` и почему нельзя сразу включить `STRICT`?
+  answer: |
+    `PERMISSIVE` принимает и зашифрованный, и обычный трафик — это переходный режим.
+    `STRICT` требует mTLS от всех, и включённый до того, как прокси появились у всех
+    участников, он мгновенно рвёт связность.
+  explanation: |
+    Внедрение идёт по одному namespace, и пока часть сервисов без sidecar, требовать
+    от них mTLS невозможно — им нечем его установить. Отсюда стандартная лестница:
+    включить инъекцию, пересоздать поды, убедиться по телеметрии, что весь трафик
+    уже шифруется, и только потом переключиться в `STRICT`.
+  ref: "https://kubernetes.io/docs/concepts/security/"
+
+- id: k8s-service-mesh-005
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Job с sidecar'ом mesh не завершается. Почему и как чинить?
+  answer: |
+    Прокси не завершается сам, а под считается законченным только когда закончились все
+    контейнеры. Чинится нативным sidecar-контейнером (init с `restartPolicy: Always`)
+    или явной командой прокси на выход после основного контейнера.
+  explanation: |
+    Это тот же класс проблемы, что с любым долгоживущим помощником в Job, просто здесь
+    он приезжает автоматически и незаметно — через webhook. Отсюда практика отключать
+    инъекцию для Job и CronJob аннотацией, если mesh им не нужен: половина сюрпризов
+    с зависшими задачами именно отсюда.
+  ref: "https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/"
+
+- id: k8s-service-mesh-006
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Mesh включили, и NetworkPolicy перестала работать как ожидалось. Почему?
+  answer: |
+    Потому что они смотрят на разные вещи: NetworkPolicy фильтрует по IP и меткам
+    на уровне сети, а mesh шифрует трафик и терминирует соединения в прокси — источником
+    для политики становится sidecar, а не приложение.
+  explanation: |
+    Два слоя контроля доступа, настроенные независимо, дают либо дыры, либо ложные
+    блокировки. Разумный подход — разделить роли: NetworkPolicy как грубый периметр
+    (кто вообще может достучаться), авторизация mesh как тонкое правило (какой сервис
+    к какому методу). Или взять решение, где оба слоя реализует один компонент.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-service-mesh-007
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Чем ambient-режим (sidecarless) отличается от классического sidecar?
+  answer: |
+    Прокси не добавляется в каждый под: трафик перехватывается компонентом уровня узла,
+    а L7-обработка выносится в отдельные шлюзы. Поды остаются нетронутыми.
+  explanation: |
+    Это ответ на главные издержки sidecar-модели: расход памяти на каждый под,
+    необходимость пересоздавать все поды при обновлении mesh и зависшие Job'ы.
+    Плата — другая модель отладки: трафик обрабатывается не «внутри пода», и привычные
+    приёмы вроде чтения логов sidecar'а рядом с приложением перестают работать.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-008
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: mcq
+  verified: false
+  prompt: |
+    Нужен mTLS между тремя сервисами и базовые метрики. Разумное решение?
+  options:
+    a: "Лёгкий mesh вроде Linkerd либо возможности уже стоящего CNI"
+    b: "Istio с полным набором компонентов — стандарт индустрии"
+    c: "Свой прокси-sidecar, написанный под задачу"
+    d: "Ничего не нужно: TLS настраивается в приложениях"
+  answer: a
+  explanation: |
+    Правильный ответ на «нужен ли mesh» чаще «нет», а если да — то самый простой
+    из подходящих. Полноценный mesh приносит control plane, sidecar в каждом поде,
+    рост latency, обновления с пересозданием подов и новый слой отладки. Для трёх
+    сервисов и одной задачи эта цена несоразмерна; вариант (d) формально работает,
+    но требует править код и управлять сертификатами вручную.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-009
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Mesh, Ingress и Gateway API — как они соотносятся?
+  answer: |
+    Ingress и Gateway API — про **вход снаружи** (north-south). Mesh — про трафик
+    **между сервисами внутри** кластера (east-west). Они не заменяют друг друга,
+    хотя у mesh обычно есть и собственный входной шлюз.
+  explanation: |
+    Разделение по направлению трафика сразу отвечает на вопрос «что брать»: если задача
+    выставить сайт наружу, mesh не нужен вовсе. Если нужны mTLS и ретраи между
+    десятком внутренних сервисов, Ingress тут бесполезен. Gateway API при этом
+    постепенно становится общим языком для обоих направлений.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/gateway/"
+
+- id: k8s-service-mesh-010
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какова честная цена внедрения sidecar-mesh?
+  answer: |
+    Дополнительный контейнер на каждый под (память и CPU), два лишних сетевых хопа
+    и рост latency, обновление mesh с пересозданием **всех** подов, новый слой,
+    в котором надо уметь отлаживать, и зависимость от его control plane.
+  explanation: |
+    Про эту цену забывают, потому что внедрение выглядит бесплатным — код не меняется,
+    достаточно метки на namespace. Проявляется она позже: на счёте за память,
+    на p99 и на первом обновлении mesh, которое оказывается операцией масштаба
+    всего кластера. Поэтому mesh берут под несколько задач сразу, а не ради одной.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+- id: k8s-service-mesh-011
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как mesh даёт сервису криптографическую идентичность и чем она лучше сетевой?
+  answer: |
+    Control plane выдаёт каждому воркоаду короткоживущий сертификат, привязанный
+    к его ServiceAccount. Идентичность становится свойством **сервиса**, а не адреса:
+    IP можно подделать или переиспользовать, сертификат — нет.
+  explanation: |
+    Отсюда возможность строить авторизацию в терминах «сервис A может вызывать метод X
+    сервиса B», что невыразимо в сетевых политиках по адресам. Это же практический
+    фундамент zero-trust внутри кластера: доверие перестаёт следовать из факта
+    нахождения в одной сети.
+  ref: "https://kubernetes.io/docs/concepts/security/service-accounts/"
+
+- id: k8s-service-mesh-012
+  domain: k8s
+  subtopic: service-mesh
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    После внедрения mesh выросла latency. Где искать причину, кроме самих прокси?
+  answer: |
+    В ретраях и таймаутах: настроенные по умолчанию повторы могут умножать нагрузку
+    при деградации, а таймауты mesh — обрывать запросы раньше, чем это делало
+    приложение. Плюс лимиты sidecar'ов, если их не задали явно и прокси троттлится.
+  explanation: |
+    Самый коварный сценарий — ретрай-шторм: медленный сервис получает повторы от всех
+    вызывающих, нагрузка растёт кратно, и деградация усиливает сама себя. Поэтому
+    ретраи в mesh включают осознанно, с ограничением бюджета повторов, а не оставляют
+    дефолт «потому что устойчивость».
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"
+
+# --- ebpf-cilium ---
+
+- id: k8s-ebpf-cilium-001
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что такое eBPF в одном предложении?
+  answer: |
+    Механизм, позволяющий безопасно загружать и выполнять программы **внутри ядра**
+    Linux — без модулей ядра и без его пересборки. Программы проходят проверку
+    верификатором перед загрузкой.
+  explanation: |
+    Ключевое здесь — сочетание безопасности и скорости: обработка трафика происходит
+    в ядре, но написать её можно как обычный код, а верификатор гарантирует, что
+    программа завершится и не полезет в чужую память. Именно поэтому eBPF стал основой
+    и для сети, и для наблюдаемости, и для безопасности рантайма.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-ebpf-cilium-002
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: junior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какую проблему iptables-режима kube-proxy решают IPVS и eBPF?
+  answer: |
+    Не корректность, а **масштаб**: правила iptables просматриваются последовательно,
+    а их обновление переписывает большой набор. На тысячах сервисов растёт и задержка
+    обработки, и время применения изменений.
+  explanation: |
+    Формулировка «iptables медленный» неточна и на собесе выдаёт поверхностное
+    понимание: на сотне сервисов разницы нет никакой. Боль появляется на масштабе
+    и проявляется характерно — не как замедление трафика, а как отставание правил
+    от реального состава endpoints после выката.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-ebpf-cilium-003
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `kubeProxyReplacement` у Cilium?
+  answer: |
+    Что Cilium берёт на себя всю работу kube-proxy: обработку ClusterIP, NodePort
+    и балансировку реализуют eBPF-программы, а сам kube-proxy из кластера убирается.
+  explanation: |
+    Это не оптимизация поверх, а замена компонента: правила iptables для сервисов
+    просто перестают существовать, что заодно меняет отладку — привычные
+    `iptables -L` показывают пустоту, и смотреть надо инструментами Cilium.
+    Полезно понимать, что режим включается явно: поставить Cilium и получить
+    замену kube-proxy по умолчанию не выйдет.
+  ref: "https://kubernetes.io/docs/reference/networking/virtual-ips/"
+
+- id: k8s-ebpf-cilium-004
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: [theory, interview]
+  type: basic
+  verified: false
+  prompt: |
+    Чем identity-based политика лучше политики по IP?
+  answer: |
+    Cilium присваивает каждому набору меток числовую **identity** и фильтрует по ней.
+    IP пода эфемерен и переиспользуется, а identity привязана к смыслу нагрузки
+    и переживает пересоздание подов.
+  explanation: |
+    Практическая разница на масштабе: правил становится столько, сколько разных
+    идентичностей, а не сколько подов, поэтому скейл до тысячи реплик не раздувает
+    таблицы. Плюс исчезает целый класс гонок, когда освободившийся IP достаётся другому
+    поду, а правило продолжает считать его прежним.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-ebpf-cilium-005
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Что `CiliumNetworkPolicy` умеет сверх стандартной NetworkPolicy?
+  answer: |
+    Правила уровня L7: разрешить конкретные HTTP-методы и пути, ограничить запросы
+    Kafka по топикам, фильтровать DNS-запросы по доменам. Стандартная политика
+    работает только на уровне L3 и L4.
+  explanation: |
+    Разница качественная: «сервису A можно ходить к сервису B» и «сервису A можно
+    делать только `GET /api/v1/status` у сервиса B» — разные уровни доверия.
+    Фильтрация DNS по именам к тому же решает старую проблему egress-политик,
+    где внешние сервисы приходилось разрешать по IP, которые постоянно меняются.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-ebpf-cilium-006
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Как убедиться, что сетевая политика реально применяется, а не просто создана?
+  answer: |
+    Наблюдаемостью сетевого слоя: Hubble показывает поток и вердикты — какой трафик
+    разрешён, какой отброшен и какой политикой. Без этого факт применения проверяется
+    только косвенно, попыткой соединения.
+  explanation: |
+    Это лечит худший класс отказов в сетевой безопасности — тихий: политика есть,
+    ревью пройдено, а трафик ходит как ходил, потому что CNI её не поддерживает или
+    селектор ни с чем не совпал. Видимость превращает вопрос «должно работать»
+    в вопрос «вот что происходит».
+  ref: "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+
+- id: k8s-ebpf-cilium-007
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Поставили Cilium поверх работающего Flannel. Что произойдёт?
+  answer: |
+    Конфликт: два CNI начнут раздавать адреса и прописывать маршруты для одних
+    и тех же подсетей. Сеть станет непредсказуемой, а отладка почти невозможной.
+  explanation: |
+    Правило «один CNI на кластер» нарушают не осознанно, а по остаточному принципу:
+    новый плагин применили поверх, а конфиги старого остались на дисках узлов.
+    Смена CNI — это операция с полной очисткой `/etc/cni/net.d`, удалением старых
+    интерфейсов и пересозданием подов, а не наложение манифеста.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-ebpf-cilium-008
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: middle
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    По каким осям сравнивают CNI при выборе?
+  answer: |
+    Поддержка NetworkPolicy (и её уровень), способ доставки трафика (overlay
+    или маршрутизация, есть ли BGP), производительность и масштаб, наблюдаемость,
+    требования к ядру, зрелость и сопровождение.
+  explanation: |
+    Единственно правильного CNI нет, и выбор диктует сеть, в которой живёт кластер:
+    в своём VPC с управляемой маршрутизацией разумен режим без overlay, в чужой сети
+    выбора нет. Отдельная ось — политики: у Flannel их нет вовсе, и это часто
+    выясняется уже после того, как политики написаны.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+- id: k8s-ebpf-cilium-009
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Какова цена перехода на eBPF-решение вроде Cilium?
+  answer: |
+    Требования к версии ядра, более сложная отладка (привычные `iptables-save`
+    и `conntrack` частично перестают отражать реальность), собственный набор
+    инструментов и понятий, и заметный расход ресурсов при включённой полной
+    наблюдаемости.
+  explanation: |
+    Смена не только реализации, но и модели: команда, привыкшая читать правила
+    iptables, теряет привычную видимость и должна переучиваться. Поэтому Cilium
+    разумно выбирать для нового кластера, где нужны политики и наблюдаемость,
+    а не мигрировать работающий кластер ради производительности, которой пока хватает.
+  ref: "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/"
+
+- id: k8s-ebpf-cilium-010
+  domain: k8s
+  subtopic: ebpf-cilium
+  difficulty: senior
+  source: theory
+  type: basic
+  verified: false
+  prompt: |
+    Почему Hubble не включают на полную по всему кластеру?
+  answer: |
+    Потому что полная видимость потока стоит ресурсов: сбор и хранение событий
+    по каждому соединению на большом кластере даёт заметную нагрузку на узлы
+    и на хранилище. Включают точечно — по namespace или на время разбора.
+  explanation: |
+    Это общий закон наблюдаемости, тот же, что с cardinality в Prometheus и с уровнем
+    логирования: полнота данных упирается в стоимость их сбора и хранения. Разумная
+    практика — базовый уровень постоянно, детальный поток по требованию, когда есть
+    конкретный вопрос.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/networking/"
+
+# --- labels-selectors: senior ---
+
+- id: k8s-labels-selectors-009
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем field selector отличается от label selector и почему по произвольному полю
+    фильтровать нельзя?
+  answer: |
+    Label selector работает по меткам, которые индексируются apiserver. Field selector
+    фильтрует по полям объекта, но поддерживается лишь для **немногих** полей
+    (`metadata.name`, `metadata.namespace`, `status.phase` у подов и т.п.).
+  explanation: |
+    Ограничение архитектурное: индексов по произвольным полям в хранилище нет,
+    а фильтрация без индекса означала бы вычитывание всех объектов на каждый запрос.
+    Отсюда практический вывод — то, по чему предстоит **выбирать**, кладут в метки
+    заранее; попытка потом отфильтровать по полю внутри `spec` упрётся в отсутствие
+    такой возможности.
+  ref: "https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+
+- id: k8s-labels-selectors-010
+  domain: k8s
+  subtopic: labels-selectors
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в selector-метки нельзя класть версию приложения?
+  answer: |
+    Потому что `spec.selector` у Deployment иммутабелен: меняющаяся при каждом релизе
+    метка сделала бы селектор либо неверным, либо неизменяемым тупиком. Версия живёт
+    в обычных метках вроде `app.kubernetes.io/version`.
+  explanation: |
+    Разделение ролей: selector-метки — это **идентичность нагрузки**, они выбираются
+    один раз и остаются минимальными и стабильными. Всё изменчивое (версия, ревизия,
+    коммит) — это метаданные для людей и инструментов. Ошибка здесь обнаруживается
+    при первом же выкате и лечится только созданием нового Deployment.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
