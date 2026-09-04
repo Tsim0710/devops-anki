@@ -39,10 +39,8 @@ DECK_ROOT = "DevOps"
 BASIC_MODEL_NAME = "DevOps Anki — Basic"
 MCQ_MODEL_NAME = "DevOps Anki — MCQ"
 
-# Бюджет карт (CLAUDE.md, раздел 5). Превышение — warning, не fail.
-MAX_PER_SUBTOPIC = 25
-MAX_PER_DOMAIN = 400
-MAX_TOTAL = 1500
+# Потолка на число карт нет (CLAUDE.md, раздел 5) — считаем только похожесть,
+# потому что интерференция вредит независимо от объёма.
 SIMILARITY_WARN = 0.85
 
 
@@ -283,18 +281,6 @@ def validate(cards, taxonomy, schema) -> tuple[list[str], list[str]]:
                         f"{domain}: prompt похожи на {ratio:.0%} — {id_a} / {id_b}. "
                         f"Риск интерференции, посмотри глазами."
                     )
-
-    live = [c for _, _, c in cards if isinstance(c, dict) and not c.get("deprecated")]
-    per_sub = Counter((c.get("domain"), c.get("subtopic")) for c in live)
-    per_dom = Counter(c.get("domain") for c in live)
-    for (dom, sub), n in sorted(per_sub.items()):
-        if n > MAX_PER_SUBTOPIC:
-            warnings.append(f"бюджет: {dom}/{sub} — {n} карт (потолок {MAX_PER_SUBTOPIC})")
-    for dom, n in sorted(per_dom.items()):
-        if n > MAX_PER_DOMAIN:
-            warnings.append(f"бюджет: домен {dom} — {n} карт (потолок {MAX_PER_DOMAIN})")
-    if len(live) > MAX_TOTAL:
-        warnings.append(f"бюджет: всего {len(live)} активных карт (целевой потолок {MAX_TOTAL})")
 
     return errors, warnings
 
