@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'cards/**'
+      - 'web/**'
       - 'taxonomy.yaml'
       - 'schema.json'
       - 'build.py'
@@ -16,6 +17,7 @@ on:
   pull_request:
     paths:
       - 'cards/**'
+      - 'web/**'
       - 'taxonomy.yaml'
       - 'schema.json'
       - 'build.py'
