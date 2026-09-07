@@ -1,0 +1,121 @@
+# docker / runtime
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: docker-runtime-001
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит при `docker stop` и чем он отличается от `docker kill`?
+  answer: |
+    `stop` посылает `SIGTERM`, ждёт (по умолчанию 10 секунд) и добивает `SIGKILL`.
+    `kill` сразу отправляет `SIGKILL`, не давая приложению закрыться корректно.
+  explanation: |
+    Ровно та же последовательность, что в Kubernetes с `terminationGracePeriodSeconds`.
+    Отсюда практическое требование к приложению — обрабатывать `SIGTERM` и успевать
+    закрыться за отведённое время. Сигнал можно изменить директивой `STOPSIGNAL`,
+    что нужно приложениям, у которых `SIGTERM` означает что-то другое.
+  ref: "https://docs.docker.com/reference/cli/docker/container/stop/"
+
+- id: docker-runtime-002
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие бывают restart policy и чем `always` отличается от `unless-stopped`?
+  answer: |
+    `no`, `on-failure`, `always`, `unless-stopped`. `always` поднимает контейнер
+    и после перезагрузки демона, даже если его останавливали вручную.
+    `unless-stopped` в этом случае оставит его остановленным.
+  explanation: |
+    Разница проявляется ровно там, где болит: остановил контейнер на обслуживание,
+    перезагрузил хост — и с `always` он вернулся сам. Политика при этом относится
+    только к одному хосту и ничего не знает о нагрузке: в кластере ту же роль,
+    но осмысленно, выполняют контроллеры.
+  ref: "https://docs.docker.com/engine/containers/start-containers-automatically/"
+
+- id: docker-runtime-003
+  domain: docker
+  subtopic: runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `--memory` и что произойдёт при превышении?
+  answer: |
+    Задаёт лимит памяти через cgroup. При превышении процесс убивает OOM killer ядра,
+    контейнер завершается с кодом 137. Троттлинга памяти, в отличие от CPU, не бывает.
+  explanation: |
+    Асимметрия принципиальна: процессорное время можно отобрать, уже выделенную
+    память — нет, поэтому единственный способ соблюсти лимит это убить процесс.
+    Отсюда же разная диагностика: превышение CPU-лимита даёт рост задержек без ошибок
+    в логах, превышение памяти — внезапную смерть с кодом 137.
+  ref: "https://docs.docker.com/engine/containers/resource_constraints/"
+
+- id: docker-runtime-004
+  domain: docker
+  subtopic: runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `docker exec` отличается от `docker attach`?
+  answer: |
+    `exec` запускает **новый** процесс в namespace контейнера. `attach` подключается
+    к потокам ввода-вывода уже работающего PID 1 — и `Ctrl+C` там остановит
+    само приложение.
+  explanation: |
+    Отсюда правило: для отладки почти всегда нужен `exec`, а `attach` — только чтобы
+    посмотреть на консоль основного процесса. Ошибка стоит дорого: привычное
+    прерывание в `attach` роняет контейнер в проде. Выйти из `attach` без остановки
+    позволяет escape-последовательность, а не `Ctrl+C`.
+  ref: "https://docs.docker.com/reference/cli/docker/container/exec/"
+
+- id: docker-runtime-005
+  domain: docker
+  subtopic: runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Логи контейнеров съели диск на хосте. Что настраивать?
+  answer: |
+    Драйвер логирования и его ротацию: у `json-file` по умолчанию **нет ограничения**
+    размера, и он растёт, пока есть место. Задаются `max-size` и `max-file`
+    либо выбирается другой драйвер.
+  explanation: |
+    Отказ получается общим для всей машины: заполненный диск валит соседние контейнеры
+    и сам демон, а причина выглядит как проблема инфраструктуры, а не одного
+    болтливого приложения. Отсюда практика — задавать ротацию в конфигурации демона
+    по умолчанию, а не полагаться на настройку каждого контейнера.
+  ref: "https://docs.docker.com/config/containers/logging/configure/"
+
+- id: docker-runtime-006
+  domain: docker
+  subtopic: runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `HEALTHCHECK` в Dockerfile отличается от проб Kubernetes?
+  answer: |
+    `HEALTHCHECK` только помечает контейнер как unhealthy — сам Docker ничего
+    не предпринимает. Пробы Kubernetes влекут действия: liveness перезапускает
+    контейнер, readiness убирает под из endpoints.
+  explanation: |
+    Отсюда и практика: в кластере `HEALTHCHECK` из образа игнорируется, и полагаться
+    на него нельзя — состояние здоровья описывают в манифесте пода. Смысл он сохраняет
+    для локального запуска и compose, где на статус можно опереться в условии запуска
+    зависимых сервисов.
+  ref: "https://docs.docker.com/reference/dockerfile/"

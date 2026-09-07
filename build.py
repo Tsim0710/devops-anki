@@ -215,6 +215,27 @@ def normalize(text: str) -> str:
     return re.sub(r"[^\w]+", " ", text.lower()).strip()
 
 
+# Вопросы неизбежно повторяют одни и те же конструкции («чем X отличается от Y»,
+# «что делает X», «зачем нужен X»). Скелет вопроса даёт высокую похожесть у карт
+# с совершенно разным содержанием и топит настоящую интерференцию в шуме,
+# поэтому при сравнении сравниваются только значимые слова.
+_SKELETON = {
+    "чем", "что", "такое", "делает", "делают", "означает", "означают", "значит",
+    "зачем", "нужен", "нужна", "нужно", "нужны", "почему", "как", "работает",
+    "устроен", "устроено", "отличается", "отличаются", "разница", "между",
+    "от", "и", "или", "в", "во", "на", "для", "с", "со", "а", "но", "это",
+    "при", "по", "за", "из", "к", "у", "же", "ли", "бывают", "бывает", "есть",
+    "если", "когда", "где", "кто", "какие", "какой", "какая", "какое", "не",
+    "то", "так", "там", "он", "она", "оно", "они", "его", "её", "их", "себя",
+}
+
+
+def normalize_for_similarity(text: str) -> str:
+    """Нормализация для поиска интерференции: только значимые слова вопроса."""
+    words = [w for w in normalize(text).split() if w not in _SKELETON]
+    return " ".join(words)
+
+
 def validate(cards, taxonomy, schema) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -273,9 +294,12 @@ def validate(cards, taxonomy, schema) -> tuple[list[str], list[str]]:
         for i in range(len(items)):
             for j in range(i + 1, len(items)):
                 (id_a, a), (id_b, b) = items[i], items[j]
-                if a == b or abs(len(a) - len(b)) > max(len(a), len(b)) * 0.5:
+                if a == b:
                     continue
-                ratio = SequenceMatcher(None, a, b).ratio()
+                sa, sb = normalize_for_similarity(a), normalize_for_similarity(b)
+                if not sa or not sb or abs(len(sa) - len(sb)) > max(len(sa), len(sb)) * 0.5:
+                    continue
+                ratio = SequenceMatcher(None, sa, sb).ratio()
                 if ratio >= SIMILARITY_WARN:
                     warnings.append(
                         f"{domain}: prompt похожи на {ratio:.0%} — {id_a} / {id_b}. "

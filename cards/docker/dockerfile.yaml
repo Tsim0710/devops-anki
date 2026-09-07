@@ -1,0 +1,126 @@
+# docker / dockerfile
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: docker-dockerfile-001
+  domain: docker
+  subtopic: dockerfile
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `RUN`, `CMD` и `ENTRYPOINT` отличаются друг от друга?
+  answer: |
+    `RUN` выполняется **при сборке** и создаёт слой. `ENTRYPOINT` — что запускается
+    при старте контейнера. `CMD` — аргументы по умолчанию к нему либо команда,
+    если `ENTRYPOINT` не задан.
+  explanation: |
+    Практическое разделение такое: `ENTRYPOINT` фиксирует, что это за контейнер,
+    `CMD` даёт заменяемые по умолчанию параметры. Аргументы `docker run` заменяют
+    `CMD`, но не `ENTRYPOINT` — отсюда и удобный шаблон «неизменяемая программа
+    плюс настраиваемые аргументы».
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-002
+  domain: docker
+  subtopic: dockerfile
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `COPY` отличается от `ADD`?
+  answer: |
+    `COPY` просто копирует файлы из контекста. `ADD` дополнительно умеет
+    распаковывать локальные архивы и скачивать по URL — и потому ведёт себя
+    неочевидно.
+  explanation: |
+    Рекомендация однозначна: по умолчанию `COPY`, а `ADD` только когда осознанно
+    нужна автоматическая распаковка. Скачивание по URL через `ADD` вдобавок плохо
+    кешируется и не позволяет проверить контрольную сумму — для этого лучше
+    явный `RUN curl` с проверкой.
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-003
+  domain: docker
+  subtopic: dockerfile
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `ARG` отличается от `ENV`?
+  answer: |
+    `ARG` существует только **во время сборки** и в запущенный контейнер не попадает.
+    `ENV` задаёт переменную окружения, которая остаётся в образе и видна процессу
+    при запуске.
+  explanation: |
+    Разница важна для секретов, но не так, как кажется: `ARG` не виден в окружении
+    контейнера, зато **остаётся в истории образа** и извлекается командой `history`.
+    То есть ни один из них не годится для передачи паролей — для этого существуют
+    секреты BuildKit, которые не попадают ни в слои, ни в историю.
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-004
+  domain: docker
+  subtopic: dockerfile
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое multi-stage build и зачем он нужен?
+  answer: |
+    Несколько секций `FROM` в одном Dockerfile: в первой собирают, из последней
+    получается образ. Готовый артефакт копируется через `COPY --from=`, а компилятор
+    и зависимости сборки в финальный образ не попадают.
+  explanation: |
+    Выигрыш двойной: размер образа падает в разы, и вместе с инструментами сборки
+    исчезает большая часть поверхности атаки — компилятор, пакетный менеджер,
+    исходники. Это же решает старую дилемму «собирать в образе или снаружи»:
+    сборка воспроизводима внутри Docker, а результат остаётся минимальным.
+  ref: "https://docs.docker.com/build/building/multi-stage/"
+
+- id: docker-dockerfile-005
+  domain: docker
+  subtopic: dockerfile
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    `CMD app --flag` против `CMD ["app", "--flag"]`. Почему форма важна?
+  options:
+    a: "Первая запускает процесс через shell, и приложение не получит SIGTERM"
+    b: "Первая не позволяет передать аргументы при запуске"
+    c: "Вторая не поддерживает переменные окружения вовсе"
+    d: "Разницы нет, это вопрос стиля"
+  answer: a
+  explanation: |
+    Shell-форма оборачивает команду в `/bin/sh -c`, и PID 1 становится shell,
+    а приложение — его потомком. Сигнал от `docker stop` или от Kubernetes приходит
+    shell'у, тот его не пересылает, и приложение убивают жёстко по истечении grace
+    period. Exec-форма делает приложение самим PID 1 — тогда `SIGTERM` доходит,
+    и graceful shutdown работает.
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-006
+  domain: docker
+  subtopic: dockerfile
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что мешает сборке образа быть воспроизводимой?
+  answer: |
+    Плавающие теги базового образа, `apt install` без фиксации версий, скачивание
+    по URL без проверки суммы, зависимость от текущей даты и от состояния сети.
+    Один и тот же Dockerfile даёт разные образы в разные дни.
+  explanation: |
+    Отсюда компромисс, который приходится выбирать осознанно: жёсткая фиксация даёт
+    воспроизводимость, но замораживает и уязвимости — значит нужен регулярный
+    управляемый подъём версий. Полностью плавающие версии дают свежесть,
+    но делают невозможным разбор инцидента «вчера собиралось, сегодня нет».
+  ref: "https://docs.docker.com/build/building/best-practices/"

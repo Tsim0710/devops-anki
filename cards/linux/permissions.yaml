@@ -1,0 +1,64 @@
+# linux / permissions
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: linux-permissions-001
+  domain: linux
+  subtopic: permissions
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает бит `x` на каталоге?
+  answer: |
+    Право **входить** в каталог и обращаться к его содержимому по имени. Право `r`
+    отдельно — оно позволяет только получить список имён.
+  explanation: |
+    Разделение объясняет частую конфигурацию `--x` (режим 711): войти и открыть
+    известный файл можно, а перечислить содержимое нельзя. Отсюда и типичная ошибка
+    прав в контейнерах — файл доступен, но не открывается, потому что нет `x`
+    на одном из промежуточных каталогов пути.
+  ref: "man 7 path_resolution"
+
+- id: linux-permissions-002
+  domain: linux
+  subtopic: permissions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают setuid, setgid и sticky bit?
+  answer: |
+    setuid — запускать файл с правами его владельца, а не запустившего. setgid —
+    то же для группы, а на каталоге заставляет новые файлы наследовать группу
+    каталога. Sticky bit на каталоге разрешает удалять файлы только их владельцу —
+    так устроен `/tmp`.
+  explanation: |
+    setuid — исторический механизм повышения привилегий (`passwd`, `sudo`) и потому
+    главная мишень: найденный setuid-бинарник внутри контейнера позволяет
+    непривилегированному процессу стать root. Именно это закрывает
+    `allowPrivilegeEscalation: false` в Kubernetes, и именно поэтому образы
+    сканируют на неожиданные setuid-файлы.
+  ref: "man 1 chmod"
+
+- id: linux-permissions-003
+  domain: linux
+  subtopic: permissions
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое capabilities и зачем они нужны, если есть root?
+  answer: |
+    Дробление всемогущества root на отдельные права: `NET_BIND_SERVICE` — слушать
+    порты ниже 1024, `NET_ADMIN` — настраивать сеть, `SYS_ADMIN` — почти всё.
+    Процесс получает нужное, не становясь root целиком.
+  explanation: |
+    Это позволяет веб-серверу занять порт 80, не имея права читать чужие файлы
+    или загружать модули ядра. Отсюда практика в контейнерах — отобрать всё
+    (`drop: ALL`) и вернуть точечно. Отдельно стоит помнить, что `SYS_ADMIN`
+    настолько широк, что его выдача практически равна root.
+  ref: "man 7 capabilities"

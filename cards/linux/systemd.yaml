@@ -1,0 +1,63 @@
+# linux / systemd
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: linux-systemd-001
+  domain: linux
+  subtopic: systemd
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `systemctl start` отличается от `systemctl enable`?
+  answer: |
+    `start` запускает сервис **сейчас**. `enable` включает его автозапуск при загрузке
+    и на текущее состояние не влияет. Обе операции разом — `enable --now`.
+  explanation: |
+    Разделение «сейчас» и «всегда» — источник классической аварии: сервис запустили
+    руками, всё работает, а после перезагрузки узла он не поднялся. Проверяется
+    через `systemctl is-enabled`, и именно эта пара понятий отражает разницу
+    между императивным действием и декларативным желаемым состоянием.
+  ref: "man 1 systemctl"
+
+- id: linux-systemd-002
+  domain: linux
+  subtopic: systemd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `After=` отличается от `Requires=` в unit-файле?
+  answer: |
+    `After=` задаёт только **порядок** запуска, ничего не требуя. `Requires=` задаёт
+    зависимость: если требуемый unit не поднялся, этот тоже не запустится. Порядок
+    при этом `Requires=` не гарантирует — его задают отдельно.
+  explanation: |
+    Разделение порядка и зависимости неочевидно и потому часто приводит к гонкам:
+    указали `Requires=` без `After=`, и сервис стартует одновременно с базой,
+    а не после неё. Правильная пара для «нужен и должен быть раньше» — оба
+    директива сразу, а мягкий вариант зависимости даёт `Wants=`.
+  ref: "man 5 systemd.unit"
+
+- id: linux-systemd-003
+  domain: linux
+  subtopic: systemd
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как systemd ограничивает ресурсы сервисов и при чём тут cgroups?
+  answer: |
+    Каждый unit получает свой cgroup, а директивы вроде `MemoryMax`, `CPUQuota`,
+    `TasksMax` транслируются прямо в его параметры. Иерархия строится из slice —
+    групп верхнего уровня.
+  explanation: |
+    Отсюда следует, что systemd и контейнерный рантайм используют один и тот же
+    механизм ядра — разница лишь в том, кто заполняет параметры. Практический вывод
+    для узла кластера: ограничения на системные сервисы (`system.slice`) и резервы
+    для kubelet задаются именно так, и без них перегруженный узел уносит
+    не только поды, но и агента, который должен об этом сообщить.
+  ref: "man 5 systemd.resource-control"

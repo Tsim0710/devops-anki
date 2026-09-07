@@ -1,0 +1,65 @@
+# linux / networking
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: linux-networking-001
+  domain: linux
+  subtopic: networking
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем смотреть адреса, маршруты и открытые порты в современном Linux?
+  answer: |
+    `ip a` — адреса и состояние интерфейсов, `ip r` — таблица маршрутов,
+    `ss -ltnp` — слушающие TCP-сокеты с процессами. Старые `ifconfig`, `route`
+    и `netstat` устарели и часто вовсе не установлены.
+  explanation: |
+    Практически важен именно `ss -ltnp`: он показывает не только порт, но и **адрес
+    привязки** и владеющий процесс. Строка с `127.0.0.1:8080` вместо `0.0.0.0:8080`
+    мгновенно объясняет, почему сервис недоступен снаружи — самая частая причина
+    «порт открыт, но не отвечает» в контейнерах.
+  ref: "man 8 ss"
+
+- id: linux-networking-002
+  domain: linux
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как хост решает, в каком порядке искать имя — DNS, `/etc/hosts` или что-то ещё?
+  answer: |
+    По `/etc/nsswitch.conf`, строка `hosts:`. Обычно там сначала `files`
+    (то есть `/etc/hosts`), потом `dns`. Сам DNS-резолвер настраивается
+    в `/etc/resolv.conf`.
+  explanation: |
+    Разделение объясняет два наблюдения. Первое: запись в `/etc/hosts` перебивает
+    DNS, и это удобный способ проверить гипотезу, не трогая зону. Второе: `dig`
+    и `nslookup` ходят **напрямую** в DNS, минуя nsswitch, поэтому они могут
+    показывать одно, а приложение через `getaddrinfo` — другое.
+  ref: "man 5 nsswitch.conf"
+
+- id: linux-networking-003
+  domain: linux
+  subtopic: networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие sysctl-параметры критичны для узла, работающего как маршрутизатор
+    или узел кластера?
+  answer: |
+    `net.ipv4.ip_forward` — без него нет транзита; `net.netfilter.nf_conntrack_max`
+    и таймауты — иначе переполнение таблицы соединений; `net.core.somaxconn` —
+    очередь входящих соединений; `fs.inotify.max_user_instances` — упирается
+    при множестве наблюдателей за файлами.
+  explanation: |
+    Общее у этих параметров то, что их отказ выглядит как что угодно, только
+    не как исчерпание лимита: транзит молча не работает, соединения теряются
+    при свободном процессоре, а агенты перестают замечать изменения конфигурации.
+    Поэтому их выставляют в базовом образе узла, а не по факту инцидента.
+  ref: "man 8 sysctl"
