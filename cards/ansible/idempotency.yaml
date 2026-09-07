@@ -1,0 +1,248 @@
+# ansible / idempotency
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-idempotency-001
+  domain: ansible
+  subtopic: idempotency
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает идемпотентность применительно к Ansible?
+  answer: |
+    Повторный запуск на уже настроенной системе ничего не меняет: модуль сначала
+    проверяет текущее состояние и действует, только если оно отличается
+    от желаемого. В отчёте это видно как `ok` вместо `changed`.
+  explanation: |
+    Именно это делает плейбук безопасным для регулярного запуска и превращает его
+    из скрипта установки в описание желаемого состояния. Отсюда и практический
+    критерий качества: второй прогон подряд должен давать `changed=0`.
+    Всё, что «меняется» каждый раз, — либо ошибка, либо честно неидемпотентная задача.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-idempotency-002
+  domain: ansible
+  subtopic: idempotency
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `command` и `shell` считаются неидемпотентными?
+  answer: |
+    Они просто выполняют команду и не умеют проверять состояние: Ansible не знает,
+    что делает `mkdir` или `curl`, поэтому всегда отчитывается `changed`.
+  explanation: |
+    Отсюда правило — искать профильный модуль: `file`, `package`, `service`,
+    `get_url` знают о состоянии и потому идемпотентны. Когда модуля нет,
+    идемпотентность добавляют вручную: `creates` и `removes` пропускают команду,
+    если файл уже есть или уже удалён, а `changed_when` описывает, что считать
+    изменением.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html"
+
+- id: ansible-idempotency-003
+  domain: ansible
+  subtopic: idempotency
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают `changed_when` и `failed_when`?
+  answer: |
+    Переопределяют, что считать изменением и что — ошибкой. `changed_when: false`
+    помечает читающую команду как ничего не меняющую, `failed_when` описывает
+    условие провала по коду возврата или содержимому вывода.
+  explanation: |
+    Без первого любая диагностическая команда шумит в отчёте `changed` и обесценивает
+    критерий «второй прогон без изменений». Без второго нестандартный код возврата
+    роняет плейбук — например утилита возвращает `1` в значении «ничего делать
+    не нужно». Оба флага переводят чужую логику на язык Ansible.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_error_handling.html"
+
+- id: ansible-idempotency-004
+  domain: ansible
+  subtopic: idempotency
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Второй прогон плейбука подряд показывает `changed=7`. О чём это говорит?
+  options:
+    a: "Часть задач не идемпотентна — это дефект, который надо разобрать"
+    b: "Это норма: Ansible всегда перезаписывает файлы"
+    c: "Хосты изменились между запусками"
+    d: "Не собраны факты, поэтому статусы вычислены неверно"
+  answer: a
+  explanation: |
+    Идемпотентный плейбук на неизменной системе даёт `changed=0`. Устойчивое
+    ненулевое значение означает: либо `command` без `changed_when`, либо шаблон,
+    в котором каждый раз новое значение — время, случайность, порядок словаря, —
+    либо модуль, приводящий файл к виду, который тут же меняет другая задача.
+    Опасность в том, что такие задачи ещё и дёргают handlers, перезапуская сервисы
+    без причины.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-idempotency-005
+  domain: ansible
+  subtopic: idempotency
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `lineinfile` считают хрупким и что использовать вместо него?
+  answer: |
+    Он правит файл по регулярному выражению: изменился формат конфигурации —
+    и правило либо не находит строку, либо портит соседнюю. Надёжнее держать
+    весь файл шаблоном и класть модулем `template`.
+  explanation: |
+    Разница в модели: `lineinfile` пытается **дописать** свою волю в чужой файл,
+    шаблон **владеет** файлом целиком, и его содержимое полностью определяется
+    кодом. Отсюда и область применения `lineinfile` — файлы, которыми управляет
+    кто-то ещё и целиком переписать которые нельзя.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html"
+
+- id: ansible-idempotency-006
+  domain: ansible
+  subtopic: idempotency
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает параметр `state` у большинства модулей?
+  answer: |
+    Желаемое состояние объекта: `present` — должен существовать, `absent` —
+    не должен, `started`/`stopped` для сервисов, `latest` для пакетов.
+    Модуль сам решает, что для этого сделать.
+  explanation: |
+    Это и есть декларативная часть Ansible внутри императивной оболочки: ты
+    описываешь состояние объекта, а не действие. Отдельного внимания заслуживает
+    `latest` у пакетов: он делает результат зависящим от времени запуска,
+    и на одинаковых хостах в разные дни получатся разные версии — поэтому
+    в проде обычно фиксируют версию явно.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/package_module.html"
+
+- id: ansible-idempotency-007
+  domain: ansible
+  subtopic: idempotency
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как сделать идемпотентной команду, у которой нет профильного модуля?
+  answer: |
+    Через `creates` или `removes` — команда пропускается, если файл-признак уже есть
+    или уже удалён. Либо через отдельную проверяющую задачу с `register`
+    и условие `when` у основной.
+  explanation: |
+    Первый способ проще и выражает суть: «эта команда создаёт вот это, второй раз
+    не нужно». Второй универсальнее — позволяет проверить не наличие файла,
+    а любое состояние. Общее у них то, что идемпотентность приходится описывать
+    самому: Ansible не может угадать, что означает произвольная команда.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html"
+
+- id: ansible-idempotency-008
+  domain: ansible
+  subtopic: idempotency
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Плейбук идемпотентен, но каждый прогон перезапускает сервис. Где искать?
+  answer: |
+    В задаче, которая ложно отчитывается `changed` и дёргает handler: шаблон
+    с меняющимся содержимым, права или владелец, которые кто-то возвращает обратно,
+    команда без `changed_when`.
+  explanation: |
+    Механизм handlers честен: он реагирует на изменение, а не на его существенность.
+    Поэтому лишний перезапуск — всегда следствие ложного `changed` выше. Ищут
+    прогоном с `--diff`: он показывает, что именно модуль считает отличием,
+    и обычно это либо перестановка строк в шаблоне, либо метка времени внутри файла.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html"
+
+- id: ansible-idempotency-009
+  domain: ansible
+  subtopic: idempotency
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ansible не хранит состояние. Что это означает для удаления ресурсов?
+  answer: |
+    Удаление задачи из плейбука **ничего не удаляет** на серверах: то, что было
+    создано раньше, остаётся. Чтобы убрать, нужна явная задача со `state: absent`.
+  explanation: |
+    Это ключевое отличие от Terraform, где исчезновение блока из кода означает
+    уничтожение ресурса. Практическое следствие — парк накапливает следы прошлых
+    решений: старые юниты, пакеты, файлы. Отсюда и практика периодически
+    пересоздавать хосты из образа вместо бесконечной донастройки: только так
+    исчезает то, о чём все забыли.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-idempotency-010
+  domain: ansible
+  subtopic: idempotency
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему плейбук, отработавший на чистой машине, падает на уже настроенной?
+  answer: |
+    Обычно потому, что он писался как **скрипт установки**: задачи предполагают
+    отсутствие объекта, а не приводят его к нужному виду. Идемпотентность требует
+    описывать желаемое состояние, а не шаги первичной настройки.
+  explanation: |
+    Типовые проявления: команда создания без проверки, добавление строки в файл
+    без проверки на дубликат, создание пользователя без `state: present`.
+    Проверяется это дёшево — прогнать плейбук дважды подряд, и второй раз
+    он обязан пройти без изменений и без ошибок.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-idempotency-011
+  domain: ansible
+  subtopic: idempotency
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означают `ok`, `changed`, `skipped` и `failed` в отчёте?
+  answer: |
+    `ok` — состояние уже соответствовало желаемому. `changed` — модуль что-то
+    изменил. `skipped` — задача не выполнялась из-за `when`. `failed` — ошибка,
+    хост выбывает из дальнейших задач.
+  explanation: |
+    Читать отчёт полезно как срез состояния парка: много `changed` на плановом
+    прогоне означает, что кто-то менял систему помимо Ansible. А `skipped` там,
+    где ожидалось действие, обычно указывает на условие `when`, которое
+    не сработало из-за отсутствующего факта или переменной.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-idempotency-012
+  domain: ansible
+  subtopic: idempotency
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем Ansible отличается от Kubernetes по способу поддержания состояния?
+  answer: |
+    Ansible приводит систему к описанию **только в момент запуска** — между
+    прогонами он ничего не знает и не делает. Kubernetes держит петлю сверки,
+    работающую непрерывно и без участия человека.
+  explanation: |
+    Отсюда и разные практики: чтобы Ansible держал парк в нужном виде, плейбуки
+    гоняют по расписанию, иначе ручные правки живут неограниченно долго.
+    И отсюда же понятно, почему у Ansible нет понятия дрейфа как отдельной проблемы:
+    он его просто не видит, пока не запущен.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"

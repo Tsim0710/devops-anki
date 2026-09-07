@@ -1,0 +1,205 @@
+# ansible / modules
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-modules-001
+  domain: ansible
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где выполняется модуль Ansible и как он возвращает результат?
+  answer: |
+    Код модуля копируется на **целевой хост** и выполняется там, а результат
+    возвращается на управляющую машину в виде JSON. Сам Ansible на целевых хостах
+    не устанавливается — нужен только Python и доступ по SSH.
+  explanation: |
+    Отсюда «безагентность»: управлять можно любой машиной, куда есть SSH, без
+    предварительной установки. И отсюда же типичные требования — на целевом хосте
+    должен быть интерпретатор Python, а модули для сетевого оборудования работают
+    иначе, потому что запустить там код нельзя.
+  ref: "https://docs.ansible.com/ansible/latest/dev_guide/developing_modules_general.html"
+
+- id: ansible-modules-002
+  domain: ansible
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое FQCN и зачем писать `ansible.builtin.copy` вместо `copy`?
+  answer: |
+    Полное имя модуля с коллекцией: `пространство.коллекция.модуль`. Короткие имена
+    работают, но становятся неоднозначными, когда установлено несколько коллекций
+    с одинаковыми именами модулей.
+  explanation: |
+    С переходом на коллекции модулей стало много, и совпадения имён — обычное дело.
+    Полное имя делает плейбук однозначным и устойчивым к тому, что в окружении
+    появится ещё одна коллекция. Это ровно та же логика, что полный адрес
+    провайдера в Terraform вместо короткого имени.
+  ref: "https://docs.ansible.com/ansible/latest/collections_guide/index.html"
+
+- id: ansible-modules-003
+  domain: ansible
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `package` отличается от `apt` и `yum`?
+  answer: |
+    `package` — обобщающий модуль: он сам выбирает менеджер пакетов по факту
+    операционной системы. `apt` и `yum` привязаны к конкретному семейству
+    и дают доступ к его особенностям.
+  explanation: |
+    Обобщение работает, пока нужно просто «установить пакет с таким именем» —
+    но имена пакетов в разных дистрибутивах различаются, и универсальность быстро
+    заканчивается. Отсюда практика: `package` для простых случаев, а где нужны
+    репозитории, ключи или специфические флаги — профильный модуль
+    с условием по семейству ОС.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/package_module.html"
+
+- id: ansible-modules-004
+  domain: ansible
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `shell` отличается от `command` и почему по умолчанию берут `command`?
+  answer: |
+    `command` запускает программу напрямую, без оболочки: не работают конвейеры,
+    перенаправления и подстановки. `shell` выполняет строку через оболочку
+    и потому уязвим к неэкранированным значениям.
+  explanation: |
+    Отсутствие оболочки — это защита: значение переменной с точкой с запятой
+    в `command` останется аргументом, а в `shell` станет второй командой.
+    Отсюда правило — `command` по умолчанию, `shell` только когда действительно
+    нужен конвейер, и с осторожным обращением с подставляемыми значениями.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html"
+
+- id: ansible-modules-005
+  domain: ansible
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `register` и что попадает в переменную?
+  answer: |
+    Сохраняет результат задачи: код возврата, `stdout`, `stderr`, `changed`,
+    `failed` и специфичные для модуля поля. Дальше на них ссылаются в `when`,
+    `changed_when` и шаблонах.
+  explanation: |
+    Тонкость с циклами: при `loop` в переменной оказывается не один результат,
+    а список в поле `results`, и обращение как к обычному объекту молча даёт
+    не то. Вторая тонкость — задача, пропущенная по `when`, тоже регистрируется,
+    но с флагом `skipped`, поэтому последующие условия проверяют именно его.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html"
+
+- id: ansible-modules-006
+  domain: ansible
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое коллекции и чем они отличаются от ролей?
+  answer: |
+    Коллекция — единица поставки контента: модули, плагины, роли, документация,
+    со своей версией. Роль — способ организовать задачи и переменные внутри
+    проекта или коллекции.
+  explanation: |
+    Разделение появилось, когда модулей стало слишком много для одного репозитория:
+    ядро Ansible осталось небольшим, а всё остальное разъехалось по коллекциям
+    с независимыми циклами выпуска. Практическое следствие — зависимости проекта
+    описывают в `requirements.yml`, где перечислены и коллекции, и роли с версиями.
+  ref: "https://docs.ansible.com/ansible/latest/collections_guide/index.html"
+
+- id: ansible-modules-007
+  domain: ansible
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как выполнить задачу на группе хостов циклом и в чём подвох `loop`?
+  answer: |
+    Через `loop` со списком значений; текущий элемент — `item`. Подвох в том, что
+    цикл выполняет модуль **на каждой итерации**, поэтому цикл вокруг установки
+    пакетов медленнее, чем передача списка модулю сразу.
+  explanation: |
+    Многие модули умеют принимать список: `package` с перечнем имён поставит всё
+    одним вызовом менеджера пакетов, а цикл вызовет его двадцать раз. Разница
+    на большом парке — минуты против секунд. Отсюда правило: сначала проверить,
+    принимает ли модуль список, и только потом писать цикл.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_loops.html"
+
+- id: ansible-modules-008
+  domain: ansible
+  subtopic: modules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `no_log: true` и когда он обязателен?
+  answer: |
+    Скрывает аргументы и вывод задачи из журнала. Обязателен там, где в параметрах
+    проходят секреты: пароли, токены, ключи — иначе они попадут в вывод плейбука
+    и в логи конвейера.
+  explanation: |
+    Иначе шифрование через vault теряет смысл на последнем шаге: значение
+    расшифровано и напечатано в отчёте, который доступен шире, чем сам файл.
+    Обратная сторона — с `no_log` отладка задачи становится слепой, поэтому
+    его снимают только временно и никогда не оставляют снятым в общем контуре.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-modules-009
+  domain: ansible
+  subtopic: modules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Модуль требует Python-библиотеку, которой нет на целевом хосте. Что происходит
+    и как решают?
+  answer: |
+    Задача падает с сообщением о недостающем модуле Python — код выполняется
+    на **целевой** машине, и зависимости нужны там. Решают установкой библиотеки
+    отдельной задачей перед использованием.
+  explanation: |
+    Ошибка сбивает с толку, потому что на управляющей машине всё установлено.
+    Отдельный случай — модули, которые работают с API облака: их удобнее выполнять
+    на управляющем узле через `delegate_to: localhost`, тогда и зависимости нужны
+    только там, и хостам не требуется доступ в интернет.
+  ref: "https://docs.ansible.com/ansible/latest/dev_guide/developing_modules_general.html"
+
+- id: ansible-modules-010
+  domain: ansible
+  subtopic: modules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем модулям `template` и `copy` параметр `validate`?
+  answer: |
+    Он выполняет проверочную команду над **временным** файлом до замены рабочего:
+    например `nginx -t` или `visudo -cf`. Не прошла проверка — файл не заменяется,
+    задача падает.
+  explanation: |
+    Это защита от самой неприятной ошибки автоматизации: битый конфиг раскатан
+    на весь парк, а сервис при перезапуске не поднимается. С проверкой поломка
+    останавливается на первом же хосте и не доходит до перезапуска. Особенно важно
+    для `sudoers` и конфигурации SSH, где ошибка отрезает доступ к машине.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/template_module.html"

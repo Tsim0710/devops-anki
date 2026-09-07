@@ -1,0 +1,166 @@
+# ansible / vault
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-vault-001
+  domain: ansible
+  subtopic: vault
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `ansible-vault` и что именно он шифрует?
+  answer: |
+    Шифрует **файлы** переменных или отдельные значения паролем. Зашифрованный файл
+    можно хранить в git, а Ansible расшифровывает его на лету при запуске,
+    получив пароль.
+  explanation: |
+    Ключевое — шифруется содержимое, но не факт наличия: видно, что файл существует
+    и как называется. Основные команды: `encrypt`, `decrypt`, `view` для просмотра
+    без расшифровки на диске и `edit`, который открывает редактор и зашифровывает
+    обратно при сохранении.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/index.html"
+
+- id: ansible-vault-002
+  domain: ansible
+  subtopic: vault
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать пароль от vault при запуске в CI?
+  answer: |
+    Файлом с паролем через `--vault-password-file` либо скриптом, который его
+    добывает — например из менеджера секретов. Интерактивный ввод `--ask-vault-pass`
+    в автоматизации не годится.
+  explanation: |
+    Файл при этом сам становится секретом, поэтому его не кладут в репозиторий,
+    а получают из хранилища конвейера. Вариант со скриптом лучше: пароль вообще
+    не оседает на диске, а берётся у внешнего менеджера в момент запуска —
+    и тогда его ротация не требует трогать раннеры.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/vault_managing_passwords.html"
+
+- id: ansible-vault-003
+  domain: ansible
+  subtopic: vault
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем шифрование отдельного значения (`encrypt_string`) лучше шифрования файла
+    целиком?
+  answer: |
+    Файл остаётся читаемым: видно структуру, имена переменных и все несекретные
+    значения — а зашифрован только пароль. Диффы в git становятся осмысленными.
+  explanation: |
+    У зашифрованного целиком файла любой правки не видно вовсе: в диффе меняется
+    весь блок шифротекста, ревью невозможно. Обратная сторона `encrypt_string` —
+    значения перешифровывать при смене пароля придётся по одному. Практика —
+    строчное шифрование для отдельных секретов среди обычных переменных,
+    файловое для наборов, состоящих из секретов целиком.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/vault_encrypting_content.html"
+
+- id: ansible-vault-004
+  domain: ansible
+  subtopic: vault
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Пароль лежит в зашифрованном vault файле. Что может привести к его утечке
+    в лог конвейера?
+  options:
+    a: "Задача без `no_log`, где секрет передан в аргументах модуля"
+    b: "Сам факт использования vault — он всегда печатает расшифрованное"
+    c: "Запуск с `--check`"
+    d: "Хранение зашифрованного файла в git"
+  answer: a
+  explanation: |
+    Vault защищает секрет в покое, а в момент выполнения значение уже расшифровано —
+    и печатается в отчёте вместе с остальными аргументами, особенно при `-v`.
+    Логи конвейера обычно доступны шире, чем репозиторий, так что защита теряется
+    на последнем шаге. Отсюда правило — `no_log: true` на всех задачах,
+    где секрет фигурирует.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/vault.html"
+
+- id: ansible-vault-005
+  domain: ansible
+  subtopic: vault
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны vault-id и несколько паролей?
+  answer: |
+    Чтобы разные наборы секретов шифровались разными паролями: у прода свой,
+    у стенда свой. Тогда доступ к стенду не даёт доступа к проду,
+    и пароли ротируются независимо.
+  explanation: |
+    Один общий пароль на всё — тот же антипаттерн, что общий root: его знают многие,
+    ротация болезненна, а компрометация задевает всё сразу. С vault-id пароль
+    указывается меткой (`--vault-id prod@файл`), и Ansible сам подбирает нужный
+    для каждого файла.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/vault_using_encrypted_content.html"
+
+- id: ansible-vault-006
+  domain: ansible
+  subtopic: vault
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как сменить пароль vault и что при этом важно не забыть?
+  answer: |
+    Командой `ansible-vault rekey` для всех зашифрованных файлов. Важно, что старые
+    значения остаются доступными в **истории git** под прежним паролем — если он
+    скомпрометирован, секреты нужно менять, а не только перешифровывать.
+  explanation: |
+    Это та же логика, что с секретом, случайно попавшим в репозиторий: история
+    хранит всё, и переписывание файла её не отменяет. Поэтому смена пароля vault
+    и ротация самих секретов — две разные операции, и при компрометации нужны обе.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/vault_managing_passwords.html"
+
+- id: ansible-vault-007
+  domain: ansible
+  subtopic: vault
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Когда вместо vault берут внешний менеджер секретов?
+  answer: |
+    Когда нужны ротация, аудит доступа и общий источник для разных инструментов.
+    Тогда в репозитории лежит только **ссылка**, а значение подтягивается lookup'ом
+    в момент выполнения.
+  explanation: |
+    Слабое место vault не в криптографии, а в жизненном цикле: он не умеет
+    ни ротировать, ни рассказать, кто и когда читал секрет, а один пароль
+    открывает всё разом. Внешний менеджер решает это, но становится зависимостью
+    прогона — без доступа к нему плейбук не отработает вовсе.
+  ref: "https://docs.ansible.com/ansible/latest/plugins/lookup.html"
+
+- id: ansible-vault-008
+  domain: ansible
+  subtopic: vault
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть содержимое зашифрованного файла, не расшифровывая его на диске?
+  answer: |
+    `ansible-vault view файл` — покажет содержимое в терминале.
+    `ansible-vault edit` откроет редактор и зашифрует обратно при сохранении.
+  explanation: |
+    Разница с `decrypt` важна: та команда оставляет расшифрованный файл в рабочем
+    каталоге, и его легко случайно закоммитить — классический способ утечки.
+    `view` и `edit` этого не допускают, поэтому в повседневной работе пользуются
+    именно ими, а `decrypt` держат для разовых операций вроде смены схемы хранения.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/vault_encrypting_content.html"

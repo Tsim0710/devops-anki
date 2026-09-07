@@ -1,0 +1,123 @@
+# ansible / dynamic-inventory
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-dynamic-inventory-001
+  domain: ansible
+  subtopic: dynamic-inventory
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое динамический inventory и зачем он нужен?
+  answer: |
+    Плагин, который получает список хостов из внешнего источника — API облака,
+    системы учёта — прямо во время запуска, вместо статического файла.
+  explanation: |
+    В облаке машины создаются и исчезают постоянно, и статический список устаревает
+    в тот же день. Динамический берёт правду из источника, где она есть.
+    Побочная выгода — группы формируются из свойств машин: по тегам, зонам,
+    типам, — и группировка перестаёт быть ручной работой.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_dynamic_inventory.html"
+
+- id: ansible-dynamic-inventory-002
+  domain: ansible
+  subtopic: dynamic-inventory
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как из динамического inventory получить осмысленные группы?
+  answer: |
+    Через `keyed_groups` и `groups` в конфигурации плагина: группы создаются
+    из тегов, зон, типов машин. Плагин `constructed` умеет строить группы
+    и переменные по выражениям поверх других источников.
+  explanation: |
+    Без этого получается плоский список без структуры, к которому неудобно
+    адресоваться. Правильная настройка превращает теги облака в интерфейс Ansible:
+    машина с тегом `role=web` автоматически попадает в группу `tag_role_web`,
+    и `group_vars` для неё начинают работать сами.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/constructed_inventory.html"
+
+- id: ansible-dynamic-inventory-003
+  domain: ansible
+  subtopic: dynamic-inventory
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем динамическому inventory кеш?
+  answer: |
+    Чтобы не опрашивать API облака при каждом запуске: на большом парке это
+    десятки секунд и риск упереться в лимиты запросов. Кеш хранится с заданным
+    временем жизни.
+  explanation: |
+    Плата — устаревание: только что созданной машины в inventory не окажется,
+    пока кеш не истечёт, и это выглядит как «Ansible её не видит». Отсюда практика —
+    короткое время жизни в интерактивной работе и явный сброс кеша в конвейере
+    сразу после создания инфраструктуры.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_dynamic_inventory.html"
+
+- id: ansible-dynamic-inventory-004
+  domain: ansible
+  subtopic: dynamic-inventory
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как связать Terraform и Ansible: где взять список только что созданных машин?
+  answer: |
+    Динамическим inventory из облака — Ansible сам увидит новые машины по тегам.
+    Либо через выходы Terraform, переданные в inventory-файл, но это жёстче
+    и требует синхронизации двух шагов.
+  explanation: |
+    Первый способ предпочтительнее, потому что источник правды один — само облако,
+    и Ansible не зависит от того, чем машины созданы. Ключевое условие — договориться
+    о тегах: они становятся контрактом между инструментами, и Terraform обязан
+    их проставлять, а Ansible по ним группирует.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_dynamic_inventory.html"
+
+- id: ansible-dynamic-inventory-005
+  domain: ansible
+  subtopic: dynamic-inventory
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем опасен динамический inventory при выкате в прод?
+  answer: |
+    Состав хостов вычисляется в момент запуска и может измениться между планом
+    и применением: автоскейлер добавил машины, кто-то пересоздал узел. Выборка
+    оказывается не той, что ожидал инженер.
+  explanation: |
+    Отсюда обязательная привычка — смотреть `--list-hosts` перед запуском
+    и ограничивать выборку `--limit` явным списком в ответственных операциях.
+    Это плата за удобство: статический inventory устаревает, но зато он
+    предсказуем и его можно прочитать в ревью.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_dynamic_inventory.html"
+
+- id: ansible-dynamic-inventory-006
+  domain: ansible
+  subtopic: dynamic-inventory
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Плагин inventory ничего не возвращает, хотя машины в облаке есть.
+    Что проверять?
+  answer: |
+    Учётные данные и регион в конфигурации плагина, фильтры по тегам, включён ли
+    сам плагин в настройках, и не отдаёт ли устаревший ответ кеш. Диагностика —
+    `ansible-inventory -i файл --list -vvv`.
+  explanation: |
+    Порядок проверки от самого частого: плагины по умолчанию **отключены**,
+    и их нужно перечислить в конфигурации — об этом забывают в первую очередь.
+    Второе по частоте — слишком узкий фильтр по тегам, третье — права учётной записи,
+    которой не хватает разрешения на перечисление машин.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_dynamic_inventory.html"

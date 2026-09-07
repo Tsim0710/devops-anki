@@ -1,0 +1,205 @@
+# ansible / inventory
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-inventory-001
+  domain: ansible
+  subtopic: inventory
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое inventory и зачем нужны группы?
+  answer: |
+    Список управляемых хостов с их параметрами. Группы объединяют хосты по роли
+    или окружению (`webservers`, `prod`), чтобы задачи и переменные применялись
+    к набору, а не к каждому по отдельности.
+  explanation: |
+    Группы — это и адресация, и место для переменных: `group_vars/webservers.yml`
+    автоматически применится ко всем хостам группы. Хост может входить в несколько
+    групп сразу, и это основной способ описать «прод плюс веб-серверы»
+    без дублирования.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html"
+
+- id: ansible-inventory-002
+  domain: ansible
+  subtopic: inventory
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `inventory_hostname` отличается от `ansible_host`?
+  answer: |
+    `inventory_hostname` — имя записи в inventory, по нему хост адресуется
+    в переменных и шаблонах. `ansible_host` — адрес, по которому к нему реально
+    подключаться.
+  explanation: |
+    Разделение нужно, когда имя и адрес не совпадают: удобное имя `web-1`
+    и подключение по IP, доступ через туннель, несколько записей на одну машину.
+    Отсюда типичная ошибка — писать в шаблонах `ansible_host` там, где нужно
+    осмысленное имя узла, и получать IP в конфигурации приложения.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html"
+
+- id: ansible-inventory-003
+  domain: ansible
+  subtopic: inventory
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где принято хранить переменные хостов и групп?
+  answer: |
+    В каталогах `host_vars/<имя>.yml` и `group_vars/<группа>.yml` рядом с inventory.
+    Ansible подхватывает их автоматически, писать переменные прямо в файле
+    inventory не нужно.
+  explanation: |
+    Разделение данных и структуры даёт читаемость: inventory отвечает на вопрос
+    «какие хосты и как они сгруппированы», каталоги переменных — «какие у них
+    параметры». Отдельно полезна группа `all`: `group_vars/all.yml` задаёт умолчания
+    для всего парка, которые переопределяются на уровне конкретных групп.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html"
+
+- id: ansible-inventory-004
+  domain: ansible
+  subtopic: inventory
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `--limit` и чем это отличается от указания хостов в плейбуке?
+  answer: |
+    `--limit` сужает набор хостов **поверх** того, что задано в `hosts:` плейбука.
+    Он не расширяет выборку: указать хост, не попадающий под `hosts:`, бесполезно.
+  explanation: |
+    Это главный инструмент безопасного выката: тот же плейбук сначала прогоняют
+    на одном хосте, потом на группе. Отсюда и практика — в `hosts:` пишут широкую
+    группу, а сужение делают при запуске, а не правкой плейбука, которую легко
+    забыть вернуть.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_patterns.html"
+
+- id: ansible-inventory-005
+  domain: ansible
+  subtopic: inventory
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как устроены вложенные группы и зачем они нужны?
+  answer: |
+    Через `children`: группа `prod` может включать `prod_web` и `prod_db`. Переменные
+    родительской группы наследуются дочерними, а хост состоит во всех группах цепочки.
+  explanation: |
+    Так описывают два независимых измерения: окружение и роль. Хост попадает
+    и в `prod`, и в `webservers`, и получает переменные обеих. При конфликте
+    выигрывает более конкретная группа — а если они на одном уровне, порядок
+    определяется приоритетом, и лучше на это не полагаться, а разводить имена.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html"
+
+- id: ansible-inventory-006
+  domain: ansible
+  subtopic: inventory
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Как безопасно проверить, к каким хостам применится плейбук?
+  options:
+    a: "`ansible-inventory --graph` и `--list-hosts` у запуска плейбука"
+    b: "Запустить плейбук в обычном режиме и прервать после первой задачи"
+    c: "Прочитать файл inventory глазами"
+    d: "`ansible all -m ping`"
+  answer: a
+  explanation: |
+    Выборка складывается из `hosts:`, паттернов, `--limit` и вложенности групп,
+    и вычислять её в уме ненадёжно — особенно с динамическим inventory, где список
+    приходит из облака. Обе команды показывают результат до выполнения задач.
+    Вариант с `ping` отвечает на другой вопрос — доступны ли хосты, а не какие
+    из них попадут в выборку.
+  ref: "https://docs.ansible.com/ansible/latest/cli/ansible-inventory.html"
+
+- id: ansible-inventory-007
+  domain: ansible
+  subtopic: inventory
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли использовать несколько источников inventory одновременно?
+  answer: |
+    Да: указать каталог или несколько путей через `-i`. Ansible объединит содержимое,
+    а переменные для одинаковых хостов и групп сольются по правилам приоритета.
+  explanation: |
+    Так совмещают статический список с динамическим: облачные машины приходят
+    из плагина, а неизменные параметры и группировка описаны файлами. Обратная
+    сторона — слияние делает источник значения неочевидным, и разбор «откуда взялась
+    эта переменная» начинается с `ansible-inventory --host <имя>`, который
+    показывает итог.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html"
+
+- id: ansible-inventory-008
+  domain: ansible
+  subtopic: inventory
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему держать пароли и ключи прямо в inventory — плохая идея,
+    даже в приватном репозитории?
+  answer: |
+    Inventory читают все, кто работает с плейбуками, он попадает в историю git
+    и в вывод отладочных команд вроде `ansible-inventory --list`. Секреты выносят
+    в vault или во внешний менеджер.
+  explanation: |
+    Особенно коварен последний пункт: команда вывода inventory показывает все
+    переменные хоста, и её регулярно запускают при разборе проблем, в том числе
+    с записью в лог конвейера. Отсюда практика — в inventory только ссылки и имена,
+    а значения приходят через зашифрованные файлы или lookup во внешнее хранилище.
+  ref: "https://docs.ansible.com/ansible/latest/vault_guide/index.html"
+
+- id: ansible-inventory-009
+  domain: ansible
+  subtopic: inventory
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как выяснить, откуда хост получил конкретное значение переменной?
+  answer: |
+    `ansible-inventory --host <имя>` покажет итоговый набор переменных,
+    а `ansible <хост> -m debug -a "var=имя"` — значение в контексте выполнения.
+    Для полного разбора приоритетов помогает `-vvv`.
+  explanation: |
+    Нужда возникает регулярно, потому что источников десятки: несколько групп,
+    `host_vars`, факты, переменные роли, `set_fact`, аргументы командной строки.
+    Разница между двумя командами существенна: первая показывает только inventory,
+    вторая — итог с учётом фактов и переменных, заданных в самом плейбуке.
+  ref: "https://docs.ansible.com/ansible/latest/cli/ansible-inventory.html"
+
+- id: ansible-inventory-010
+  domain: ansible
+  subtopic: inventory
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает специальная группа `all`?
+  answer: |
+    В неё автоматически входят все хосты inventory. `group_vars/all.yml` задаёт
+    переменные по умолчанию для всего парка, а `hosts: all` в плейбуке применяет
+    задачи ко всем.
+  explanation: |
+    Есть и вторая неявная группа — `ungrouped`, куда попадают хосты без явной
+    группы; её наличие обычно означает, что структуру inventory не довели до конца.
+    Практическая осторожность одна: `hosts: all` в плейбуке, который меняет систему,
+    стоит сочетать с обязательным `--limit`, чтобы случайный запуск не задел прод.
+  ref: "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html"

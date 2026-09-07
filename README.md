@@ -3,7 +3,7 @@
 Колода Anki для подготовки к DevOps-собесам. Источник правды — YAML в `cards/`,
 сборка `.apkg` автоматическая через GitHub Actions.
 
-Спецификация проекта — [`CLAUDE.md`](CLAUDE.md). Она же инструкция для Claude Code.
+Спецификация проекта — [`CLAUDE.md`](CLAUDE.md).
 
 ---
 

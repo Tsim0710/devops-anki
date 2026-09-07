@@ -1,0 +1,287 @@
+# ansible / playbooks
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-playbooks-001
+  domain: ansible
+  subtopic: playbooks
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит плейбук?
+  answer: |
+    Из одной или нескольких **play**: каждая указывает набор хостов (`hosts:`)
+    и список задач (`tasks:`). Задача — вызов модуля с аргументами.
+  explanation: |
+    Play — единица связи «кого» и «что делаем», и потому в одном файле удобно
+    держать несколько: сначала подготовить базы, потом веб-серверы. Порядок
+    выполнения здесь строго сверху вниз — в отличие от Terraform, где порядок
+    выводится из зависимостей, Ansible делает ровно то, что написано.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"
+
+- id: ansible-playbooks-002
+  domain: ansible
+  subtopic: playbooks
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как работают handlers и чем они отличаются от обычных задач?
+  answer: |
+    Handler выполняется, только если его вызвали через `notify`, и **только когда
+    задача что-то изменила**. Запускается один раз в конце play, даже если
+    уведомлений было несколько.
+  explanation: |
+    Это встроенная защита от лишних перезапусков: конфигурация не изменилась —
+    сервис не трогают. Из «в конце play» следует важное: если после изменения
+    конфигурации идёт задача, которой уже нужен перезапущенный сервис, handler
+    к этому моменту ещё не отработал — тогда его вызывают принудительно
+    через `meta: flush_handlers`.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html"
+
+- id: ansible-playbooks-003
+  domain: ansible
+  subtopic: playbooks
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `become` и почему его не ставят глобально?
+  answer: |
+    Повышает привилегии на целевом хосте, обычно через sudo. Глобально не ставят
+    из принципа наименьших прав: часть задач root не требует, а файлы, созданные
+    от root, потом мешают приложению.
+  explanation: |
+    Типичная авария — каталог приложения оказался с владельцем root, потому что
+    задача выполнялась с повышением «на всякий случай». Отсюда практика: `become`
+    указывают на конкретных задачах или блоках, а `become_user` используют,
+    когда нужно выполнить действие от имени пользователя сервиса, а не root.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_privilege_escalation.html"
+
+- id: ansible-playbooks-004
+  domain: ansible
+  subtopic: playbooks
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое факты и зачем нужен `gather_facts: false`?
+  answer: |
+    Факты — данные о хосте, которые Ansible собирает перед задачами: ОС, версия,
+    сеть, память, диски. Отключение сбора заметно ускоряет плейбуки, которым эти
+    данные не нужны.
+  explanation: |
+    Сбор фактов — это отдельный запуск модуля на каждом хосте, и на большом парке
+    он занимает ощутимую часть времени. Отключать его безопасно только когда
+    в плейбуке нет обращений к `ansible_facts` — включая неявные, из ролей
+    и шаблонов, где условия часто зависят от дистрибутива.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_vars_facts.html"
+
+- id: ansible-playbooks-005
+  domain: ansible
+  subtopic: playbooks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает параметр `serial` и зачем он нужен?
+  answer: |
+    Ограничивает, на скольких хостах play выполняется одновременно: `serial: 1` —
+    по одному, `serial: "25%"` — четвертями. Так получается выкат волнами.
+  explanation: |
+    Без него Ansible идёт по всем хостам параллельно (в пределах `forks`), и ошибка
+    в плейбуке ломает весь парк разом. С `serial` сбой на первой волне останавливает
+    выкат, пока живы остальные. Это ровно та же идея, что `maxUnavailable`
+    в Kubernetes, только заданная вручную.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_strategies.html"
+
+- id: ansible-playbooks-006
+  domain: ansible
+  subtopic: playbooks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `--check` и почему ему нельзя доверять полностью?
+  answer: |
+    Прогон без изменений: модули сообщают, что бы они сделали. Ненадёжен потому,
+    что `command` и `shell` в этом режиме по умолчанию **не выполняются** вовсе,
+    и все зависящие от их результата задачи работают вслепую.
+  explanation: |
+    Отсюда типичная картина: `--check` зелёный, реальный запуск падает — потому что
+    факт, который должна была получить пропущенная команда, так и не появился.
+    Смягчают это флагом `check_mode: false` на безопасных задачах чтения, чтобы
+    они выполнялись и в проверочном прогоне. Вместе с `--diff` режим всё же
+    остаётся лучшим приближением к плану.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_checkmode.html"
+
+- id: ansible-playbooks-007
+  domain: ansible
+  subtopic: playbooks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны `block`, `rescue` и `always`?
+  answer: |
+    `block` группирует задачи и позволяет задать им общие параметры. `rescue`
+    выполняется, если внутри блока что-то упало, `always` — в любом случае.
+    Это обработка ошибок, как try/except/finally.
+  explanation: |
+    Практическая ценность в уборке: снять хост с балансировки, выполнить обновление,
+    в `always` вернуть обратно — независимо от того, получилось ли. Без этого
+    упавший плейбук оставляет систему в промежуточном состоянии, и следующий запуск
+    начинается не с чистого листа. Та же роль, что у `trap` в скриптах.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_blocks.html"
+
+- id: ansible-playbooks-008
+  domain: ansible
+  subtopic: playbooks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают `delegate_to` и `run_once`?
+  answer: |
+    `delegate_to` выполняет задачу на **другом** хосте, сохраняя контекст текущего:
+    добавить запись в балансировщик, отправить уведомление. `run_once` выполняет
+    задачу один раз за play, а не на каждом хосте.
+  explanation: |
+    Комбинация решает типовую задачу выката: для каждого хоста снять его
+    с балансировщика (делегируя задачу самому балансировщику), а миграцию базы
+    выполнить один раз с любого хоста группы. Тонкость `run_once` — переменные
+    берутся с того хоста, на котором задача фактически выполнилась.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_delegation.html"
+
+- id: ansible-playbooks-009
+  domain: ansible
+  subtopic: playbooks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны теги и как их применять?
+  answer: |
+    Помечать задачи и роли, чтобы запускать выборочно: `--tags config`
+    или, наоборот, `--skip-tags slow`. Полезно, когда плейбук большой,
+    а нужна одна его часть.
+  explanation: |
+    Опасность в неполном покрытии: запуск по тегу пропускает задачи, которые
+    готовят условия для помеченных, и результат отличается от полного прогона.
+    Отсюда правило — теги как инструмент отладки и точечной операции,
+    а основной контур всегда прогоняет плейбук целиком.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_tags.html"
+
+- id: ansible-playbooks-010
+  domain: ansible
+  subtopic: playbooks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как дождаться, пока сервис поднимется, вместо `sleep`?
+  answer: |
+    Модулями ожидания: `wait_for` (порт, файл, строка в логе) и `wait_for_connection`
+    (доступность самого хоста после перезагрузки). Либо задачей с `until`,
+    `retries` и `delay`.
+  explanation: |
+    Пауза фиксированной длины плоха с обеих сторон: на быстрой машине время
+    тратится зря, на медленной её не хватает — и плейбук становится нестабильным.
+    Ожидание условия делает поведение предсказуемым и заодно документирует,
+    чего именно мы ждём.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/wait_for_module.html"
+
+- id: ansible-playbooks-011
+  domain: ansible
+  subtopic: playbooks
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `strategy: free` отличается от стратегии по умолчанию?
+  answer: |
+    По умолчанию (`linear`) Ansible выполняет задачу на всех хостах и только потом
+    переходит к следующей — медленный хост тормозит всех. При `free` каждый хост
+    идёт по плейбуку в своём темпе.
+  explanation: |
+    Выигрыш во времени на разнородном парке заметный, но теряется свойство,
+    на которое часто опираются: при `linear` к моменту N-й задачи все хосты
+    прошли предыдущие. Плейбуки, где один хост ждёт результата другого, при `free`
+    ломаются. Поэтому его берут для независимых операций вроде установки пакетов.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_strategies.html"
+
+- id: ansible-playbooks-012
+  domain: ansible
+  subtopic: playbooks
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что регулирует параметр `forks` и как он связан с `serial`?
+  answer: |
+    `forks` — сколько хостов обрабатывается параллельно (по умолчанию 5). `serial`
+    задаёт размер **волны** выката. Это разные вещи: первое про производительность,
+    второе про безопасность.
+  explanation: |
+    Их путают, и получается либо медленный прогон при большом `serial`, либо ложное
+    ощущение поэтапности при большом `forks` без `serial`. Практический ориентир:
+    `forks` поднимают до десятков, упираясь в ресурсы управляющей машины
+    и лимиты SSH, а `serial` выбирают исходя из того, потерю какой доли парка
+    сервис переживёт.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_strategies.html"
+
+- id: ansible-playbooks-013
+  domain: ansible
+  subtopic: playbooks
+  difficulty: senior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Хост упал на середине плейбука. Что произойдёт с остальными и с ним самим?
+  options:
+    a: "Упавший хост исключается из дальнейших задач, остальные продолжают"
+    b: "Весь запуск немедленно прерывается на всех хостах"
+    c: "Ansible повторит задачу на упавшем хосте автоматически"
+    d: "Плейбук откатит уже выполненные задачи на этом хосте"
+  answer: a
+  explanation: |
+    По умолчанию Ansible ведёт каждый хост независимо: сбойный выбывает,
+    остальные идут дальше — поэтому парк оказывается в разном состоянии,
+    и это надо учитывать. Изменить поведение можно `any_errors_fatal: true`
+    или `max_fail_percentage`. Отката не бывает вовсе: Ansible императивен,
+    и возврат назад описывают руками через `rescue`.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_error_handling.html"
+
+- id: ansible-playbooks-014
+  domain: ansible
+  subtopic: playbooks
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем Ansible принципиально отличается от Terraform по модели работы?
+  answer: |
+    Ansible **императивен**: ты описываешь задачи и их порядок, он выполняет
+    их сверху вниз и ничего не помнит между запусками. Terraform декларативен
+    и хранит состояние, из которого выводит разницу.
+  explanation: |
+    Отсюда разные сильные стороны. У Ansible нет состояния — значит нет дрейфа
+    и блокировок, но и нет знания, что он создавал: удаление задачи из плейбука
+    ничего не удаляет с сервера. У Terraform наоборот. Практическое следствие —
+    Terraform создаёт инфраструктуру, Ansible настраивает то, что внутри.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html"

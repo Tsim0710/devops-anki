@@ -1,0 +1,160 @@
+# ansible / templates
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-templates-001
+  domain: ansible
+  subtopic: templates
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем модуль `template` отличается от `copy`?
+  answer: |
+    `copy` кладёт файл как есть. `template` перед этим обрабатывает его Jinja2:
+    подставляет переменные, выполняет условия и циклы. Шаблоны принято называть
+    с расширением `.j2`.
+  explanation: |
+    Практическое правило — если в файле есть хоть одно значение, зависящее от хоста
+    или окружения, это шаблон. Оба модуля идемпотентны: сравнивается итоговое
+    содержимое, поэтому неизменившийся результат не вызовет ни записи, ни handler'а.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/template_module.html"
+
+- id: ansible-templates-002
+  domain: ansible
+  subtopic: templates
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как в шаблоне перебрать хосты группы?
+  answer: |
+    Циклом по `groups['имя']` с обращением к `hostvars`:
+    для каждого хоста берутся его переменные и факты. Так собирают списки
+    upstream'ов и узлов кластера.
+  explanation: |
+    Требование одно, и о нём забывают: факты нужного хоста должны быть собраны
+    в этом прогоне, иначе `hostvars` окажется пустым. Отсюда и типичная поломка
+    при запуске с `--limit`: конфигурация балансировщика собирается только
+    из тех хостов, что попали в выборку.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html"
+
+- id: ansible-templates-003
+  domain: ansible
+  subtopic: templates
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем в шаблонах включают `trim_blocks` и `lstrip_blocks`?
+  answer: |
+    Чтобы управляющие конструкции Jinja не оставляли пустых строк и лишних отступов
+    в результате. Без них файл получается визуально рваным, а для YAML отступы
+    ещё и меняют смысл.
+  explanation: |
+    Для конфигурации это часто косметика, но для файлов, где значим отступ —
+    YAML, Python, часть конфигов, — уже нет: лишний пробел ломает разбор. Отсюда
+    практика проверять результат целиком, а не только подставленные значения:
+    `--check --diff` показывает готовый файл до записи.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html"
+
+- id: ansible-templates-004
+  domain: ansible
+  subtopic: templates
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие фильтры Jinja чаще всего нужны в шаблонах конфигурации?
+  answer: |
+    `default` для умолчаний, `to_json` и `to_nice_yaml` для структур, `join`
+    для списков, `b64encode`, `regex_replace`, `bool` и `int` для приведения типов.
+  explanation: |
+    Самый недооценённый — `to_nice_yaml`: он избавляет от ручного форматирования
+    вложенных структур и от ошибок отступа. А `to_json` спасает при подстановке
+    строк с кавычками и переводами строк: он экранирует значение по правилам
+    формата, вместо того чтобы надеяться на удачу.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_filters.html"
+
+- id: ansible-templates-005
+  domain: ansible
+  subtopic: templates
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем модулю `template` параметр `backup`?
+  answer: |
+    Он сохраняет копию прежнего файла с меткой времени перед заменой. Позволяет
+    сравнить и быстро вернуть предыдущую версию прямо на хосте.
+  explanation: |
+    Полезен как страховка при первом внедрении роли на существующий парк, где
+    конфигурация настроена руками и неизвестно, что именно там было. В зрелом
+    контуре ценность падает: источником правды становится репозиторий, а откат —
+    это возврат к прежней версии кода и повторный прогон.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/template_module.html"
+
+- id: ansible-templates-006
+  domain: ansible
+  subtopic: templates
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Шаблон каждый раз отчитывается `changed`, хотя переменные не менялись. Почему?
+  answer: |
+    В результат попадает что-то изменчивое: метка времени, случайное значение,
+    неупорядоченный обход словаря, вывод команды. Файл каждый раз получается
+    другим, и модуль честно его перезаписывает.
+  explanation: |
+    Особенно неприятно, что такой шаблон дёргает handler и перезапускает сервис
+    на каждом прогоне. Лечится устранением источника изменчивости: убрать дату
+    из комментария, отсортировать список фильтром `sort` или `dictsort`.
+    Найти причину проще всего прогоном с `--diff` — он покажет отличающиеся строки.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html"
+
+- id: ansible-templates-007
+  domain: ansible
+  subtopic: templates
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в шаблоне лучше не собирать конфигурацию строками, а отдавать
+    структуру фильтру?
+  answer: |
+    Потому что ручная сборка строк порождает ошибки экранирования и отступов:
+    значение с кавычкой, переводом строки или двоеточием ломает файл. Фильтры
+    вроде `to_nice_yaml` и `to_json` делают это по правилам формата.
+  explanation: |
+    Это та же мысль, что «не собирай SQL конкатенацией»: формат имеет правила,
+    и надёжнее доверить их библиотеке. Побочная выгода — конфигурация начинает
+    описываться данными в `group_vars`, а шаблон становится тонким:
+    добавление параметра больше не требует правки шаблона.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_filters.html"
+
+- id: ansible-templates-008
+  domain: ansible
+  subtopic: templates
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как задать владельца и права на файл, который кладёт `template` или `copy`?
+  answer: |
+    Параметрами `owner`, `group` и `mode`. Режим лучше писать строкой в кавычках
+    (`mode: "0644"`), иначе YAML прочитает восьмеричное число неверно.
+  explanation: |
+    Ошибка с режимом — классическая: `mode: 0644` без кавычек YAML разберёт
+    как десятичное число, и права окажутся не теми, что задумано. Отдельная
+    практика для конфигураций с секретами — `mode: "0600"` и владелец сервиса,
+    иначе файл, положенный от root, окажется читаемым всем.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/template_module.html"

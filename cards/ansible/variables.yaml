@@ -1,0 +1,288 @@
+# ansible / variables
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-variables-001
+  domain: ansible
+  subtopic: variables
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где можно задать переменную и какой источник всегда побеждает?
+  answer: |
+    Источников больше двадцати: умолчания роли, `group_vars`, `host_vars`, факты,
+    переменные play, `set_fact`, параметры роли. Всегда побеждают **extra vars** —
+    переданные через `-e` в командной строке.
+  explanation: |
+    Запоминать весь список бессмысленно, полезно знать края: `defaults` роли —
+    самый низкий приоритет (потому там и держат значения, которые ожидают
+    переопределения), `-e` — самый высокий и потому годится для аварийных
+    переопределений. Всё, что посередине, при сомнении проверяют командой,
+    а не рассуждением.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html"
+
+- id: ansible-variables-002
+  domain: ansible
+  subtopic: variables
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое факты и как к ним обращаться?
+  answer: |
+    Данные о хосте, собранные перед выполнением: `ansible_facts['distribution']`,
+    `ansible_facts['default_ipv4']['address']` и сотни других. Посмотреть все —
+    модулем `setup`.
+  explanation: |
+    Факты — основа переносимости плейбука: условие по семейству ОС позволяет одному
+    коду работать и на Debian, и на RHEL. Практический приём при отладке —
+    `ansible <хост> -m setup -a "filter=ansible_distribution*"`: он показывает
+    ровно те факты, что нужны, не заливая экран сотнями строк.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_vars_facts.html"
+
+- id: ansible-variables-003
+  domain: ansible
+  subtopic: variables
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `set_fact` отличается от обычной переменной?
+  answer: |
+    Он задаёт переменную **во время выполнения** и на конкретном хосте: значение
+    вычислено из результата предыдущей задачи и живёт до конца прогона. Приоритет
+    у неё высокий — выше почти всех статических источников.
+  explanation: |
+    Отсюда два следствия. Первое: `set_fact` перекрывает значения из `group_vars`,
+    и это регулярно ловит — переменная «не переопределяется», потому что где-то
+    выше её уже установили фактом. Второе: значение существует только в этом прогоне,
+    между запусками ничего не сохраняется, если не включено кеширование фактов.
+  ref: "https://docs.ansible.com/ansible/latest/collections/ansible/builtin/set_fact_module.html"
+
+- id: ansible-variables-004
+  domain: ansible
+  subtopic: variables
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Переменная задана и в `defaults` роли, и в `group_vars`. Какая применится?
+  options:
+    a: "Из `group_vars` — умолчания роли имеют самый низкий приоритет"
+    b: "Из `defaults` роли — они ближе к месту использования"
+    c: "Та, что определена позже по времени чтения файлов"
+    d: "Произойдёт ошибка неоднозначности"
+  answer: a
+  explanation: |
+    Это и есть смысл каталога `defaults`: значения там задуманы как заменяемые,
+    поэтому стоят ниже всего. Именно поэтому настраиваемые параметры роли кладут
+    в `defaults`, а в `vars` — то, что менять не следует: у `vars` роли приоритет
+    высокий, и переопределить их из inventory уже не получится.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html"
+
+- id: ansible-variables-005
+  domain: ansible
+  subtopic: variables
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `hostvars` и когда без них не обойтись?
+  answer: |
+    Словарь переменных **всех** хостов: `hostvars['db-1']['ansible_host']`.
+    Нужен, когда конфигурация одного хоста зависит от данных другого — например
+    в шаблоне балансировщика перечислить адреса всех веб-серверов.
+  explanation: |
+    Тонкость: чтобы факты чужого хоста были доступны, он должен участвовать
+    в прогоне — иначе там будет пусто. Отсюда типичная ошибка при `--limit`:
+    ограничили выборку одним хостом, и шаблон, собирающий адреса группы,
+    внезапно генерирует конфигурацию с одной записью.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_vars_facts.html"
+
+- id: ansible-variables-006
+  domain: ansible
+  subtopic: variables
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое магические переменные и какие используются чаще всего?
+  answer: |
+    Переменные, которые Ansible задаёт сам: `inventory_hostname` — имя текущего
+    хоста, `groups` — все группы с их хостами, `group_names` — группы текущего
+    хоста, `ansible_play_hosts` — хосты текущей play.
+  explanation: |
+    На них строится вся логика «сделать иначе в зависимости от роли хоста»:
+    условие по `group_names`, перебор `groups['webservers']` в шаблоне.
+    Отличать их от фактов полезно: факты собираются с машины и требуют
+    `gather_facts`, магические переменные доступны всегда.
+  ref: "https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html"
+
+- id: ansible-variables-007
+  domain: ansible
+  subtopic: variables
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает фильтр `default` и зачем ему аргумент `true`?
+  answer: |
+    `{{ var | default('значение') }}` подставляет умолчание, если переменная
+    не определена. С `default('x', true)` умолчание подставляется ещё и когда
+    переменная определена, но пуста.
+  explanation: |
+    Разница существенна на практике: пустая строка из `group_vars` — это
+    «определено», и обычный `default` её пропустит, а в конфигурацию уедет пустое
+    значение. Второй аргумент закрывает этот случай. Вместе с `mandatory`
+    для обязательных значений это основной способ сделать роль устойчивой
+    к неполным входным данным.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_filters.html"
+
+- id: ansible-variables-008
+  domain: ansible
+  subtopic: variables
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как переменные вычисляются во времени и почему это ловушка?
+  answer: |
+    Шаблонные выражения вычисляются **лениво**, в момент использования, а не при
+    объявлении. Переменная, ссылающаяся на другую, получит её значение на момент
+    обращения — которое могло измениться.
+  explanation: |
+    Отсюда неочевидные результаты: определили `full_url` через `host` в `group_vars`,
+    потом переопределили `host` фактом — и `full_url` изменится, хотя её никто
+    не трогал. Иногда это ровно то, что нужно, но чаще неожиданность. Способ
+    зафиксировать значение — вычислить его один раз через `set_fact`.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html"
+
+- id: ansible-variables-009
+  domain: ansible
+  subtopic: variables
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают lookup-плагины и где они выполняются?
+  answer: |
+    Читают данные из внешних источников во время шаблонизации: файл, переменная
+    окружения, пароль из менеджера секретов, запрос к API. Выполняются
+    на **управляющей** машине, а не на целевом хосте.
+  explanation: |
+    Это главное отличие от модулей и источник путаницы: `lookup('file', '/etc/hosts')`
+    прочитает файл там, откуда запущен Ansible. Зато именно поэтому lookup удобен
+    для секретов — значение достаётся из хранилища один раз локально и подставляется
+    в шаблон, не требуя доступа к хранилищу с целевых машин.
+  ref: "https://docs.ansible.com/ansible/latest/plugins/lookup.html"
+
+- id: ansible-variables-010
+  domain: ansible
+  subtopic: variables
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как сделать так, чтобы плейбук падал при отсутствии обязательной переменной,
+    а не подставлял пустоту?
+  answer: |
+    Фильтром `mandatory` или явной проверкой через `assert` в начале play.
+    Без этого неопределённая переменная в шаблоне даст либо ошибку в середине
+    прогона, либо пустое значение в конфигурации.
+  explanation: |
+    Второй случай хуже: конфигурация раскатана, сервис перезапущен, а в файле
+    пустой адрес базы — и это выясняется уже в проде. Проверка в начале
+    останавливает прогон до любых изменений, и сообщение можно написать
+    человеческим языком. Это тот же принцип, что `validation` у переменных
+    Terraform и admission в Kubernetes.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_filters.html"
+
+- id: ansible-variables-011
+  domain: ansible
+  subtopic: variables
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать переменную при запуске плейбука?
+  answer: |
+    Флагом `-e`: `-e "env=prod"` или файлом `-e @vars.yml`. Такие значения имеют
+    наивысший приоритет и перекрывают всё остальное.
+  explanation: |
+    Именно из-за наивысшего приоритета этот способ и удобен для разовых
+    и аварийных запусков — и по той же причине опасен как основной: значение
+    живёт в истории команд, а не в репозитории, и следующий запуск без флага
+    отработает иначе. Постоянные различия описывают файлами переменных.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html"
+
+- id: ansible-variables-012
+  domain: ansible
+  subtopic: variables
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в условии `when` не пишут фигурные скобки?
+  answer: |
+    `when` уже вычисляется как выражение Jinja, поэтому переменная указывается
+    просто по имени: `when: ansible_facts['os_family'] == "Debian"`. Скобки внутри
+    дадут вложенную шаблонизацию и предупреждение.
+  explanation: |
+    Это одно из немногих мест, где синтаксис отличается от остальных полей,
+    и потому ошибаются постоянно. Полезно и обратное знание: в `when` доступны
+    все фильтры Jinja, поэтому проверки вида `when: result.stdout | length > 0`
+    работают и читаются лучше, чем сравнение со строкой.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_conditionals.html"
+
+- id: ansible-variables-013
+  domain: ansible
+  subtopic: variables
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужно кеширование фактов и чем оно опасно?
+  answer: |
+    Оно сохраняет собранные факты между запусками, ускоряя прогоны и позволяя
+    обращаться к фактам хостов, не участвующих в текущем запуске. Опасно тем,
+    что данные могут устареть.
+  explanation: |
+    Второе свойство важнее первого: с кешем шаблон балансировщика может собрать
+    адреса всех веб-серверов, даже если запуск ограничен одним хостом. Но если
+    машину пересоздали с другим адресом, а кеш не обновился, конфигурация уедет
+    с неверными данными. Отсюда обязательное время жизни кеша и его сброс
+    при изменениях парка.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_vars_facts.html"
+
+- id: ansible-variables-014
+  domain: ansible
+  subtopic: variables
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `vars` в play отличается от `vars_files`?
+  answer: |
+    `vars` задаёт значения прямо в плейбуке, `vars_files` подключает их из отдельных
+    файлов. Приоритет у них практически одинаковый, разница в организации.
+  explanation: |
+    Файлы удобнее по двум причинам: их можно шифровать через vault целиком
+    и подключать по условию — например файл на каждое окружение. Значения прямо
+    в плейбуке уместны для мелочи, специфичной именно для этого сценария,
+    и плохо подходят для того, что меняется от окружения к окружению.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html"

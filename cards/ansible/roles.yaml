@@ -1,0 +1,208 @@
+# ansible / roles
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: ansible-roles-001
+  domain: ansible
+  subtopic: roles
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Из каких каталогов состоит роль?
+  answer: |
+    `tasks/` — задачи, `handlers/` — обработчики, `templates/` и `files/` — файлы,
+    `defaults/` и `vars/` — переменные, `meta/` — зависимости и метаданные.
+    Ansible подхватывает их по соглашению об именах.
+  explanation: |
+    Структура задаёт и границы: всё, что нужно роли, лежит внутри, поэтому её можно
+    переносить между проектами целиком. Соглашение об именах избавляет от указания
+    путей — `template: src=nginx.conf.j2` найдёт файл в `templates/` этой же роли
+    без всяких префиксов.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html"
+
+- id: ansible-roles-002
+  domain: ansible
+  subtopic: roles
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `defaults/` отличается от `vars/` в роли?
+  answer: |
+    `defaults` — самый **низкий** приоритет: значения задуманы как заменяемые
+    снаружи. `vars` — высокий: их трудно переопределить, туда кладут внутренние
+    константы роли.
+  explanation: |
+    Это фактически разделение на публичный и приватный интерфейс. Ошибка положить
+    настраиваемый параметр в `vars` обнаруживается позже всего: пользователь роли
+    задаёт значение в `group_vars`, оно игнорируется, и причина неочевидна.
+    Правило простое — всё, что предполагается настраивать, живёт в `defaults`.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html"
+
+- id: ansible-roles-003
+  domain: ansible
+  subtopic: roles
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем `include_role` отличается от `import_role`?
+  options:
+    a: "`import_role` подключается статически при разборе, `include_role` — во время выполнения"
+    b: "`include_role` работает только внутри других ролей"
+    c: "`import_role` не поддерживает передачу переменных"
+    d: "Разницы нет, это синонимы"
+  answer: a
+  explanation: |
+    Разница определяет, что можно и чего нельзя. Статический импорт разбирается
+    заранее, поэтому его нельзя подключить по условию, вычисленному во время
+    выполнения, зато теги и обработчики видны сразу. Динамическое включение можно
+    поставить под `when` и в цикл, но `--list-tasks` его не покажет.
+    То же различие у пары `import_tasks` и `include_tasks`.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse.html"
+
+- id: ansible-roles-004
+  domain: ansible
+  subtopic: roles
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает секция `dependencies` в `meta/main.yml`?
+  answer: |
+    Перечисляет роли, которые выполнятся **до** этой. Ansible вызовет их
+    автоматически, причём по умолчанию одна и та же зависимость не выполняется
+    повторно в пределах play.
+  explanation: |
+    Механизм удобен для базовых ролей вроде «общая подготовка хоста», но легко даёт
+    неявные цепочки: читая плейбук, невозможно понять, что реально выполнится.
+    Поэтому в современных проектах чаще перечисляют роли явно в плейбуке —
+    порядок виден, и нет сюрпризов от чужих зависимостей.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html"
+
+- id: ansible-roles-005
+  domain: ansible
+  subtopic: roles
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как подключать чужие роли и коллекции и почему фиксируют версии?
+  answer: |
+    Файлом `requirements.yml` и командой `ansible-galaxy install -r`. Версию
+    указывают тегом или веткой; без фиксации содержимое роли может измениться
+    между запусками.
+  explanation: |
+    Это тот же класс проблемы, что плавающий тег образа или ссылка на ветку
+    в модуле Terraform: имя перестаёт однозначно определять содержимое, и однажды
+    прогон ломается без единой правки у тебя. Отсюда практика — фиксировать версии
+    и обновлять их отдельным осознанным изменением.
+  ref: "https://docs.ansible.com/ansible/latest/galaxy/user_guide.html"
+
+- id: ansible-roles-006
+  domain: ansible
+  subtopic: roles
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать роли параметры и чем это отличается от обычных переменных?
+  answer: |
+    Через параметры вызова: `- role: nginx` с ключами рядом или `include_role`
+    с `vars`. У параметров роли **очень высокий** приоритет — выше почти всего,
+    кроме `-e`.
+  explanation: |
+    Отсюда удобство и опасность: параметр вызова гарантированно применится,
+    но и перекроет значение из `group_vars`, которое кто-то настроил для окружения.
+    Практика — параметрами передавать то, что специфично для этого вызова роли,
+    а окружение настраивать через inventory.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html"
+
+- id: ansible-roles-007
+  domain: ansible
+  subtopic: roles
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В роли сорок задач с ветвлениями `when: ansible_facts['os_family'] == ...`
+    на каждом шаге. Как это обычно раскладывают?
+  answer: |
+    Выносят различия в отдельные файлы: `tasks/debian.yml` и `tasks/redhat.yml`,
+    подключаемые одним `include_tasks` по факту семейства ОС. Имена пакетов
+    и пути — в `vars/` с подключением через `include_vars`.
+  explanation: |
+    Ветвление уезжает в одну точку вместо сорока, и добавление третьего дистрибутива
+    сводится к новому файлу, а не к правке каждой задачи. Приём работает потому,
+    что имя файла можно собрать из факта — `include_vars: "{{ ansible_facts['os_family'] }}.yml"`, —
+    и роль сама подбирает нужный набор.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html"
+
+- id: ansible-roles-008
+  domain: ansible
+  subtopic: roles
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как тестировать роль, не выкатывая её на настоящие серверы?
+  answer: |
+    Прогонять на одноразовом окружении — контейнере или виртуальной машине —
+    и проверять два свойства: роль отрабатывает без ошибок и **второй прогон
+    даёт `changed=0`**. Это автоматизируют инструментами вроде Molecule.
+  explanation: |
+    Второе свойство важнее первого: успешная установка на чистой машине — слабая
+    проверка, а идемпотентность ловит большинство реальных дефектов. Отдельный
+    сценарий — прогон на разных дистрибутивах, если роль заявлена как переносимая:
+    именно там всплывают различия имён пакетов и путей.
+  ref: "https://ansible.readthedocs.io/projects/molecule/"
+
+- id: ansible-roles-009
+  domain: ansible
+  subtopic: roles
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где Ansible ищет роли, подключённые по имени?
+  answer: |
+    В каталоге `roles/` рядом с плейбуком, затем в путях из настройки
+    `roles_path` и в установленных коллекциях. Роль из коллекции подключают
+    полным именем.
+  explanation: |
+    Порядок поиска объясняет типичную путаницу при работе с чужими ролями:
+    локальная роль с тем же именем перекрывает установленную из Galaxy,
+    и правки «не применяются», потому что выполняется совсем другая роль.
+    Проверяется запуском с `-vvv`, где виден фактический путь.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html"
+
+- id: ansible-roles-010
+  domain: ansible
+  subtopic: roles
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что именно в роли ломает её потребителей при обновлении, кроме удаления задач?
+  answer: |
+    Переименование переменных в `defaults`, смена **имени handler'а** — на него
+    ссылаются через `notify` из чужих задач, — переименование или удаление тегов
+    и изменение имён файлов, которые подключают через `include_tasks`.
+  explanation: |
+    Handler здесь самое коварное: связь по имени строкой, и при несовпадении Ansible
+    падает с ошибкой уже во время прогона, а не при разборе. Отсюда практика —
+    считать публичным интерфейсом роли не только переменные, но и имена handlers
+    и тегов, а старые имена при переименовании оставлять как синонимы
+    хотя бы на один цикл.
+  ref: "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html"
