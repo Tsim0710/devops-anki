@@ -1,0 +1,369 @@
+# terraform / core-workflow
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-core-workflow-001
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `terraform init`?
+  answer: |
+    Инициализирует рабочий каталог: скачивает провайдеры, настраивает backend
+    для хранения состояния и подтягивает модули. Без него остальные команды
+    не работают.
+  explanation: |
+    Три задачи в одной команде объясняют, когда её надо повторять: добавили провайдер
+    или модуль, сменили backend, обновили версии. Отсюда же требование выполнять
+    `init` в CI на каждом запуске — рабочий каталог там всегда чистый,
+    а `.terraform/` в репозиторий не кладут.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/init"
+
+- id: terraform-core-workflow-002
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что сравнивает `terraform plan` и какие три источника участвуют?
+  answer: |
+    **Конфигурация** (чего хочешь), **состояние** (что Terraform думает о мире)
+    и **реальная инфраструктура** (что там на самом деле — читается при обновлении
+    состояния). План — это разница между желаемым и фактическим.
+  explanation: |
+    Три источника объясняют все неожиданности плана. «Хочу пересоздать, хотя ничего
+    не менял» — расхождение между состоянием и реальностью, кто-то правил руками.
+    «План пустой, а ресурса нет» — он есть в состоянии, но пропал в облаке,
+    а обновление состояния было отключено.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-core-workflow-003
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `terraform validate` отличается от `terraform plan`?
+  answer: |
+    `validate` проверяет только синтаксис и внутреннюю согласованность конфигурации
+    и **не обращается к провайдерам и облаку**. `plan` ходит в API и показывает
+    реальные изменения.
+  explanation: |
+    Отсюда роль в конвейере: `validate` и `fmt` ставят первыми, они быстрые
+    и не требуют доступа к облаку — их можно гонять на любом pull request.
+    Но зелёный `validate` ничего не говорит о том, применится ли конфигурация:
+    несуществующий тип машины или занятое имя всплывут только в плане.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/validate"
+
+- id: terraform-core-workflow-004
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как Terraform понимает, в каком порядке создавать ресурсы?
+  answer: |
+    Строит граф зависимостей. Зависимости выводятся **неявно** из ссылок: если
+    в ресурсе есть `aws_vpc.main.id`, значит VPC создаётся раньше. Явно задаются
+    через `depends_on`.
+  explanation: |
+    Отсюда правило — ссылаться на атрибуты других ресурсов вместо того, чтобы
+    подставлять значения строками: строка не создаёт зависимости, и порядок
+    окажется случайным. `depends_on` нужен только там, где связь есть,
+    но в конфигурации не выражена — например ресурс требует, чтобы раньше
+    появилась роль IAM, на которую он не ссылается.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/depends_on"
+
+- id: terraform-core-workflow-005
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему в CI выполняют `plan -out=tfplan`, а затем `apply tfplan`,
+    вместо `apply` напрямую?
+  options:
+    a: "Чтобы применилось ровно то, что показал план, без повторного пересчёта"
+    b: "Чтобы apply прошёл быстрее за счёт кеша"
+    c: "Потому что apply без файла плана требует интерактивного подтверждения"
+    d: "Чтобы план сохранился в состоянии для аудита"
+  answer: a
+  explanation: |
+    Между планом и применением инфраструктура могла измениться, а `apply` без файла
+    строит план заново — и применит уже другое. Файл плана фиксирует решение:
+    ревью смотрит именно на то, что будет исполнено. Оборотная сторона — в файле
+    плана лежат значения переменных, включая чувствительные, поэтому его
+    хранят как секрет и не оставляют в артефактах надолго.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-core-workflow-006
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен флаг `-target` и почему его считают аварийным?
+  answer: |
+    Он ограничивает операцию одним ресурсом или модулем. Аварийный потому,
+    что обходит граф зависимостей: часть инфраструктуры применяется, часть нет,
+    и состояние перестаёт соответствовать конфигурации целиком.
+  explanation: |
+    После такого применения следующий обычный `plan` покажет расхождения, которые
+    легко принять за чужие правки. Уместен `-target` в разборе аварии, когда нужно
+    починить один ресурс, не трогая остальное, — и с обязательным полным `apply`
+    сразу после. Как элемент постоянного процесса он означает, что конфигурацию
+    пора делить на части.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-core-workflow-007
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает в плане `# forces replacement`?
+  answer: |
+    Атрибут нельзя изменить у существующего ресурса — провайдер умеет только
+    пересоздать его. Terraform удалит старый объект и создаст новый.
+  explanation: |
+    Это самая опасная строка в выводе плана, и читать её нужно раньше сводки:
+    пересоздание базы или диска означает потерю данных, пересоздание сети —
+    даунтайм. Причина всегда в самом облаке: тип машины сменить можно,
+    зону размещения — нет. Смягчается это `create_before_destroy`,
+    а запрещается `prevent_destroy`.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-core-workflow-008
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `terraform plan -refresh-only` и зачем он нужен?
+  answer: |
+    Показывает **дрейф**: чем реальная инфраструктура отличается от записанного
+    в состоянии, не предлагая менять конфигурацию. Применение такого плана обновляет
+    только состояние.
+  explanation: |
+    Это способ отделить два вопроса, которые обычный план смешивает: «что изменилось
+    в мире помимо меня» и «что я хочу изменить». Регулярный refresh-only показывает,
+    кто правит инфраструктуру руками, — и делает это до того, как чужая правка
+    будет молча затёрта очередным `apply`.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-core-workflow-009
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сколько операций Terraform выполняет одновременно и когда это меняют?
+  answer: |
+    По умолчанию до **десяти** параллельно (`-parallelism=n`). Уменьшают, когда
+    облако начинает отдавать ошибки лимитов запросов; увеличивают редко —
+    выигрыш обычно упирается в те же лимиты.
+  explanation: |
+    Параллелизм ограничен графом: одновременно выполняются только независимые узлы.
+    Отсюда практический вывод — «долгий apply» чаще лечится не увеличением
+    параллелизма, а разделением конфигурации, потому что длинная цепочка
+    зависимостей всё равно выполняется последовательно.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/apply"
+
+- id: terraform-core-workflow-010
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `terraform apply -auto-approve` в проде — плохая практика,
+    даже если конфигурация в git?
+  answer: |
+    Потому что план строится в момент применения, и никто не видел его результата.
+    Ревью кода отвечает на вопрос «что мы описали», а план — на вопрос
+    «что произойдёт с существующей инфраструктурой».
+  explanation: |
+    Разница принципиальна: одна и та же правка в разных окружениях может дать
+    безобидное изменение или пересоздание базы — это зависит от текущего состояния,
+    которого в коде нет. Правильный контур — план как артефакт, ревью плана
+    и применение именно его; тогда автоматическое подтверждение безопасно,
+    потому что решение уже принято человеком.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/apply"
+
+- id: terraform-core-workflow-011
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    План показывает изменения, хотя конфигурацию не трогали. Какие причины?
+  answer: |
+    Дрейф — правки в облаке руками; обновление провайдера, изменившего поведение
+    атрибутов; значения, вычисляемые заново при каждом плане; поля, которые облако
+    заполняет само и не совпадают с описанным.
+  explanation: |
+    Различить помогает `-refresh-only`: он показывает именно дрейф, отдельно
+    от намерений конфигурации. Если план «дрожит» без правок в мире, дело обычно
+    в провайдере или в конфигурации, где значение зависит от времени или случайности, —
+    такие места чинят фиксацией версий и `ignore_changes`.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-core-workflow-012
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему Terraform называют декларативным, если он выполняет операции по порядку?
+  answer: |
+    Декларативна **конфигурация**: ты описываешь желаемое состояние, а не шаги.
+    Порядок Terraform выводит сам из графа. Императивен он лишь в исполнении
+    этого плана.
+  explanation: |
+    Отличие от Ansible именно здесь: там ты описываешь задачи, которые надо
+    выполнить, и порядок задаёшь сам. Отличие от Kubernetes — в другую сторону:
+    там петля сверки работает непрерывно и сама, а Terraform приводит мир
+    к описанию только в момент запуска. Отсюда и понятие дрейфа, которого
+    у постоянно работающего контроллера почти нет.
+  ref: "https://developer.hashicorp.com/terraform/language"
+
+- id: terraform-core-workflow-013
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит конфигурация на HCL?
+  answer: |
+    Из блоков вида `resource "тип" "имя" { ... }` с аргументами внутри. Ссылка
+    на созданное — `тип.имя.атрибут`. Порядок блоков и файлов значения не имеет:
+    Terraform читает весь каталог целиком.
+  explanation: |
+    Отсутствие значимого порядка удивляет тех, кто пришёл из скриптов: разложение
+    по `main.tf`, `variables.tf`, `outputs.tf` — соглашение для людей,
+    а не требование инструмента. Порядок операций Terraform выводит сам
+    из ссылок между блоками.
+  ref: "https://developer.hashicorp.com/terraform/language/syntax/configuration"
+
+- id: terraform-core-workflow-014
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое адрес ресурса и где он используется?
+  answer: |
+    Уникальное имя вида `aws_instance.web`, `module.app.aws_instance.web`
+    или `aws_instance.web["api"]`. По нему Terraform связывает конфигурацию
+    с состоянием; он же нужен в `-target`, `-replace`, `state mv` и `moved`.
+  explanation: |
+    Понимание адреса объясняет почти всё поведение при рефакторинге: сменился
+    адрес — для Terraform это другой ресурс, даже если в облаке ничего не менялось.
+    Отсюда и то, что переименование, перенос в модуль или смена ключа `for_each`
+    требуют явного указания, куда переехала запись.
+  ref: "https://developer.hashicorp.com/terraform/cli/state/resource-addressing"
+
+- id: terraform-core-workflow-015
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны `terraform fmt` и `required_version`?
+  answer: |
+    `fmt` приводит код к каноническому форматированию — снимает споры и шум
+    в диффах. `required_version` фиксирует допустимые версии Terraform,
+    чтобы у всех в команде и в CI была одна.
+  explanation: |
+    Второе важнее, чем кажется: версия участвует в формате состояния, и достаточно
+    одному применить конфигурацию более новой версией, чтобы у остальных перестали
+    работать команды. Ограничение делает это явной ошибкой на входе,
+    а не загадочным отказом позже.
+  ref: "https://developer.hashicorp.com/terraform/language/settings"
+
+- id: terraform-core-workflow-016
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что лежит в каталоге `.terraform` и нужно ли его коммитить?
+  answer: |
+    Скачанные провайдеры, установленные модули и ссылка на выбранный backend.
+    Каталог не коммитят: он воссоздаётся командой `init` и зависит от платформы.
+  explanation: |
+    А вот файл `.terraform.lock.hcl` рядом коммитить обязательно — именно он
+    фиксирует версии и контрольные суммы провайдеров. Путаница между этими двумя
+    именами приводит к обратной ошибке: в репозиторий попадают гигабайты плагинов,
+    а фиксация версий — нет.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/init"
+
+- id: terraform-core-workflow-017
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть значения выходов уже применённой конфигурации?
+  answer: |
+    `terraform output` — все, `terraform output имя` — одно, `-json` — в машинном
+    виде. Значения берутся из состояния, повторно ничего не применяется.
+  explanation: |
+    Это штатный способ передать что-то из инфраструктуры в конвейер: адрес
+    балансировщика, имя кластера, идентификатор сети. Помеченные `sensitive`
+    выходы по умолчанию скрыты и требуют явного `-raw` или `-json` —
+    защита ровно от того, чтобы секрет случайно не оказался в логе сборки.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/output"
+
+- id: terraform-core-workflow-018
+  domain: terraform
+  subtopic: core-workflow
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `terraform destroy` и когда он уместен?
+  answer: |
+    Уничтожает всё, чем управляет данное состояние. Уместен для временных окружений
+    и песочниц; в проде его обычно запрещают правами и защитой отдельных ресурсов.
+  explanation: |
+    Опасность не в самой команде, а в области действия: она определяется состоянием,
+    а не тем, что ты помнишь про эту конфигурацию. Отсюда практика — держать
+    короткоживущие окружения в отдельных состояниях, а на невосстановимых ресурсах
+    ставить `prevent_destroy`, который сработает даже при случайном запуске.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/destroy"

@@ -1,0 +1,187 @@
+# terraform / variables-outputs
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-variables-outputs-001
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `variable` отличается от `local`?
+  answer: |
+    `variable` — вход конфигурации: значение приходит снаружи, из файла, окружения
+    или командной строки. `local` — вычисляемое внутри значение, снаружи его
+    задать нельзя.
+  explanation: |
+    Разделение задаёт интерфейс: переменные — то, что вызывающий обязан или может
+    настроить, локальные значения — внутренняя кухня. Отсюда типичная ошибка
+    в модулях — объявить переменной то, что всегда вычисляется одинаково:
+    это раздувает интерфейс и заставляет каждого потребителя думать
+    о том, что его не касается.
+  ref: "https://developer.hashicorp.com/terraform/language/values"
+
+- id: terraform-variables-outputs-002
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какими способами можно передать значение переменной?
+  answer: |
+    Файлом `terraform.tfvars` или `*.auto.tfvars`, флагом `-var` и `-var-file`,
+    переменной окружения `TF_VAR_имя`, значением по умолчанию в объявлении.
+  explanation: |
+    Приоритет важен при разборе «почему применилось не то»: командная строка
+    перекрывает файлы, файлы — окружение, окружение — значение по умолчанию.
+    Практический вывод — не размазывать источники: окружения описывают файлами
+    `-var-file`, а `TF_VAR_` оставляют для секретов из CI, чтобы они не попадали
+    в репозиторий и в историю команд.
+  ref: "https://developer.hashicorp.com/terraform/language/values/variables"
+
+- id: terraform-variables-outputs-003
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем переменной блок `validation`?
+  answer: |
+    Чтобы проверить значение до применения и упасть с внятным сообщением:
+    допустимый диапазон, формат имени, принадлежность списку. Иначе ошибка
+    вылезет глубже — в вызове API облака.
+  explanation: |
+    Разница в цене: провайдер вернёт что-то вроде «InvalidParameterValue» на середине
+    применения, когда часть ресурсов уже создана. Проверка на входе ловит это
+    за секунду и объясняет человеческим языком. Это тот же принцип, что admission
+    в Kubernetes — отклонять на входе, а не разбираться с последствиями.
+  ref: "https://developer.hashicorp.com/terraform/language/values/variables"
+
+- id: terraform-variables-outputs-004
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `sensitive = true` у переменной или выхода?
+  answer: |
+    Скрывает значение в выводе `plan`, `apply` и `output` — вместо него печатается
+    `(sensitive value)`. На хранение в состоянии это никак не влияет.
+  explanation: |
+    Флаг защищает от утечки в логи CI, где вывод плана видят все, — и только.
+    Отсюда две ошибки: считать его шифрованием и, наоборот, не ставить его,
+    потому что «значение и так в состоянии». Второе важно: логи конвейера обычно
+    доступны шире, чем бакет с состоянием.
+  ref: "https://developer.hashicorp.com/terraform/language/values/variables"
+
+- id: terraform-variables-outputs-005
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем указывать `type` у переменной, если Terraform выведет его сам?
+  answer: |
+    Чтобы ошибка обнаружилась на входе, а не при использовании: строка вместо списка
+    или отсутствующее поле объекта дадут понятное сообщение с именем переменной,
+    а не невнятную ошибку в глубине конфигурации.
+  explanation: |
+    Особенно полезны составные типы: `object({...})` документирует ожидаемую
+    структуру лучше любого комментария, а с необязательными атрибутами позволяет
+    задавать значения по умолчанию для отдельных полей. Для модуля это фактически
+    описание интерфейса, которое проверяется автоматически.
+  ref: "https://developer.hashicorp.com/terraform/language/expressions/type-constraints"
+
+- id: terraform-variables-outputs-006
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны `output`, если значения и так есть в состоянии?
+  answer: |
+    Это публичный интерфейс конфигурации: то, что видно снаружи модуля, попадает
+    в вывод команды и читается другими конфигурациями. Всё остальное содержимое
+    состояния считается внутренним.
+  explanation: |
+    Выходы заодно создают зависимость: если выход ссылается на ресурс, он не будет
+    вычислен раньше его создания. Практическое применение — передать наружу
+    идентификаторы созданной сети или адрес балансировщика, чтобы следующий слой
+    инфраструктуры или конвейер могли ими воспользоваться.
+  ref: "https://developer.hashicorp.com/terraform/language/values/outputs"
+
+- id: terraform-variables-outputs-007
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему секреты не стоит передавать в Terraform переменными, даже
+    через окружение?
+  answer: |
+    Потому что всё, что попало в конфигурацию, оседает в состоянии открытым текстом,
+    а часто ещё и в файле плана. Уменьшить это нельзя — только не пропускать секрет
+    через Terraform вовсе.
+  explanation: |
+    Практическая альтернатива: ресурс получает **ссылку** на секрет в менеджере,
+    а само значение туда кладёт другой процесс. Terraform тогда управляет
+    конфигурацией и правами доступа, но не хранит содержимое. Там, где секрет
+    всё же обязан родиться в Terraform, его сразу отправляют в менеджер
+    и считают состояние объектом того же уровня секретности.
+  ref: "https://developer.hashicorp.com/terraform/language/state/sensitive-data"
+
+- id: terraform-variables-outputs-008
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт, если использовать `count` со значением, неизвестным до применения?
+  answer: |
+    Terraform откажется строить план: количество ресурсов должно быть известно
+    заранее, потому что от него зависят адреса в графе. Ошибка звучит как
+    «value depends on resource attributes that cannot be determined until apply».
+  explanation: |
+    Причина в том, что граф строится до вызовов API: нельзя решить, сколько узлов
+    создавать, если число появится только в процессе. Обходят это либо разделением
+    на два применения, либо выражением количества через входные данные, которые
+    известны заранее. Та же логика запрещает вычислять конфигурацию провайдера
+    из создаваемых ресурсов.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/count"
+
+- id: terraform-variables-outputs-009
+  domain: terraform
+  subtopic: variables-outputs
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Переменная — объект с десятью полями, и большинство обычно не задают.
+    Как дать умолчания отдельным полям, а не всему объекту?
+  answer: |
+    Пометить поля как `optional(тип, значение)` в описании типа. Тогда вызывающий
+    передаёт только нужное, а остальное подставится само.
+  explanation: |
+    Без этого выбор неприятный: либо объявлять умолчание для объекта целиком —
+    и тогда указание одного поля обнуляет все остальные, — либо плодить десяток
+    отдельных переменных и терять группировку. Для модулей это и есть способ
+    держать интерфейс компактным: обязательных полей два-три, остальное необязательно
+    и документировано прямо в типе.
+  ref: "https://developer.hashicorp.com/terraform/language/values/variables"

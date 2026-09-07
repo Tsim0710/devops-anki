@@ -1,0 +1,164 @@
+# terraform / import-refactor
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-import-refactor-001
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ресурс создали руками в консоли облака. Как взять его под управление Terraform?
+  answer: |
+    Импортом: описать ресурс в конфигурации, затем указать блок `import`
+    с его адресом и идентификатором в облаке (или выполнить `terraform import`).
+    Terraform запишет его в состояние.
+  explanation: |
+    Порядок обязателен: без описания в коде импортировать некуда — состояние
+    связывает адрес конфигурации с реальным объектом. После импорта первый же план
+    покажет расхождения между тем, что в облаке, и тем, что ты описал; их надо
+    свести к нулю, иначе применение переделает ресурс.
+  ref: "https://developer.hashicorp.com/terraform/language/import"
+
+- id: terraform-import-refactor-002
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем блок `import` лучше команды `terraform import`?
+  answer: |
+    Он живёт в коде: проходит ревью, виден в плане до применения и отрабатывает
+    одинаково во всех окружениях. Команда выполняется вручную и меняет состояние
+    сразу, без плана.
+  explanation: |
+    Это та же линия, что с `moved` против `state mv`: намерение переносится
+    из головы инженера в репозиторий. Дополнительная выгода — с блоком `import`
+    Terraform может сгенерировать заготовку конфигурации по существующему ресурсу,
+    что снимает самую скучную часть работы.
+  ref: "https://developer.hashicorp.com/terraform/language/import"
+
+- id: terraform-import-refactor-003
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает блок `moved` и когда он нужен?
+  answer: |
+    Сообщает Terraform, что ресурс сменил адрес: переименован, переехал в модуль
+    или между модулями. Состояние обновляется без пересоздания ресурса.
+  explanation: |
+    Без него любой рефакторинг структуры кода выглядит для Terraform как удаление
+    одного ресурса и создание другого. Блок можно оставить в коде надолго: он
+    ничего не делает, если старого адреса в состоянии уже нет. Убирают его,
+    когда все окружения точно применились.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring"
+
+- id: terraform-import-refactor-004
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Импортировали ресурс, план всё равно предлагает его изменить. Почему?
+  answer: |
+    Конфигурация не совпала с фактическим состоянием объекта: часть атрибутов
+    не описана или описана иначе, чем в облаке. Импорт переносит объект в состояние,
+    но не подгоняет под него код.
+  explanation: |
+    Работа после импорта именно в этом и состоит: смотреть `terraform state show`
+    и доводить конфигурацию до нулевого плана. Опасно применять раньше — план может
+    содержать `forces replacement`, и вместо взятия под управление получится
+    пересоздание ресурса, который до этого работал.
+  ref: "https://developer.hashicorp.com/terraform/language/import"
+
+- id: terraform-import-refactor-005
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Нужно перенести ресурс из одной конфигурации в другую, с отдельным состоянием.
+    Как?
+  answer: |
+    Убрать его из первого состояния, не удаляя в облаке (блок `removed`
+    с `destroy = false` или `state rm`), описать во второй конфигурации
+    и импортировать туда.
+  explanation: |
+    Прямого переноса между состояниями нет — это всегда пара операций «вывести
+    и импортировать». Порядок важен: сначала описание и импорт во второе состояние,
+    потом удаление из первого, иначе между шагами ресурс окажется бесхозным.
+    И обязательный `prevent_destroy` на время операции, чтобы случайный `apply`
+    не уничтожил его.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/state/mv"
+
+- id: terraform-import-refactor-006
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Есть аккаунт с сотнями ресурсов, созданных руками. Стоит ли импортировать всё?
+  answer: |
+    Обычно нет. Импорт каждого ресурса требует описать его конфигурацией и свести
+    план к нулю — это дни работы. Разумнее взять под управление то, что меняется,
+    и постепенно пересоздать остальное.
+  explanation: |
+    Инструменты генерации конфигурации по существующей инфраструктуре помогают,
+    но дают сырой результат: развёрнутые атрибуты, никаких модулей и переменных.
+    Прагматичный порядок — новая инфраструктура сразу в коде, старая импортируется
+    по мере того, как её приходится трогать, и до тех пор просто документируется.
+  ref: "https://developer.hashicorp.com/terraform/language/import"
+
+- id: terraform-import-refactor-007
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Переименовали ключ в `for_each`. Что произойдёт и как этого избежать?
+  answer: |
+    Адрес ресурса изменится с `res["old"]` на `res["new"]`, и Terraform предложит
+    удалить старый и создать новый. Избежать — блоком `moved` с указанием
+    старого и нового адреса.
+  explanation: |
+    Отсюда важное свойство ключей `for_each`: они становятся частью идентичности
+    ресурса и потому должны быть стабильными. Ключ, вычисленный из изменчивого
+    значения — например из порядкового номера или из имени, которое команда любит
+    подправлять, — превращает косметическую правку в пересоздание инфраструктуры.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring"
+
+- id: terraform-import-refactor-008
+  domain: terraform
+  subtopic: import-refactor
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему нельзя просто скопировать блок ресурса в другой модуль и применить?
+  answer: |
+    Потому что изменится адрес, и Terraform уничтожит ресурс по старому адресу
+    и создаст заново по новому. Для инфраструктуры это простой, а для базы —
+    потеря данных.
+  explanation: |
+    Ключ к пониманию: Terraform связывает мир и код по **адресу**, а не по имени
+    ресурса в облаке. Поэтому любое перемещение кода — операция над состоянием,
+    и её нужно описать явно блоком `moved`. Это главное отличие рефакторинга
+    инфраструктуры от рефакторинга обычной программы.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring"

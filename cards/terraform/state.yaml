@@ -1,0 +1,283 @@
+# terraform / state
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-state-001
+  domain: terraform
+  subtopic: state
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое state и зачем он нужен?
+  answer: |
+    Файл соответствия между описанными в конфигурации ресурсами и реальными
+    объектами в облаке: `aws_instance.web` — вот этот конкретный инстанс с таким-то
+    идентификатором. Без него Terraform не знает, чем он управляет.
+  explanation: |
+    Обойтись без состояния нельзя: по конфигурации невозможно надёжно найти
+    созданные объекты — имена в облаке не уникальны, а перебирать все ресурсы
+    аккаунта дорого и неоднозначно. Состояние заодно хранит зависимости
+    и вычисленные атрибуты, что позволяет строить план, не опрашивая всё подряд.
+  ref: "https://developer.hashicorp.com/terraform/language/state"
+
+- id: terraform-state-002
+  domain: terraform
+  subtopic: state
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему state нельзя класть в git?
+  answer: |
+    В нём **открытым текстом** лежат все значения, включая пароли, ключи и токены,
+    которые провайдер вернул при создании ресурсов. Плюс он меняется при каждом
+    применении и порождает конфликты.
+  explanation: |
+    Шифрование в самом файле не предусмотрено, поэтому защищают хранилище: удалённый
+    backend с шифрованием и ограниченным доступом. Отсюда же следует, что доступ
+    к состоянию равен доступу к секретам инфраструктуры, и права на бакет
+    с состоянием выдают не шире, чем права на сам прод.
+  ref: "https://developer.hashicorp.com/terraform/language/state/sensitive-data"
+
+- id: terraform-state-003
+  domain: terraform
+  subtopic: state
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужна блокировка состояния?
+  answer: |
+    Чтобы два одновременных применения не портили состояние друг друга. Backend
+    берёт блокировку на время операции: второй запуск ждёт или падает с сообщением,
+    что состояние занято.
+  explanation: |
+    Без неё параллельные `apply` из CI и с ноутбука дают гонку: один перезаписывает
+    состояние другого, и часть ресурсов теряется из учёта — Terraform перестаёт
+    о них знать и при следующем плане создаст дубликаты. Именно поэтому у S3-backend
+    отдельно настраивают таблицу блокировок, а у Terraform Cloud она встроена.
+  ref: "https://developer.hashicorp.com/terraform/language/state/locking"
+
+- id: terraform-state-004
+  domain: terraform
+  subtopic: state
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `terraform state rm` отличается от `terraform destroy` для одного ресурса?
+  answer: |
+    `state rm` убирает ресурс **из учёта**, оставляя его жить в облаке. `destroy`
+    физически удаляет объект. После `state rm` Terraform просто перестаёт о нём знать.
+  explanation: |
+    Отсюда основное применение: передать ресурс другой конфигурации или вывести
+    из-под управления, ничего не ломая. И отсюда же главная опасность — если ресурс
+    остался в конфигурации, следующий план предложит создать его заново, и получится
+    дубликат. Правильная пара к `state rm` — удаление ресурса из кода.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/state/rm"
+
+- id: terraform-state-005
+  domain: terraform
+  subtopic: state
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Переименовали ресурс в коде с `aws_instance.web` на `aws_instance.api`.
+    Что покажет план?
+  options:
+    a: "Удаление старого ресурса и создание нового — адрес в состоянии изменился"
+    b: "Никаких изменений: имя не влияет на инфраструктуру"
+    c: "Изменение тега Name у существующего инстанса"
+    d: "Ошибку: переименование ресурсов запрещено"
+  answer: a
+  explanation: |
+    Terraform связывает состояние с конфигурацией по **адресу** ресурса, а не по его
+    свойствам: новый адрес для него — новый ресурс. Отсюда болезненность
+    рефакторинга. Решается это без пересоздания: блок `moved` в коде или команда
+    `terraform state mv` переносят запись в состоянии на новый адрес.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring"
+
+- id: terraform-state-006
+  domain: terraform
+  subtopic: state
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `terraform force-unlock` и когда он оправдан?
+  answer: |
+    Снимает блокировку состояния вручную. Оправдан только когда точно известно,
+    что владевший ею процесс мёртв: упал раннер, оборвалась сессия.
+  explanation: |
+    Опасность в том, что блокировка может быть жива: снимешь её у идущего `apply` —
+    и получишь два процесса, пишущих в одно состояние. Поэтому перед снятием
+    выясняют, чей это идентификатор и жив ли тот запуск, а не выполняют команду
+    рефлекторно при первом же сообщении «state is locked».
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/force-unlock"
+
+- id: terraform-state-007
+  domain: terraform
+  subtopic: state
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть, что лежит в состоянии, не открывая файл?
+  answer: |
+    `terraform state list` — адреса всех ресурсов, `terraform state show <адрес>` —
+    все атрибуты конкретного. Есть ещё `terraform show -json` для машинной обработки.
+  explanation: |
+    Читать файл руками не стоит: формат внутренний и меняется между версиями,
+    а команды дают стабильный интерфейс. Практическая польза `state show` —
+    посмотреть, какие значения провайдер записал сам: часто именно они объясняют
+    вечное расхождение в плане.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/state/list"
+
+- id: terraform-state-008
+  domain: terraform
+  subtopic: state
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое дрейф и чем он опасен?
+  answer: |
+    Расхождение между реальной инфраструктурой и состоянием — обычно результат правки
+    руками в консоли облака. Опасен тем, что следующий `apply` молча вернёт всё
+    к описанному в коде, откатив чужое изменение.
+  explanation: |
+    Особенно неприятен случай, когда правку внесли в аварии и не зафиксировали
+    в коде: инцидент повторится при первом же выкате, причём без всякой связи
+    с ним по времени. Отсюда практика — регулярный `-refresh-only` в расписании
+    и правило переносить аварийные изменения в конфигурацию сразу после инцидента.
+  ref: "https://developer.hashicorp.com/terraform/language/state"
+
+- id: terraform-state-009
+  domain: terraform
+  subtopic: state
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему одно большое состояние на всю инфраструктуру — плохая идея?
+  answer: |
+    Растёт радиус поражения и время работы: любой `plan` опрашивает все ресурсы,
+    любая ошибка касается всего, блокировка останавливает все команды сразу.
+    И любой инженер, меняющий мелочь, имеет доступ ко всему.
+  explanation: |
+    Правильная граница деления — **скорость изменения и владелец**: сеть и базовая
+    инфраструктура меняются редко, приложения часто. Их разделяют на отдельные
+    состояния, а связь выражают через выходные данные и явные ссылки.
+    Цена деления — эти самые связи, поэтому дробить бесконечно тоже не стоит.
+  ref: "https://developer.hashicorp.com/terraform/language/state"
+
+- id: terraform-state-010
+  domain: terraform
+  subtopic: state
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем плох `terraform_remote_state` как способ связать конфигурации?
+  answer: |
+    Он создаёт жёсткую связь: читающая конфигурация лезет прямо в чужое состояние,
+    то есть зависит от его внутренней структуры и требует доступа к нему —
+    а значит и ко всем секретам внутри.
+  explanation: |
+    Альтернатива — обмениваться через явный контракт: параметры в хранилище
+    конфигурации облака или data source, который ищет ресурс по тегам. Тогда
+    у зависимости есть граница, её видно, и она не требует прав на чужое состояние.
+    Это та же разница, что между чтением чужой базы напрямую и обращением к её API.
+  ref: "https://developer.hashicorp.com/terraform/language/state/remote-state-data"
+
+- id: terraform-state-011
+  domain: terraform
+  subtopic: state
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Состояние повреждено или откачено к старой версии. Что произойдёт и что делать?
+  answer: |
+    Terraform перестанет знать про часть ресурсов и предложит создать их заново —
+    в облаке появятся дубликаты, а старые объекты останутся бесхозными.
+    Восстанавливают из версии бакета или собирают потерянное обратно `import`.
+  explanation: |
+    Отсюда обязательные требования к хранилищу состояния: версионирование
+    и ограниченный доступ на запись. Восстановление «из головы» дорого именно потому,
+    что ресурсы уже существуют — их нельзя просто применить заново, каждый нужно
+    вернуть в учёт поимённо.
+  ref: "https://developer.hashicorp.com/terraform/language/state/backends"
+
+- id: terraform-state-012
+  domain: terraform
+  subtopic: state
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли применить конфигурацию более старой версией Terraform, чем та,
+    что писала состояние?
+  answer: |
+    Нет. Формат состояния версионируется, и Terraform отказывается работать
+    с состоянием, записанным более новой версией. Понижение версии требует
+    восстановления предыдущей копии состояния.
+  explanation: |
+    Отсюда практическое следствие для команды: версия Terraform — часть контракта,
+    а не личный выбор инженера. Достаточно одному применить конфигурацию свежей
+    версией, чтобы у остальных перестали работать команды. Поэтому версию фиксируют
+    в `required_version` и держат одинаковой в CI и локально.
+  ref: "https://developer.hashicorp.com/terraform/language/settings"
+
+- id: terraform-state-013
+  domain: terraform
+  subtopic: state
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Значение помечено `sensitive = true`. Защищает ли это его в состоянии?
+  answer: |
+    Нет. Флаг лишь скрывает значение в выводе плана и в outputs. В файле состояния
+    оно всё равно лежит открытым текстом.
+  explanation: |
+    Это частая иллюзия защиты. Реальные меры другие: шифрование хранилища состояния,
+    ограничение доступа к нему и, где возможно, отказ от того, чтобы секрет вообще
+    проходил через Terraform, — пусть ресурс создаётся с секретом, сгенерированным
+    в менеджере секретов, а Terraform работает со ссылкой на него.
+  ref: "https://developer.hashicorp.com/terraform/language/state/sensitive-data"
+
+- id: terraform-state-014
+  domain: terraform
+  subtopic: state
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен `terraform state mv`?
+  answer: |
+    Перенести запись в состоянии на другой адрес без пересоздания ресурса:
+    при переименовании, при переезде ресурса в модуль или между модулями.
+  explanation: |
+    Это ручной аналог блока `moved`, и разница существенна: `moved` живёт в коде,
+    проходит ревью и повторяется в любом окружении автоматически, а `state mv`
+    выполняется руками и в каждом окружении отдельно — легко забыть про одно.
+    Поэтому в современном рабочем процессе предпочитают `moved`, оставляя
+    команду для разовых операций.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/state/mv"

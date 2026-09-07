@@ -1,0 +1,123 @@
+# terraform / testing
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-testing-001
+  domain: terraform
+  subtopic: testing
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что проверять в конвейере до применения конфигурации?
+  answer: |
+    `terraform fmt -check` — форматирование, `terraform validate` — синтаксис и типы,
+    линтеры и сканеры безопасности, затем `plan` как основную проверку. Всё,
+    кроме плана, не требует доступа к облаку.
+  explanation: |
+    Порядок выстроен по цене: сначала быстрые проверки без доступа, потом медленные
+    с ним. Ключевое — план всё равно остаётся главным «тестом»: только он показывает
+    столкновение конфигурации с реальным состоянием, а именно там возникают
+    неприятные сюрпризы вроде пересоздания базы.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/validate"
+
+- id: terraform-testing-002
+  domain: terraform
+  subtopic: testing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны `precondition` и `postcondition`?
+  answer: |
+    Проверять предположения прямо в конфигурации: `precondition` — до создания
+    ресурса (например, что образ существует в нужном регионе), `postcondition` —
+    после, по фактическим атрибутам.
+  explanation: |
+    Ценность в том, что ошибка формулируется на языке твоей задачи, а не облака,
+    и обнаруживается на плане, а не на середине применения. Это дополняет
+    `validation` у переменных: та проверяет вход, а условия — связь между значениями
+    и реальностью, которая известна только во время выполнения.
+  ref: "https://developer.hashicorp.com/terraform/language/expressions/custom-conditions"
+
+- id: terraform-testing-003
+  domain: terraform
+  subtopic: testing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает встроенный фреймворк `terraform test`?
+  answer: |
+    Запускает сценарии из файлов `.tftest.hcl`: применяет конфигурацию (или строит
+    только план) с заданными переменными и проверяет утверждения о полученных
+    значениях, после чего убирает за собой.
+  explanation: |
+    Главная польза — для модулей: можно убедиться, что при таком наборе входов
+    получается ожидаемая конфигурация, и что валидации срабатывают. Режим только
+    с планом делает такие тесты быстрыми и бесплатными; режим с применением
+    ближе к правде, но требует реального облака и времени.
+  ref: "https://developer.hashicorp.com/terraform/language/tests"
+
+- id: terraform-testing-004
+  domain: terraform
+  subtopic: testing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что дают сканеры вроде tfsec, checkov или tflint?
+  answer: |
+    Проверку конфигурации по набору правил без применения: открытый наружу бакет,
+    группа безопасности с доступом отовсюду, отсутствие шифрования, неправильные
+    типы и мёртвые ссылки.
+  explanation: |
+    Они ловят класс ошибок, который `validate` не видит по определению: код
+    корректен, но описывает небезопасную инфраструктуру. Практическая тонкость —
+    любой такой сканер даёт ложные срабатывания, поэтому исключения оформляют
+    явными аннотациями с обоснованием, а не отключением правил целиком.
+  ref: "https://developer.hashicorp.com/terraform/language/checks"
+
+- id: terraform-testing-005
+  domain: terraform
+  subtopic: testing
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое policy as code применительно к Terraform?
+  answer: |
+    Правила организации, проверяемые автоматически по плану: запрет публичных
+    бакетов, обязательные теги, разрешённые типы машин, лимиты стоимости. Реализуется
+    OPA, Sentinel или Conftest в конвейере.
+  explanation: |
+    Отличие от сканеров в источнике правил: сканер знает общие практики, политика
+    выражает требования конкретной компании. И проверяется она по **плану**,
+    а не по коду, — то есть по тому, что реально произойдёт, включая значения,
+    вычисленные из переменных и модулей.
+  ref: "https://developer.hashicorp.com/terraform/cloud-docs/policy-enforcement"
+
+- id: terraform-testing-006
+  domain: terraform
+  subtopic: testing
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему тесты Terraform не заменяют план перед применением в прод?
+  answer: |
+    Тесты проверяют конфигурацию на **чистом** окружении. План отвечает на другой
+    вопрос: что произойдёт с уже существующей инфраструктурой, у которой есть
+    состояние и дрейф.
+  explanation: |
+    Один и тот же код в пустом окружении просто создаёт ресурсы, а в прод-состоянии
+    может дать пересоздание базы — и в тестах это никак не проявится. Отсюда правило:
+    тесты отвечают за корректность модулей, план и его ревью — за безопасность
+    конкретного применения. Заменять второе первым нельзя.
+  ref: "https://developer.hashicorp.com/terraform/language/tests"

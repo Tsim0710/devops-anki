@@ -1,0 +1,205 @@
+# terraform / lifecycle
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-lifecycle-001
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `create_before_destroy` и когда он нужен?
+  answer: |
+    Меняет порядок при пересоздании: сначала создаётся новый ресурс, потом удаляется
+    старый. По умолчанию наоборот — сначала удаление, что даёт окно недоступности.
+  explanation: |
+    Нужен везде, где пересоздание не должно приводить к простою: узлы, группы
+    масштабирования, сертификаты. Ограничение существенное — не всякий ресурс
+    допускает двух одновременно: имя, IP или уникальный тег окажутся заняты,
+    и создание упадёт. Поэтому приём часто идёт в паре с уникальным именем
+    через суффикс.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle"
+
+- id: terraform-lifecycle-002
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `prevent_destroy` и от чего он не защищает?
+  answer: |
+    Заставляет Terraform падать с ошибкой, если план предполагает уничтожение этого
+    ресурса. Не защищает от удаления вручную в облаке и от удаления самого блока
+    из кода — тогда его просто некому проверять.
+  explanation: |
+    Это предохранитель для того, что нельзя восстановить: база, бакет с данными,
+    ключ шифрования. Работает он как раз в момент, когда легче всего ошибиться, —
+    при пересоздании из-за изменённого атрибута. Обход требует осознанного шага:
+    убрать флаг отдельным изменением, которое видно в ревью.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle"
+
+- id: terraform-lifecycle-003
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен `ignore_changes` и чем он опасен?
+  answer: |
+    Велит игнорировать изменения перечисленных атрибутов: их меняет кто-то другой —
+    автоскейлер, оператор, внешняя система. Опасен тем, что скрывает и **твои**
+    изменения этих полей: правка в коде перестанет применяться.
+  explanation: |
+    Классический пример — число экземпляров в группе, которым управляет автоскейлер:
+    без игнорирования каждый `apply` возвращает исходное значение. А классическая
+    ловушка — добавить в список слишком много и потом полдня искать, почему
+    изменение тега не доезжает. Отсюда правило перечислять поля поимённо,
+    а не блоками целиком.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle"
+
+- id: terraform-lifecycle-004
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как заставить Terraform пересоздать конкретный ресурс?
+  answer: |
+    `terraform apply -replace=<адрес>`. Это современная замена `terraform taint`,
+    который помечал ресурс испорченным в состоянии.
+  explanation: |
+    Разница не косметическая: `taint` менял состояние сразу и отдельной командой,
+    а `-replace` — часть плана, поэтому намерение видно в его выводе и проходит
+    обычное ревью. Нужно это, когда ресурс жив с точки зрения облака, но фактически
+    сломан: повреждённая машина, зависший сервис на ней.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/plan"
+
+- id: terraform-lifecycle-005
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `replace_triggered_by`?
+  answer: |
+    Пересоздаёт ресурс, когда изменился **другой** ресурс или значение — даже если
+    собственные атрибуты первого не менялись.
+  explanation: |
+    Нужно там, где зависимость есть в реальности, но не выражена атрибутами:
+    машина должна подняться заново при смене конфигурации, которую она читает
+    при старте. Без этого получается тихое расхождение — конфигурация обновилась,
+    а работает старая копия. Это тот же приём, что аннотация с хешем конфига
+    в pod-template Kubernetes.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle"
+
+- id: terraform-lifecycle-006
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: senior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Ресурс не удаляется: `apply` висит и падает по таймауту. Что настраивают?
+  options:
+    a: "Блок `timeouts` у ресурса — сроки на create, update и delete"
+    b: "Флаг `-parallelism`, чтобы не мешали другие операции"
+    c: "`ignore_changes`, чтобы Terraform не ждал изменений"
+    d: "`prevent_destroy = false`"
+  answer: a
+  explanation: |
+    У многих ресурсов есть собственные таймауты, и значения по умолчанию рассчитаны
+    на типичный случай: удаление кластера или базы со снапшотом может занимать
+    заметно дольше. Важно понимать, что таймаут — свойство ожидания, а не самой
+    операции: облако продолжит удалять ресурс, и следующий запуск обнаружит
+    его уже исчезнувшим.
+  ref: "https://developer.hashicorp.com/terraform/language/resources/syntax"
+
+- id: terraform-lifecycle-007
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `depends_on` у модуля считают крайней мерой?
+  answer: |
+    Он делает **весь** модуль зависимым от указанного ресурса, а не отдельные его
+    части, и заставляет Terraform считать все значения модуля неизвестными до
+    применения — план становится менее информативным.
+  explanation: |
+    Обычно зависимость выражается естественно: передай в модуль идентификатор
+    ресурса, от которого он зависит, и связь появится сама. `depends_on` остаётся
+    для скрытых зависимостей — когда провайдер требует, чтобы что-то существовало,
+    но в конфигурации это не отражено, например права IAM для доступа к API.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/depends_on"
+
+- id: terraform-lifecycle-008
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему изменение тега вызывает пересоздание, а изменение типа машины — нет?
+  answer: |
+    Потому что решает **провайдер**, а он опирается на API облака: какие поля
+    меняются на месте, а какие нет. Обычно это указано в документации ресурса
+    как «forces new resource».
+  explanation: |
+    Общего правила нет, и интуиция подводит: тег может оказаться неизменяемым,
+    если облако не даёт его править после создания. Поэтому единственный надёжный
+    способ узнать — прочитать план, а не рассуждать. Это же причина, по которой
+    план в проде смотрят целиком, а не только сводку внизу.
+  ref: "https://developer.hashicorp.com/terraform/language/resources/behavior"
+
+- id: terraform-lifecycle-009
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как безопасно вывести ресурс из-под управления Terraform, не удаляя его?
+  answer: |
+    Блоком `removed` в конфигурации с `destroy = false` — он говорит убрать ресурс
+    из состояния, но оставить в облаке. Раньше то же делали командой
+    `terraform state rm`.
+  explanation: |
+    Преимущество блока то же, что у `moved`: намерение живёт в коде, проходит ревью
+    и одинаково отрабатывает во всех окружениях. Простое удаление ресурса из кода
+    без такого блока означает противоположное — Terraform его уничтожит,
+    и это одна из самых дорогих опечаток при рефакторинге.
+  ref: "https://developer.hashicorp.com/terraform/language/resources/syntax"
+
+- id: terraform-lifecycle-010
+  domain: terraform
+  subtopic: lifecycle
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт, если удалить блок ресурса из конфигурации?
+  answer: |
+    Следующий план предложит **уничтожить** его: Terraform считает, что раз ресурса
+    нет в желаемом состоянии, его не должно быть и в реальности.
+  explanation: |
+    Это прямое следствие декларативной модели, и оно же делает опасным «временно
+    закомментировать блок, чтобы не мешал». Если цель — перестать управлять ресурсом,
+    нужен явный вывод из состояния; если убрать по-настоящему — тогда план верен,
+    и его просто надо внимательно прочитать.
+  ref: "https://developer.hashicorp.com/terraform/language/resources/behavior"

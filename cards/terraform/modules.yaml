@@ -1,0 +1,225 @@
+# terraform / modules
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-modules-001
+  domain: terraform
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое модуль в Terraform?
+  answer: |
+    Каталог с конфигурацией, который можно вызвать из другого места, передав входные
+    переменные и получив выходные значения. Любая конфигурация — уже модуль,
+    корневой.
+  explanation: |
+    Своего состояния у модуля нет: его ресурсы попадают в состояние вызывающей
+    конфигурации с префиксом `module.<имя>`. Отсюда практическое следствие —
+    вынесение кода в модуль само по себе ничего не изолирует: радиус поражения
+    задаёт граница состояния, а не структура каталогов.
+  ref: "https://developer.hashicorp.com/terraform/language/modules"
+
+- id: terraform-modules-002
+  domain: terraform
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Откуда можно подключить модуль и почему версию всегда фиксируют?
+  answer: |
+    Из локального каталога, git-репозитория или реестра. Без фиксации версии
+    (`version` для реестра, тег или коммит для git) содержимое модуля может
+    измениться между применениями, и план станет непредсказуемым.
+  explanation: |
+    Ссылка на ветку — самая частая ошибка: модуль обновился у автора, а у тебя
+    внезапно пересоздаётся инфраструктура, хотя ты ничего не менял. Это тот же
+    класс проблемы, что плавающий тег образа в Docker: имя перестаёт однозначно
+    определять содержимое.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/sources"
+
+- id: terraform-modules-003
+  domain: terraform
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `for_each` лучше `count` при создании нескольких одинаковых ресурсов?
+  answer: |
+    `count` адресует по **индексу**: удаление элемента из середины списка сдвигает
+    все последующие и вызывает их пересоздание. `for_each` адресует по ключу,
+    и удаление одного элемента затрагивает только его.
+  explanation: |
+    Это прямое следствие того, что Terraform связывает состояние с конфигурацией
+    по адресу: `aws_instance.web[1]` и `aws_instance.web["api"]` ведут себя
+    совершенно по-разному при изменении набора. Отсюда правило — `count` уместен
+    для «включить или выключить» (0 или 1), а всё, что похоже на именованный набор,
+    описывают через `for_each`.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/for_each"
+
+- id: terraform-modules-004
+  domain: terraform
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как вынести наружу значение, созданное внутри модуля?
+  answer: |
+    Объявить в модуле блок `output`. Значения ресурсов модуля напрямую снаружи
+    недоступны — обращаться можно только к тому, что модуль явно опубликовал.
+  explanation: |
+    Это и есть его интерфейс: входы, выходы и ничего кроме. Отсюда типичная работа
+    при построении слоёв — цепочка выходов через несколько уровней вложенности,
+    и она же признак того, что модуль слишком глубоко вложен. Публиковать всё
+    подряд не стоит: каждый выход становится обязательством не менять его.
+  ref: "https://developer.hashicorp.com/terraform/language/values/outputs"
+
+- id: terraform-modules-005
+  domain: terraform
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где проходит разумная граница модуля?
+  answer: |
+    По совместному жизненному циклу: в модуль объединяют то, что создаётся,
+    меняется и удаляется вместе. Модуль-обёртка над одним ресурсом почти всегда
+    лишний.
+  explanation: |
+    Признак плохой границы — модуль с двумя десятками переменных, каждая из которых
+    просто прокидывается в ресурс: он не скрывает сложность, а добавляет слой.
+    Хороший модуль, наоборот, принимает несколько осмысленных параметров и сам решает,
+    из чего собрать результат. Второй критерий — модуль должен иметь смысл
+    минимум в двух местах, иначе это просто вынесенный файл.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/composition"
+
+- id: terraform-modules-006
+  domain: terraform
+  subtopic: modules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Можно ли применить `for_each` к вызову модуля?
+  answer: |
+    Да: `for_each` и `count` работают и на блоке `module`. Так создают набор
+    одинаковых наборов ресурсов — например по окружению или по региону.
+  explanation: |
+    Приём мощный и потому опасный: адреса ресурсов получают ещё один уровень
+    (`module.env["prod"].aws_instance.web`), и любое изменение ключей затрагивает
+    всё внутри. Плюс сложнее становится читать план. Часто честнее развернуть
+    цикл в явные вызовы, если наборов немного и они всё-таки различаются.
+  ref: "https://developer.hashicorp.com/terraform/language/meta-arguments/for_each"
+
+- id: terraform-modules-007
+  domain: terraform
+  subtopic: modules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как обновить общий модуль, которым пользуются десять команд, ничего не сломав?
+  answer: |
+    Версионированием: выпустить новую версию тегом, оставив прежние доступными,
+    и дать потребителям обновляться самостоятельно. Ломающие изменения — только
+    в новой мажорной версии, с описанием миграции.
+  explanation: |
+    Модуль в этот момент перестаёт быть кодом и становится **интерфейсом**:
+    переименование переменной или выхода ломает чужие конфигурации так же,
+    как ломающее изменение API. Отсюда и приёмы совместимости — новый параметр
+    со значением по умолчанию, старый помечается устаревшим, но продолжает работать
+    хотя бы один цикл.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop"
+
+- id: terraform-modules-008
+  domain: terraform
+  subtopic: modules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в модулях не задают конфигурацию провайдера?
+  answer: |
+    Потому что провайдер должен настраиваться в корневой конфигурации: иначе модуль
+    нельзя использовать с другим регионом или аккаунтом, а удаление такого модуля
+    из кода становится проблемой — Terraform требует провайдер для уничтожения
+    его ресурсов.
+  explanation: |
+    Формально блоки `provider` внутри модулей допустимы, но это оставлено ради
+    совместимости и считается плохой практикой. Правильный способ — модуль объявляет,
+    какие провайдеры ему нужны, а конфигурацию получает от вызывающего через
+    блок `providers`. Тогда один и тот же модуль работает в любом окружении.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/providers"
+
+- id: terraform-modules-009
+  domain: terraform
+  subtopic: modules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит с ресурсами при переносе кода из корня в модуль?
+  answer: |
+    Меняется адрес: `aws_instance.web` становится `module.app.aws_instance.web`,
+    и Terraform предложит удалить старый ресурс и создать новый. Спасают блоки
+    `moved` или `terraform state mv`.
+  explanation: |
+    Отсюда важное свойство рефакторинга в Terraform: он не бесплатен, как в обычном
+    коде, потому что структура кода отражается в состоянии. Блок `moved` предпочтителен
+    именно потому, что живёт в репозитории и отработает одинаково во всех окружениях,
+    тогда как ручную команду легко выполнить в одном и забыть в другом.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring"
+
+- id: terraform-modules-010
+  domain: terraform
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт, если изменить `source` модуля и не выполнить `init`?
+  answer: |
+    Terraform сообщит, что конфигурация модулей изменилась, и потребует
+    `terraform init`. Модули, как и провайдеры, устанавливаются на этапе
+    инициализации.
+  explanation: |
+    Это одна из трёх задач `init`, и о ней вспоминают реже всего. Отсюда типичная
+    ситуация: обновили версию модуля, план не изменился — потому что локально
+    остался старый скачанный код. В CI проблема не возникает вовсе, потому что
+    каталог всегда чистый и `init` выполняется каждый раз.
+  ref: "https://developer.hashicorp.com/terraform/cli/commands/init"
+
+- id: terraform-modules-011
+  domain: terraform
+  subtopic: modules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как вызвать модуль и передать в него значения?
+  answer: |
+    Блоком `module "имя" { source = "..."; version = "..."; параметр = значение }`.
+    Параметры — это объявленные в модуле переменные, обращение к результату —
+    `module.имя.выход`.
+  explanation: |
+    Обязательных полей два: `source` всегда, `version` — для модулей из реестра.
+    Всё остальное — входные переменные модуля, и если у переменной нет значения
+    по умолчанию, её обязаны передать. Отсюда и практика: обязательными делают
+    только то, у чего разумного умолчания действительно нет.
+  ref: "https://developer.hashicorp.com/terraform/language/modules/syntax"

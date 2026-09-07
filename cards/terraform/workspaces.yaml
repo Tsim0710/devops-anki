@@ -1,0 +1,106 @@
+# terraform / workspaces
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-workspaces-001
+  domain: terraform
+  subtopic: workspaces
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое workspace в Terraform CLI?
+  answer: |
+    Несколько **отдельных состояний** для одной и той же конфигурации в одном
+    backend. Переключение — `terraform workspace select`, текущее имя доступно
+    как `terraform.workspace`.
+  explanation: |
+    Важно, что различаются только состояния: код, переменные и backend общие.
+    Отсюда и область применения — временные копии одного и того же: ветка
+    разработчика, эксперимент, окружение для проверки. По умолчанию workspace
+    всегда один и называется `default`.
+  ref: "https://developer.hashicorp.com/terraform/language/state/workspaces"
+
+- id: terraform-workspaces-002
+  domain: terraform
+  subtopic: workspaces
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему workspaces не рекомендуют использовать для разделения prod и dev?
+  options:
+    a: "Конфигурация и backend общие — различия приходится городить условиями в коде"
+    b: "Workspaces не поддерживают удалённые backend"
+    c: "В них нельзя задать разные переменные"
+    d: "Состояния workspace хранятся в одном файле и конфликтуют"
+  answer: a
+  explanation: |
+    Настоящие окружения различаются не только числом ресурсов, но и правами, сетями,
+    аккаунтами, backend'ом. С workspaces всё это выражается ветвлением по
+    `terraform.workspace` внутри кода — и код превращается в набор условий, где
+    легко ошибиться и применить к проду ветку от dev. Плюс переключение окружения
+    становится состоянием оболочки, а не явным параметром запуска.
+  ref: "https://developer.hashicorp.com/terraform/language/state/workspaces"
+
+- id: terraform-workspaces-003
+  domain: terraform
+  subtopic: workspaces
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какая альтернатива workspaces для разделения окружений?
+  answer: |
+    Один код и **разные состояния через backend**: отдельный ключ или бакет
+    на окружение плюс свой файл переменных. Запуск — `init -backend-config=prod.hcl`
+    и `apply -var-file=prod.tfvars`.
+  explanation: |
+    Различия оказываются в данных и в параметрах запуска, а не в ветвлениях кода,
+    и окружение задаётся явно на каждой команде — забыть переключиться невозможно,
+    в отличие от workspace, который остаётся выбранным. Заодно разные окружения могут
+    жить в разных аккаунтах облака, что с общим backend недостижимо.
+  ref: "https://developer.hashicorp.com/terraform/language/settings/backends/configuration"
+
+- id: terraform-workspaces-004
+  domain: terraform
+  subtopic: workspaces
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем workspaces в CLI отличаются от workspaces в Terraform Cloud?
+  answer: |
+    В CLI это просто несколько состояний одной конфигурации. В Terraform Cloud
+    workspace — полноценная единица управления: со своими переменными,
+    правами доступа, историей запусков и привязкой к репозиторию.
+  explanation: |
+    Совпадение названий при разной сути регулярно путает на собеседовании
+    и в документации. Практический вывод: рекомендация «не используйте workspaces
+    для окружений» относится к CLI; в Terraform Cloud окружение как раз и есть
+    отдельный workspace, потому что у него есть всё, чего не хватает первому.
+  ref: "https://developer.hashicorp.com/terraform/cloud-docs/workspaces"
+
+- id: terraform-workspaces-005
+  domain: terraform
+  subtopic: workspaces
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где workspaces действительно уместны?
+  answer: |
+    Там, где нужны **одинаковые** копии одного и того же: временное окружение
+    на ветку, площадка для проверки миграции, песочница разработчика. То есть
+    когда различия сводятся к имени и масштабу, а не к устройству.
+  explanation: |
+    Признак уместности — конфигурация не содержит ни одного условия по
+    `terraform.workspace`, кроме подстановки имени в названия ресурсов.
+    Как только появляется ветвление «в проде делаем иначе», это сигнал,
+    что окружения различаются по существу и им нужны разные состояния и параметры.
+  ref: "https://developer.hashicorp.com/terraform/language/state/workspaces"

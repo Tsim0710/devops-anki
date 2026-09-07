@@ -1,0 +1,167 @@
+# terraform / backends
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-backends-001
+  domain: terraform
+  subtopic: backends
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое backend и чем удалённый лучше локального?
+  answer: |
+    Место хранения состояния. Локальный держит его файлом рядом с конфигурацией —
+    он есть только у тебя. Удалённый (S3, GCS, Terraform Cloud) даёт общий доступ
+    команде, блокировки и версионирование.
+  explanation: |
+    Локальное состояние ломается на втором человеке: у каждого своя копия, и первый
+    же `apply` у коллеги создаёт дубликаты инфраструктуры. Плюс файл живёт
+    на одном ноутбуке, а его потеря означает потерю учёта всех ресурсов.
+    Удалённый backend — обязательное условие командной работы, а не удобство.
+  ref: "https://developer.hashicorp.com/terraform/language/settings/backends/configuration"
+
+- id: terraform-backends-002
+  domain: terraform
+  subtopic: backends
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему в блоке `backend` нельзя использовать переменные?
+  options:
+    a: "Backend настраивается до вычисления конфигурации — переменных ещё нет"
+    b: "Это ограничение снято в последних версиях Terraform"
+    c: "Переменные можно, но только заданные через окружение"
+    d: "Потому что backend хранится в состоянии, а оно ещё не прочитано"
+  answer: a
+  explanation: |
+    Порядок здесь жёсткий: чтобы прочитать конфигурацию, нужно состояние, а чтобы
+    получить состояние — настроенный backend. Значит его параметры обязаны быть
+    известны раньше всего остального. Отсюда и способ различать окружения:
+    частичная конфигурация backend плюс `-backend-config=prod.hcl` при `init`.
+  ref: "https://developer.hashicorp.com/terraform/language/settings/backends/configuration"
+
+- id: terraform-backends-003
+  domain: terraform
+  subtopic: backends
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что нужно для backend в S3, кроме самого бакета?
+  answer: |
+    Включённое версионирование бакета, шифрование и механизм блокировки —
+    исторически это отдельная таблица DynamoDB, в свежих версиях провайдера
+    блокировку умеет и сам S3.
+  explanation: |
+    Каждый пункт закрывает свой отказ: версии спасают при повреждении состояния,
+    шифрование — потому что внутри секреты, блокировка — от параллельных применений.
+    Отдельная тонкость — сам бакет тоже нужно кем-то создать: обычно его делают
+    отдельной маленькой конфигурацией с локальным состоянием либо руками, один раз.
+  ref: "https://developer.hashicorp.com/terraform/language/backend/s3"
+
+- id: terraform-backends-004
+  domain: terraform
+  subtopic: backends
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как перенести состояние из локального файла в удалённый backend?
+  answer: |
+    Добавить блок `backend` и выполнить `terraform init` — Terraform заметит смену
+    и предложит скопировать состояние. Ответ «да» переносит его целиком.
+  explanation: |
+    Ресурсы при этом не трогаются: меняется только место хранения учёта. Важно
+    выполнить перенос до того, как кто-то ещё начнёт работать с конфигурацией,
+    и сохранить локальный файл до подтверждения, что всё на месте: `terraform plan`
+    после переезда должен показать отсутствие изменений.
+  ref: "https://developer.hashicorp.com/terraform/language/settings/backends/configuration"
+
+- id: terraform-backends-005
+  domain: terraform
+  subtopic: backends
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как одной конфигурацией управлять несколькими окружениями, храня состояния
+    раздельно?
+  answer: |
+    Частичной конфигурацией backend: в коде указан только тип, а параметры приходят
+    при инициализации — `terraform init -backend-config=envs/prod.hcl`. У каждого
+    окружения свой ключ или бакет.
+  explanation: |
+    Ключевое требование — **разные состояния**: иначе применение с другим набором
+    переменных просто переделает существующие ресурсы под новые параметры вместо
+    создания отдельного окружения. Отсюда и типичная связка в CI: пара «файл backend
+    плюс файл переменных» на окружение, и никаких копий кода.
+  ref: "https://developer.hashicorp.com/terraform/language/settings/backends/configuration"
+
+- id: terraform-backends-006
+  domain: terraform
+  subtopic: backends
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Где хранить состояние конфигурации, которая создаёт сам бакет для состояний?
+  answer: |
+    Это задача о курице и яйце. Решают одним из двух способов: создать хранилище
+    вручную или отдельной минимальной конфигурацией с локальным состоянием,
+    закоммитив его как исключение, — либо взять управляемый backend,
+    который создавать не нужно.
+  explanation: |
+    Важнее выбрать осознанно и записать решение: конфигурация начальной загрузки
+    запускается раз в несколько лет, и к моменту, когда она понадобится, никто
+    не помнит, где её состояние. Тот же класс задач, что бутстрап кластера
+    Kubernetes: чтобы поднять систему управления, нужна система управления.
+  ref: "https://developer.hashicorp.com/terraform/language/settings/backends/configuration"
+
+- id: terraform-backends-007
+  domain: terraform
+  subtopic: backends
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кто имеет право писать в состояние и почему это вопрос безопасности?
+  answer: |
+    Тот, кто может писать в backend, фактически управляет инфраструктурой: подменив
+    состояние, можно заставить Terraform уничтожить ресурсы или перестать их видеть.
+    Плюс чтение даёт доступ ко всем секретам внутри.
+  explanation: |
+    Поэтому права на хранилище состояния выдают не шире прав на сам прод, а в зрелых
+    контурах доступ к нему есть только у конвейера: люди смотрят план, но не трогают
+    состояние напрямую. Версионирование при этом становится ещё и журналом —
+    видно, какое применение и когда его меняло.
+  ref: "https://developer.hashicorp.com/terraform/language/state/sensitive-data"
+
+- id: terraform-backends-008
+  domain: terraform
+  subtopic: backends
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт, если два инженера одновременно запустят `apply`
+    без блокировки состояния?
+  answer: |
+    Гонка: оба прочитают одно состояние и запишут своё поверх. Ресурсы, созданные
+    первым, пропадут из учёта — Terraform о них забудет и при следующем плане
+    создаст дубликаты.
+  explanation: |
+    Восстановление трудоёмкое: потерянные ресурсы существуют в облаке, и вернуть их
+    можно только поимённым импортом. Именно поэтому блокировку считают не удобством,
+    а обязательным свойством backend, а сообщение «state is locked» — нормальной
+    работой системы, а не помехой.
+  ref: "https://developer.hashicorp.com/terraform/language/state/locking"

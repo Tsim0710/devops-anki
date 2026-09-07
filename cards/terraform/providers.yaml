@@ -1,0 +1,189 @@
+# terraform / providers
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: terraform-providers-001
+  domain: terraform
+  subtopic: providers
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое провайдер в Terraform?
+  answer: |
+    Плагин, который переводит описание ресурсов в вызовы конкретного API: AWS, GCP,
+    Kubernetes, Cloudflare. Сам Terraform не знает ни про одно облако — всё знание
+    в провайдерах.
+  explanation: |
+    Отсюда следует, что «Terraform умеет X» на самом деле означает «есть провайдер
+    для X»: возможности и качество зависят от плагина, а не от ядра. И отсюда же
+    важность версий провайдера — новый релиз может изменить поведение атрибутов
+    и породить изменения в плане при неизменной конфигурации.
+  ref: "https://developer.hashicorp.com/terraform/language/providers"
+
+- id: terraform-providers-002
+  domain: terraform
+  subtopic: providers
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что задаёт блок `required_providers`?
+  answer: |
+    Откуда брать провайдер (`source`, например `hashicorp/aws`) и какие версии
+    допустимы (`version`). Без явного источника Terraform не найдёт сторонние
+    провайдеры.
+  explanation: |
+    Указание источника перестало быть формальностью с появлением реестра: короткое
+    имя `aws` ничего не гарантирует, а полный адрес однозначно определяет издателя.
+    Ограничение версии обычно пишут как `~> 5.0` — разрешить исправления
+    и мелкие обновления, но не переезд на следующую мажорную версию.
+  ref: "https://developer.hashicorp.com/terraform/language/providers/requirements"
+
+- id: terraform-providers-003
+  domain: terraform
+  subtopic: providers
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Зачем коммитить `.terraform.lock.hcl` в репозиторий?
+  options:
+    a: "Он фиксирует точные версии и контрольные суммы провайдеров для всех"
+    b: "Без него `terraform init` не работает"
+    c: "В нём хранится конфигурация backend"
+    d: "Он кеширует скачанные плагины, ускоряя init"
+  answer: a
+  explanation: |
+    Ограничение версий вида `~> 5.0` допускает диапазон, поэтому без файла блокировки
+    разработчик и CI могут получить разные версии провайдера — и разные планы
+    из одного кода. Контрольные суммы дают вторую гарантию: подменённый плагин
+    не установится. Обновляют файл осознанно командой `terraform init -upgrade`,
+    а не молча при каждом запуске.
+  ref: "https://developer.hashicorp.com/terraform/language/files/dependency-lock"
+
+- id: terraform-providers-004
+  domain: terraform
+  subtopic: providers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как работать с двумя регионами одного облака в одной конфигурации?
+  answer: |
+    Через алиасы провайдера: несколько блоков `provider "aws"` с разными `region`
+    и полем `alias`, а в ресурсах — `provider = aws.eu`. Без алиаса используется
+    провайдер по умолчанию.
+  explanation: |
+    Алиасы нужны везде, где один и тот же тип ресурсов создаётся в разных «мирах»:
+    два региона, два аккаунта, два кластера Kubernetes. Тонкость в модулях —
+    провайдеры туда не наследуются автоматически при использовании алиасов,
+    их передают явно через блок `providers` в вызове модуля.
+  ref: "https://developer.hashicorp.com/terraform/language/providers/configuration"
+
+- id: terraform-providers-005
+  domain: terraform
+  subtopic: providers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `data source` отличается от `resource`?
+  answer: |
+    `resource` Terraform создаёт и уничтожает, отвечая за его жизненный цикл.
+    `data` только **читает** существующее: чужой VPC, актуальный образ, значение
+    из хранилища параметров.
+  explanation: |
+    Это способ связать своё с чужим, не забирая чужое под управление: базовую сеть
+    создала другая команда, а тебе нужен её идентификатор. Тонкость в том, что
+    данные читаются при каждом плане, и если источник поменялся, изменения
+    просочатся в зависимые ресурсы — например образ по фильтру «самый свежий»
+    вызовет пересоздание машин.
+  ref: "https://developer.hashicorp.com/terraform/language/data-sources"
+
+- id: terraform-providers-006
+  domain: terraform
+  subtopic: providers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Обновили мажорную версию провайдера, и план предлагает пересоздать половину
+    ресурсов. Что делать?
+  answer: |
+    Не применять. Прочитать руководство по обновлению провайдера: обычно изменились
+    имена или семантика атрибутов, и нужен либо новый синтаксис, либо `moved`,
+    либо `ignore_changes`. При необходимости откатиться на прежнюю версию.
+  explanation: |
+    Мажорные версии провайдеров ломают совместимость намеренно, и план — единственное
+    место, где это видно до применения. Отсюда практика: обновлять провайдер
+    отдельным изменением, а не вместе с содержательной правкой, и прогонять его
+    сначала на тестовом окружении — иначе непонятно, чьи изменения в плане.
+  ref: "https://developer.hashicorp.com/terraform/language/providers/requirements"
+
+- id: terraform-providers-007
+  domain: terraform
+  subtopic: providers
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему конфигурацию провайдера нельзя вычислять из ресурсов, создаваемых
+    в том же применении?
+  answer: |
+    Провайдеры настраиваются до построения плана, поэтому их параметры должны быть
+    известны заранее. Значение, которое появится только после создания ресурса,
+    там использовать нельзя.
+  explanation: |
+    Классический случай — создать кластер Kubernetes и в том же коде настроить
+    провайдер `kubernetes` его адресом и токеном: первый запуск падает, потому что
+    значений ещё нет. Решение — разделить на два применения с разными состояниями:
+    сначала кластер, потом то, что внутри. Это же одна из главных причин
+    делить конфигурацию по слоям.
+  ref: "https://developer.hashicorp.com/terraform/language/providers/configuration"
+
+- id: terraform-providers-008
+  domain: terraform
+  subtopic: providers
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как Terraform получает доступ к облаку и почему ключи не пишут в конфигурацию?
+  answer: |
+    Провайдер берёт учётные данные из стандартных источников окружения: переменные,
+    профиль CLI, роль инстанса, OIDC-токен из CI. Ключи в коде попадают в git
+    и в состояние, а ротация превращается в правку репозитория.
+  explanation: |
+    Современный вариант для конвейеров — федерация через OIDC: раннер получает
+    короткоживущий токен облака, статических ключей не существует вовсе. Это снимает
+    и задачу ротации, и риск утечки долгоживущего секрета — то же рассуждение,
+    что с токенами ServiceAccount в Kubernetes.
+  ref: "https://developer.hashicorp.com/terraform/language/providers/configuration"
+
+- id: terraform-providers-009
+  domain: terraform
+  subtopic: providers
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает ограничение версии `~> 5.4` у провайдера?
+  answer: |
+    Разрешены версии от `5.4` включительно до `6.0`: обновляется последняя цифра
+    и минорная, но не мажорная. Это «пессимистичное» ограничение.
+  explanation: |
+    Выбор такой записи отражает договор о совместимости: мажорная версия может
+    ломать поведение, минорные и патчи — не должны. На практике ограничение
+    работает вместе с файлом блокировки: первое задаёт разрешённый диапазон,
+    второй фиксирует, какая версия из него используется сейчас.
+  ref: "https://developer.hashicorp.com/terraform/language/expressions/version-constraints"
