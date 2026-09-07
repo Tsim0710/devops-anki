@@ -119,3 +119,240 @@
     для локального запуска и compose, где на статус можно опереться в условии запуска
     зависимых сервисов.
   ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-runtime-007
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему остановленные контейнеры продолжают занимать место и как это чистить?
+  answer: |
+    Остановленный контейнер сохраняет свой слой записи и логи — он удаляется только
+    явно. Чистят `docker rm`, а разом — `docker container prune`; флаг `--rm`
+    удаляет контейнер сразу после завершения.
+  explanation: |
+    Сохранение — не недосмотр, а возможность посмотреть логи и файлы упавшего
+    контейнера: удалив его, ты теряешь и то, и другое. Отсюда практика: `--rm`
+    для разовых запусков и отладки, обычное поведение для того, что предстоит
+    разбирать. На машинах CI забытая уборка — самая частая причина кончившегося диска.
+  ref: "https://docs.docker.com/reference/cli/docker/container/prune/"
+
+- id: docker-runtime-008
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Откуда `docker logs` берёт вывод и почему логи приложения там иногда пусты?
+  answer: |
+    Из потоков `stdout` и `stderr` процесса PID 1. Если приложение пишет в файл
+    внутри контейнера, `docker logs` не покажет ничего — их там просто нет.
+  explanation: |
+    Отсюда требование контейнерного мира писать логи в стандартные потоки: сборщику
+    достаточно читать их у рантайма, не зная ничего о приложении. Запись в файл
+    вдобавок растит слой контейнера и в итоге забивает диск узла. Вторая частая
+    причина пустого вывода — буферизация в самом приложении, когда вывод не в TTY.
+  ref: "https://docs.docker.com/config/containers/logging/"
+
+- id: docker-runtime-009
+  domain: docker
+  subtopic: runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `docker run --init` и когда он нужен?
+  answer: |
+    Подставляет минимальный init-процесс как PID 1, который пересылает сигналы
+    приложению и забирает осиротевших потомков. Нужен, когда само приложение
+    на роль PID 1 не рассчитано.
+  explanation: |
+    Без него `docker stop` часто не доходит до приложения, а зомби копятся, пока
+    не исчерпают лимит процессов. Альтернатива — сделать приложение настоящим PID 1
+    через `exec` в entrypoint, и она предпочтительнее: меньше сущностей. Флаг нужен
+    там, где приложение само порождает потомков и не умеет их «хоронить».
+  ref: "https://docs.docker.com/reference/cli/docker/container/run/"
+
+- id: docker-runtime-010
+  domain: docker
+  subtopic: runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем запускать контейнер с `--read-only`?
+  answer: |
+    Чтобы корневая файловая система была недоступна на запись: всё, куда приложению
+    нужно писать, монтируется явно через `--tmpfs /tmp` или тома. Контейнер
+    становится честно неизменяемым.
+  explanation: |
+    Смысл в ограничении злоумышленника: скачать и запустить полезную нагрузку внутрь
+    некуда. Побочная выгода архитектурная — приходится перечислить все точки записи,
+    и становится видно, где приложение хранит состояние. Это тот же
+    `readOnlyRootFilesystem` из профиля `restricted` в Kubernetes.
+  ref: "https://docs.docker.com/engine/containers/run/"
+
+- id: docker-runtime-011
+  domain: docker
+  subtopic: runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что именно даёт флаг `--privileged` и почему его почти никогда не нужно?
+  answer: |
+    Все capabilities, доступ ко всем устройствам хоста, отключение seccomp
+    и AppArmor. Фактически это отказ от изоляции — контейнер получает возможности,
+    равные root на машине.
+  explanation: |
+    Он появляется в инструкциях как универсальное лекарство от любой ошибки прав,
+    и это худший способ её чинить. Почти всегда нужна одна конкретная возможность:
+    `--cap-add NET_ADMIN` для сетевых операций, `--device` для конкретного устройства.
+    Разница принципиальна: точечное разрешение оставляет остальные границы на месте.
+  ref: "https://docs.docker.com/engine/containers/run/"
+
+- id: docker-runtime-012
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем в `docker exec -it` нужны флаги `-i` и `-t`?
+  answer: |
+    `-i` держит открытым стандартный ввод, `-t` выделяет псевдотерминал. Без `-i`
+    интерактивная оболочка немедленно завершится, без `-t` не будет ни приглашения,
+    ни нормальной обработки клавиш.
+  explanation: |
+    В скриптах и CI их, наоборот, не ставят: `-t` требует терминала, которого там нет,
+    и команда падает. Отсюда правило — `-it` для ручной отладки, без флагов
+    для автоматизации. Тот же смысл у `-it` в `docker run`.
+  ref: "https://docs.docker.com/reference/cli/docker/container/exec/"
+
+- id: docker-runtime-013
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать в контейнер набор переменных окружения?
+  answer: |
+    По одной через `-e KEY=value` либо файлом через `--env-file`. В compose — секция
+    `environment` или `env_file`.
+  explanation: |
+    Практическая тонкость: `--env-file` берёт значения **как есть**, без раскрытия
+    оболочкой, поэтому кавычки вокруг значения станут его частью. И главное —
+    переменные окружения видны в `docker inspect` и в дампах, поэтому секреты через
+    них передавать не стоит: для них есть файлы и монтируемые тома.
+  ref: "https://docs.docker.com/reference/cli/docker/container/run/"
+
+- id: docker-runtime-014
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `docker inspect` и что там смотрят чаще всего?
+  answer: |
+    Полное описание объекта в JSON. Чаще всего — адрес и сети контейнера, список
+    монтирований, переменные окружения, entrypoint и команду, код и причину
+    завершения.
+  explanation: |
+    Особенно полезны два поля при разборе падения: `State.ExitCode`
+    и `State.OOMKilled` — они сразу отличают ошибку приложения от убийства
+    по нехватке памяти. Вывод удобно сужать шаблоном `--format`, иначе читать
+    сотни строк JSON бессмысленно.
+  ref: "https://docs.docker.com/reference/cli/docker/inspect/"
+
+- id: docker-runtime-015
+  domain: docker
+  subtopic: runtime
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как скопировать файл из контейнера и обратно?
+  answer: |
+    `docker cp <container>:/path ./local` и в обратную сторону. Работает
+    и с остановленным контейнером, потому что читает его файловую систему,
+    а не общается с процессом.
+  explanation: |
+    Это удобный способ забрать дамп, лог или конфиг из упавшего контейнера
+    до его удаления. Для постоянного обмена данными он не годится — копия
+    не переживёт пересоздания. И стоит помнить, что записанное таким образом
+    попадает в слой контейнера, а не в образ.
+  ref: "https://docs.docker.com/reference/cli/docker/container/cp/"
+
+- id: docker-runtime-016
+  domain: docker
+  subtopic: runtime
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Контейнер завершился с кодом 137, 143 или 1. Как это читать?
+  answer: |
+    `137` = 128 + 9, убит `SIGKILL` — обычно OOM или истёкший grace period.
+    `143` = 128 + 15, штатное завершение по `SIGTERM`. `1` — приложение вышло
+    с ошибкой само.
+  explanation: |
+    Различение экономит время: `143` при выкате это норма, `137` требует проверить
+    `State.OOMKilled` и лимит памяти, `1` уводит в логи приложения. Отдельный случай —
+    код `0` при политике перезапуска: контейнер честно доделал работу и вышел,
+    а от него ждали постоянной работы.
+  ref: "https://docs.docker.com/reference/cli/docker/container/ls/"
+
+- id: docker-runtime-017
+  domain: docker
+  subtopic: runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Диск заполнен, `/var/lib/docker` разросся. Что там лежит и что чистить?
+  answer: |
+    Слои образов, слои записи контейнеров, тома, логи и кеш сборки. Чистят по частям:
+    `image prune`, `container prune`, `builder prune`; тома трогают отдельно
+    и осознанно — в них данные.
+  explanation: |
+    Опасен `docker system prune --volumes`: он уносит и данные неиспользуемых томов,
+    а «неиспользуемый» означает лишь то, что сейчас нет запущенного контейнера.
+    На машинах сборки основной вклад обычно даёт кеш билдера, а не образы, —
+    и он чистится отдельной командой, о которой чаще всего забывают.
+  ref: "https://docs.docker.com/reference/cli/docker/system/prune/"
+
+- id: docker-runtime-018
+  domain: docker
+  subtopic: runtime
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Контейнер с `restart: always` падает при старте. Что будет с узлом?
+  answer: |
+    Docker будет перезапускать его с **экспоненциально растущей** паузой, а не
+    бесконечным циклом. Но пока причина не устранена, контейнер остаётся
+    в петле рестартов и тянет ресурсы.
+  explanation: |
+    Механика та же, что у `CrashLoopBackOff` в Kubernetes, и вывод тот же: растущая
+    задержка защищает узел, но не чинит проблему. Диагностика идёт через
+    `docker logs` предыдущего запуска и код выхода — сам по себе факт перезапусков
+    причину не называет.
+  ref: "https://docs.docker.com/engine/containers/start-containers-automatically/"

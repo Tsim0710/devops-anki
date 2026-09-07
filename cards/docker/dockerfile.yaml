@@ -124,3 +124,127 @@
     управляемый подъём версий. Полностью плавающие версии дают свежесть,
     но делают невозможным разбор инцидента «вчера собиралось, сегодня нет».
   ref: "https://docs.docker.com/build/building/best-practices/"
+
+- id: docker-dockerfile-007
+  domain: docker
+  subtopic: dockerfile
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Что делает инструкция `EXPOSE 8080` в Dockerfile?
+  options:
+    a: "Ничего не публикует — это документация и подсказка для инструментов"
+    b: "Открывает порт 8080 на хосте при запуске контейнера"
+    c: "Разрешает контейнеру слушать порт 8080"
+    d: "Пробрасывает порт в другие контейнеры сети"
+  answer: a
+  explanation: |
+    Порт публикует только `-p` при запуске или `-P`, который использует `EXPOSE`
+    как список кандидатов. Само по себе объявление ничего не меняет: контейнер
+    слушает те порты, что открыло приложение, независимо от Dockerfile. Ценность
+    инструкции в другом — она сообщает читателю и оркестратору, какие порты
+    предполагаются рабочими.
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-008
+  domain: docker
+  subtopic: dockerfile
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `WORKDIR /app` лучше, чем `RUN cd /app`?
+  answer: |
+    Каждая инструкция `RUN` выполняется в отдельном процессе, и смена каталога в ней
+    не переживает переход к следующей. `WORKDIR` задаёт рабочий каталог для всех
+    последующих инструкций и для запуска контейнера.
+  explanation: |
+    Это проявление общего свойства: слои независимы, и «состояние оболочки»
+    между ними не сохраняется — то же касается переменных, заданных через `export`.
+    Постоянные значения задаются инструкциями `ENV` и `WORKDIR`, а не командами
+    внутри `RUN`.
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-009
+  domain: docker
+  subtopic: dockerfile
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем образу метки `org.opencontainers.image.*`?
+  answer: |
+    Это стандартные метки происхождения: исходный репозиторий, коммит, версия, дата
+    сборки, лицензия. Проставляются в CI инструкцией `LABEL` и читаются
+    через `docker inspect`.
+  explanation: |
+    Практическая ценность в инциденте: по работающему контейнеру за секунды
+    восстанавливается, из какого коммита он собран, — без этого приходится
+    сопоставлять теги с историей вручную. Стандартные имена важны потому, что
+    их понимают чужие инструменты: сканеры, каталоги образов, панели кластера.
+  ref: "https://github.com/opencontainers/image-spec/blob/main/annotations.md"
+
+- id: docker-dockerfile-010
+  domain: docker
+  subtopic: dockerfile
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `docker commit` считают антипаттерном?
+  answer: |
+    Он делает образ из состояния работающего контейнера. Такой образ невоспроизводим:
+    нет Dockerfile, неизвестно, что и в каком порядке в нём выполняли, ревью
+    и сканирование опираться не на что.
+  explanation: |
+    Это ровно та же граница, что между императивным `kubectl edit` и декларативным
+    манифестом: получившееся состояние существует, но не описано. Уместен `commit`
+    в одном случае — зафиксировать состояние сломанного контейнера, чтобы разобрать
+    его позже, то есть как инструмент отладки, а не сборки.
+  ref: "https://docs.docker.com/reference/cli/docker/container/commit/"
+
+- id: docker-dockerfile-011
+  domain: docker
+  subtopic: dockerfile
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает инструкция `USER` и почему её ставят в конце Dockerfile?
+  answer: |
+    Задаёт пользователя, от которого выполняются последующие инструкции и запускается
+    контейнер. В конце — потому что установка пакетов и правка системных каталогов
+    обычно требуют root.
+  explanation: |
+    Порядок отражает разделение времени сборки и времени работы: привилегии нужны
+    первому, но не второму. Важная деталь — пользователь должен существовать
+    в образе: `USER appuser` без предварительного создания даст ошибку запуска.
+    В Kubernetes это дополняется требованием `runAsNonRoot`, которое проверяет
+    результат.
+  ref: "https://docs.docker.com/reference/dockerfile/"
+
+- id: docker-dockerfile-012
+  domain: docker
+  subtopic: dockerfile
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как запустить в контейнере другую команду, если задан `ENTRYPOINT`?
+  answer: |
+    Аргументы `docker run` заменяют только `CMD`. Чтобы подменить сам entrypoint,
+    нужен флаг `--entrypoint`, например `--entrypoint sh`.
+  explanation: |
+    Это регулярно нужно при отладке: образ спроектирован запускать одно приложение,
+    а надо заглянуть внутрь. Отсюда же понятно, зачем разделять две инструкции:
+    `ENTRYPOINT` фиксирует, что это за контейнер, `CMD` даёт заменяемые аргументы
+    по умолчанию — и подмена аргументов не требует особых флагов, а подмена
+    программы требует.
+  ref: "https://docs.docker.com/reference/dockerfile/"

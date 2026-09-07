@@ -61,3 +61,44 @@
     способ получить дыру, и именно поэтому появился целый класс безсокетных
     сборщиков.
   ref: "https://docs.docker.com/build/buildkit/"
+
+- id: docker-buildkit-004
+  domain: docker
+  subtopic: buildkit
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `RUN --mount=type=cache` и чем это лучше кеша слоёв?
+  answer: |
+    Монтирует постоянный каталог кеша пакетного менеджера на время выполнения
+    инструкции. Он переживает пересборки, но **не попадает в образ** —
+    в отличие от всего, что оставил после себя обычный `RUN`.
+  explanation: |
+    Кеш слоёв решает другую задачу: он либо переиспользует инструкцию целиком, либо
+    выполняет её с нуля. Кеш-маунт даёт промежуточный вариант — инструкция
+    выполняется, но не скачивает заново уже загруженное. Отсюда типовое применение:
+    каталоги `~/.m2`, `~/.cache/pip`, `/var/cache/apt` — экономия минут на каждой
+    сборке без роста образа.
+  ref: "https://docs.docker.com/build/cache/optimize/"
+
+- id: docker-buildkit-005
+  domain: docker
+  subtopic: buildkit
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в кластерах Kubernetes нет Docker, но образы Docker работают?
+  answer: |
+    Kubelet общается с рантаймом по CRI, и в проде это обычно containerd. Docker —
+    инструмент сборки и управления, а формат образов стандартизован в OCI,
+    поэтому запускать их может любой совместимый рантайм.
+  explanation: |
+    Отсюда практические следствия. На узле нет команды `docker` — смотреть контейнеры
+    надо через `crictl`. Сборка образов в кластере не может опираться на демон
+    Docker, потому что его там нет, — и это ещё одна причина существования
+    безсокетных сборщиков.
+  ref: "https://kubernetes.io/docs/concepts/architecture/cri/"

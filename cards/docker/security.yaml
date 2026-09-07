@@ -99,3 +99,64 @@
     недоверенный код — на CI-агентах и машинах разработчиков, — и менее оправдан
     на выделенных узлах с контролируемой нагрузкой.
   ref: "https://docs.docker.com/engine/security/rootless/"
+
+- id: docker-security-006
+  domain: docker
+  subtopic: security
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает seccomp-профиль Docker по умолчанию?
+  answer: |
+    Запрещает контейнеру заметную часть системных вызовов — те, что почти никогда
+    не нужны приложениям, но полезны для атаки на ядро. Профиль применяется
+    автоматически, если его не отключили.
+  explanation: |
+    Это дешёвая защита: поверхность атаки на ядро сужается, а типовые приложения
+    ничего не замечают. Ломается она обычно там, где контейнеру действительно нужен
+    редкий вызов — у отладчиков и профилировщиков. Правильная реакция — выдать
+    точечную возможность, а не отключать профиль целиком через `--privileged`.
+  ref: "https://docs.docker.com/engine/security/seccomp/"
+
+- id: docker-security-007
+  domain: docker
+  subtopic: security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт userns-remap на уровне демона?
+  answer: |
+    Отображает пользователей контейнеров в непривилегированный диапазон uid хоста:
+    root внутри контейнера соответствует обычному пользователю снаружи. Работает
+    для всех контейнеров сразу.
+  explanation: |
+    Отличие от rootless-режима в том, что сам демон остаётся привилегированным —
+    защищаются контейнеры, а не хостовый процесс Docker. Плата привычная: тома
+    и bind mount требуют согласования владельцев, потому что uid на диске
+    и uid внутри контейнера теперь разные. Это тот же механизм, что user namespace
+    в Kubernetes.
+  ref: "https://docs.docker.com/engine/security/userns-remap/"
+
+- id: docker-security-008
+  domain: docker
+  subtopic: security
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как дать контейнеру доступ к конкретному устройству, не включая `--privileged`?
+  answer: |
+    Флагом `--device /dev/xxx` — он пробрасывает одно устройство. Для GPU
+    используют специальный runtime и `--gpus`, который делает то же самое
+    вместе с нужными библиотеками.
+  explanation: |
+    Разница в радиусе: `--privileged` открывает все устройства и снимает seccomp
+    и AppArmor разом, `--device` даёт ровно один узел устройства. Это общий принцип
+    работы с привилегиями в контейнерах — точечное разрешение вместо отключения
+    защиты целиком, тот же подход, что с `--cap-add` против полного набора прав.
+  ref: "https://docs.docker.com/reference/cli/docker/container/run/"

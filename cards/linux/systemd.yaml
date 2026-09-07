@@ -61,3 +61,63 @@
     для kubelet задаются именно так, и без них перегруженный узел уносит
     не только поды, но и агента, который должен об этом сообщить.
   ref: "man 5 systemd.resource-control"
+
+- id: linux-systemd-004
+  domain: linux
+  subtopic: systemd
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что важно прочитать в выводе `systemctl status`?
+  answer: |
+    Состояние (`active`, `failed`, `activating`), включён ли автозапуск (`enabled`),
+    PID и время работы, код завершения при падении и последние строки журнала —
+    они выводятся прямо там.
+  explanation: |
+    Особенно информативна связка «состояние плюс код выхода»: `activating` дольше
+    минуты означает зависший старт, а `failed` с кодом сразу указывает, читать логи
+    приложения или искать проблему в самом unit-файле. Строка `enabled/disabled`
+    отвечает на отдельный вопрос — переживёт ли сервис перезагрузку.
+  ref: "man 1 systemctl"
+
+- id: linux-systemd-005
+  domain: linux
+  subtopic: systemd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем systemd timer лучше cron?
+  answer: |
+    Он даёт журналирование через journald, зависимости от других юнитов, запуск
+    пропущенного после простоя (`Persistent=`), случайный разброс времени старта
+    и ограничение ресурсов задачи через cgroups.
+  explanation: |
+    Cron проще, но у него минимальное окружение, нет учёта пропусков и вывод уходит
+    в почту или в никуда. Разброс старта отдельно ценен на парке машин: без него
+    сотня серверов выполняет задачу в одну и ту же секунду и создаёт всплеск
+    нагрузки на общий ресурс.
+  ref: "man 5 systemd.timer"
+
+- id: linux-systemd-006
+  domain: linux
+  subtopic: systemd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис с `Restart=always` перезапускается бесконечно. Как это ограничить?
+  answer: |
+    Параметрами `StartLimitIntervalSec` и `StartLimitBurst`: если сервис упал больше
+    заданного числа раз за интервал, systemd прекращает попытки и переводит его
+    в `failed`. Пауза между перезапусками задаётся `RestartSec`.
+  explanation: |
+    Без ограничения падающий сервис уходит в цикл и жжёт ресурсы узла — тот же
+    сценарий, от которого в Kubernetes защищает экспоненциальный `CrashLoopBackOff`.
+    Разница в поведении по умолчанию: systemd после лимита останавливается совсем
+    и требует ручного вмешательства, а kubelet продолжает пытаться с растущей паузой.
+  ref: "man 5 systemd.service"

@@ -103,3 +103,41 @@
     файлов тоже отображаются, и часть операций непривилегированному процессу
     по-прежнему недоступна.
   ref: "man 7 user_namespaces"
+
+- id: linux-cgroups-namespaces-006
+  domain: linux
+  subtopic: cgroups-namespaces
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают `nsenter` и `unshare`?
+  answer: |
+    `unshare` создаёт **новые** namespace и запускает в них процесс. `nsenter`
+    наоборот — входит в **существующие** namespace чужого процесса, обычно по его PID.
+  explanation: |
+    Это ручной эквивалент того, что делает контейнерный рантайм. Практическая ценность
+    у `nsenter`: он позволяет с хоста войти в сетевой namespace контейнера
+    и посмотреть его сокеты или снять дамп своими утилитами, когда в образе нет
+    ничего. Тот же механизм лежит в основе `kubectl debug --target`.
+  ref: "man 1 nsenter"
+
+- id: linux-cgroups-namespaces-007
+  domain: linux
+  subtopic: cgroups-namespaces
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как защититься от fork-бомбы в контейнере или сервисе?
+  answer: |
+    Ограничить число процессов через cgroup: `pids.max`, в Docker это `--pids-limit`,
+    в systemd — `TasksMax`. Лимиты памяти и CPU от неё не спасают.
+  explanation: |
+    Fork-бомба не потребляет заметно ни памяти, ни процессора на каждый процесс —
+    она исчерпывает **таблицу процессов** и не даёт запуститься ничему, включая
+    средства восстановления. Именно поэтому у неё отдельный контроллер cgroups.
+    Тот же лимит косвенно задаёт и `maxPods` на узле Kubernetes.
+  ref: "man 7 cgroups"

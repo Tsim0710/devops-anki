@@ -82,3 +82,23 @@
     для секретов — не давать им попадать в слои вовсе, через монтируемые секреты
     BuildKit. Скомпрометированный секрет в любом случае ротируют.
   ref: "https://docs.docker.com/build/building/secrets/"
+
+- id: docker-layers-cache-005
+  domain: docker
+  subtopic: layers-cache
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `--no-cache` отличается от `--pull` при сборке?
+  answer: |
+    `--no-cache` игнорирует кеш слоёв и выполняет все инструкции заново. `--pull`
+    заново тянет **базовый образ**, проверяя, не обновился ли он под тем же тегом.
+    Это разные проблемы.
+  explanation: |
+    Отсюда типичная ситуация: пересобрали с `--no-cache`, а уязвимость в базовом
+    слое осталась — потому что локально лежал старый `FROM`. И наоборот, `--pull`
+    сам по себе не пересоберёт ваши слои, если их входные данные не изменились.
+    В CI обычно нужны оба, а надёжнее — пиннинг базового образа по digest.
+  ref: "https://docs.docker.com/reference/cli/docker/buildx/build/"
