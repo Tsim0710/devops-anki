@@ -1,0 +1,205 @@
+# cicd / argocd
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: cicd-argocd-001
+  domain: cicd
+  subtopic: argocd
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое Application в Argo CD?
+  answer: |
+    Объект, связывающий источник (репозиторий, путь, ревизия) с целью (кластер
+    и namespace). Argo CD сверяет описанное в источнике с тем, что в кластере.
+  explanation: |
+    Application — единица владения и единица наблюдения: у неё свой статус
+    синхронизации, своё здоровье и свои права. Отсюда и главный вопрос
+    проектирования — на что заводить Application: на сервис, на команду или
+    на окружение. Границы Application задают, что можно выкатить и откатить
+    независимо.
+  ref: "https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/"
+
+- id: cicd-argocd-002
+  domain: cicd
+  subtopic: argocd
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означают статусы `Synced` и `Healthy` и почему их два?
+  answer: |
+    `Synced` — состояние кластера совпадает с описанным в git. `Healthy` —
+    объекты действительно работают. Приложение может быть синхронизировано
+    и при этом нездорово.
+  explanation: |
+    Разделение отражает границу ответственности: Argo CD отвечает за применение
+    манифестов, а не за то, что под запустится. `Synced` + `Degraded` — типичная
+    картина при неверном образе: манифест применён точно как в git, а под
+    в `ImagePullBackOff`. Смотреть в этом случае надо в кластер, а не в Argo.
+  ref: "https://argo-cd.readthedocs.io/en/stable/operator-manual/health/"
+
+- id: cicd-argocd-003
+  domain: cicd
+  subtopic: argocd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают `automated`, `prune` и `selfHeal` в политике синхронизации?
+  answer: |
+    `automated` включает автоматическое применение изменений из git. `prune`
+    разрешает **удалять** объекты, исчезнувшие из репозитория. `selfHeal`
+    возвращает обратно изменения, сделанные в кластере руками.
+  explanation: |
+    Флаги независимы, и без `prune` контур неполон: удаление манифеста из git
+    оставляет объект жить в кластере, как в Ansible. Включают его осознанно —
+    ошибка в пути или в фильтре может привести к удалению того, что Argo считает
+    лишним. `selfHeal` же меняет правила работы для всей команды и потому
+    вводится как общее решение, а не втихую.
+  ref: "https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/"
+
+- id: cicd-argocd-004
+  domain: cicd
+  subtopic: argocd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое sync waves и когда без них не обойтись?
+  answer: |
+    Порядок применения объектов внутри одной синхронизации, задаётся аннотацией
+    с номером волны. Нужны, когда есть зависимости: CRD раньше CR, namespace
+    раньше подов, оператор раньше его ресурсов.
+  explanation: |
+    Без порядка часть объектов не применится с первой попытки и починится только
+    на следующей сверке — выглядит как мигающий `Degraded` и мешает отличить гонку
+    от настоящей поломки. Родственный механизм — sync hooks: задачи до и после
+    синхронизации, например миграция базы перед выкатом.
+  ref: "https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/"
+
+- id: cicd-argocd-005
+  domain: cicd
+  subtopic: argocd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение вечно `OutOfSync` по одному и тому же полю. Что делать?
+  answer: |
+    Разобраться, **кто** это поле пишет: HPA правит `replicas`, mutating webhook
+    добавляет sidecar, оператор проставляет значения. Такие поля исключают
+    из сравнения через `ignoreDifferences`.
+  explanation: |
+    Отключать `selfHeal` из-за этого — лечение симптома: контур теряет главное
+    свойство. Правильный ответ — явно описать, какое поле кому принадлежит,
+    и это тот же разговор о владении полями, что server-side apply в Kubernetes
+    и `ignore_changes` в Terraform.
+  ref: "https://argo-cd.readthedocs.io/en/stable/user-guide/diffing/"
+
+- id: cicd-argocd-006
+  domain: cicd
+  subtopic: argocd
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как Argo CD узнаёт об изменении в git?
+  answer: |
+    По умолчанию **опросом** репозитория с интервалом в несколько минут.
+    Для мгновенной реакции настраивают webhook из репозитория в Argo CD.
+  explanation: |
+    Отсюда типичный вопрос «почему выкат не начался сразу»: ничего не сломано,
+    просто не наступил следующий опрос. Опрос при этом ценен сам по себе —
+    он работает, даже когда webhook не доставлен, поэтому его не отключают,
+    а дополняют. Это ровно та же пара «watch плюс периодический resync»,
+    что у контроллеров Kubernetes.
+  ref: "https://argo-cd.readthedocs.io/en/stable/operator-manual/webhook/"
+
+- id: cicd-argocd-007
+  domain: cicd
+  subtopic: argocd
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое ApplicationSet и какую задачу он решает?
+  answer: |
+    Генератор Application'ов по шаблону: из списка кластеров, каталогов
+    репозитория или веток создаётся набор одинаковых приложений. Один объект
+    вместо ручного заведения десятков.
+  explanation: |
+    Задача та же, что у `for_each` в Terraform: описать множество, а не перечислять
+    экземпляры. Особенно полезен генератор по каталогам — новый сервис появляется
+    в репозитории и подхватывается сам. Обратная сторона знакомая: ошибка
+    в шаблоне размножается на все приложения разом.
+  ref: "https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/"
+
+- id: cicd-argocd-008
+  domain: cicd
+  subtopic: argocd
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как ограничить, что команда может выкатывать через Argo CD?
+  answer: |
+    Проектами (`AppProject`): в них задаются разрешённые репозитории-источники,
+    целевые кластеры и namespace, а также допустимые типы ресурсов. Плюс RBAC
+    поверх — кто может синхронизировать и кто только смотреть.
+  explanation: |
+    Без проектов Argo CD становится общей точкой с правами на весь кластер:
+    любой, кто может создать Application, применяет что угодно куда угодно.
+    Ограничение по типам ресурсов особенно важно — оно не даёт продуктовой
+    команде через манифест создать себе ClusterRole с админскими правами.
+  ref: "https://argo-cd.readthedocs.io/en/stable/operator-manual/project-specification/"
+
+- id: cicd-argocd-009
+  domain: cicd
+  subtopic: argocd
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как Argo CD определяет, что приложение `Healthy`, и что делать
+    с собственными ресурсами?
+  answer: |
+    Для встроенных типов есть готовые проверки: Deployment здоров, когда доступны
+    нужные реплики. Для CRD оператор пишет свою проверку на Lua либо ресурс
+    считается здоровым по умолчанию.
+  explanation: |
+    Отсюда обманчивая картина с чужими операторами: приложение зелёное, а база
+    внутри не поднялась — потому что для её CR проверки нет и Argo нечего оценивать.
+    Понимание этого экономит время в инциденте: зелёный статус Argo означает
+    «манифесты применены», а не «сервис работает».
+  ref: "https://argo-cd.readthedocs.io/en/stable/operator-manual/health/"
+
+- id: cicd-argocd-010
+  domain: cicd
+  subtopic: argocd
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Кто должен обновлять версию образа в манифестах при GitOps?
+  answer: |
+    Не человек: либо конвейер после сборки коммитит новый тег в репозиторий
+    манифестов, либо это делает отдельный компонент, следящий за реестром.
+    Argo CD подхватывает изменение из git.
+  explanation: |
+    Ключевое требование — правка должна попасть **в git**, иначе состояние кластера
+    разойдётся с источником правды. Отсюда и типичное разделение репозиториев:
+    код отдельно, манифесты отдельно, чтобы автоматический коммит версии не запускал
+    сборку заново и не создавал петлю.
+  ref: "https://argo-cd.readthedocs.io/en/stable/user-guide/tracking_strategies/"

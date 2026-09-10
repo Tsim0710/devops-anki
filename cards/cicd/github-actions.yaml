@@ -1,0 +1,324 @@
+# cicd / github-actions
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: cicd-github-actions-001
+  domain: cicd
+  subtopic: github-actions
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как соотносятся workflow, job и step?
+  answer: |
+    Workflow — файл в `.github/workflows/`, запускаемый по событию. Job — набор шагов,
+    выполняющийся на **отдельном** раннере. Step — одна команда или вызов действия
+    внутри job.
+  explanation: |
+    Ключевое следствие — job'ы по умолчанию идут **параллельно и на разных машинах**:
+    файловая система между ними не общая. Отсюда и необходимость artifacts, чтобы
+    передать результат сборки дальше, и `needs:` — чтобы задать порядок,
+    когда он важен.
+  ref: "https://docs.github.com/actions/using-workflows/about-workflows"
+
+- id: cicd-github-actions-002
+  domain: cicd
+  subtopic: github-actions
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в начале job почти всегда стоит `actions/checkout`?
+  answer: |
+    Потому что раннер стартует **пустым**: код репозитория туда не попадает сам.
+    Действие `checkout` его клонирует.
+  explanation: |
+    Это удивляет тех, кто пришёл из систем, где сборка идёт в рабочей копии. По той же
+    причине каждый job делает checkout отдельно — у них разные машины. Полезная
+    деталь: по умолчанию клонируется только один коммит (`fetch-depth: 1`),
+    и командам, которым нужна история — подсчёт версии, сравнение с базовой веткой, —
+    глубину задают явно.
+  ref: "https://github.com/actions/checkout"
+
+- id: cicd-github-actions-003
+  domain: cicd
+  subtopic: github-actions
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что задаёт `needs` и что происходит без него?
+  answer: |
+    Зависимость между job'ами: job с `needs: build` стартует только после успешного
+    `build`. Без него все job'ы запускаются одновременно.
+  explanation: |
+    Параллельность по умолчанию — это про скорость, но она же источник гонок:
+    деплой стартует до того, как собрался образ, потому что зависимость забыли.
+    Через `needs` заодно передаются выходы предыдущего job: `needs.build.outputs.tag`.
+  ref: "https://docs.github.com/actions/using-jobs/using-jobs-in-a-workflow"
+
+- id: cicd-github-actions-004
+  domain: cicd
+  subtopic: github-actions
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `GITHUB_TOKEN` и откуда он берётся?
+  answer: |
+    Временный токен, который GitHub создаёт **на каждый запуск** и уничтожает после.
+    Заводить его вручную не нужно, доступен как `secrets.GITHUB_TOKEN`.
+  explanation: |
+    Короткая жизнь — его главное достоинство: утёкший в лог токен протухает вместе
+    с запуском. Права задаются блоком `permissions` на уровне workflow или job,
+    и хорошая практика — начинать с `contents: read` и добавлять только нужное,
+    потому что настройки репозитория по умолчанию могут быть шире.
+  ref: "https://docs.github.com/actions/security-guides/automatic-token-authentication"
+
+- id: cicd-github-actions-005
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать файл из одного job в другой?
+  answer: |
+    Через artifacts: `actions/upload-artifact` в первом job и `download-artifact`
+    во втором. Общей файловой системы у job'ов нет.
+  explanation: |
+    Артефакты — это передача **между** job'ами и хранение результата для человека.
+    Не путать с кешем: тот ускоряет повторные запуски, восстанавливая зависимости,
+    и рассчитан на промах. Артефакт, которого нет, — это ошибка; кеш, которого нет, —
+    просто медленнее.
+  ref: "https://docs.github.com/actions/using-workflows/storing-workflow-data-as-artifacts"
+
+- id: cicd-github-actions-006
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `concurrency` и зачем `cancel-in-progress`?
+  answer: |
+    Группирует запуски: в одной группе одновременно идёт только один. С
+    `cancel-in-progress: true` новый запуск отменяет предыдущий в той же группе.
+  explanation: |
+    Два разных применения. Для pull request группа по ветке с отменой экономит
+    раннеры: три пуша подряд — проверяется только последний. Для деплоя, наоборот,
+    отмену **выключают**, а группу делают по окружению: два одновременных выката
+    в прод недопустимы, но и прерывать начатый на середине опасно.
+  ref: "https://docs.github.com/actions/using-jobs/using-concurrency"
+
+- id: cicd-github-actions-007
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `strategy.matrix` и на что влияет `fail-fast`?
+  answer: |
+    Матрица размножает job по комбинациям значений: версии языка, платформы.
+    `fail-fast: true` (по умолчанию) отменяет остальные комбинации при первом падении.
+  explanation: |
+    Дефолт экономит раннеры, но мешает диагностике: упало на одной версии — и ты
+    не знаешь, сломано ли на остальных. Поэтому при отладке совместимости его
+    отключают. Полезны и `include`/`exclude`: добавить одну особую комбинацию
+    или выкинуть заведомо неподдерживаемую, не расписывая матрицу целиком.
+  ref: "https://docs.github.com/actions/using-jobs/using-a-matrix-for-your-jobs"
+
+- id: cicd-github-actions-008
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Изменение в файле не запустило workflow, хотя пуш прошёл. Первая гипотеза?
+  options:
+    a: "Путь не попал в фильтр `paths` у триггера"
+    b: "Раннеры заняты, запуск встанет в очередь"
+    c: "Нужно вручную включить workflow после каждого изменения"
+    d: "Изменение попало в ветку, отличную от default"
+  answer: a
+  explanation: |
+    Фильтры `paths` и `branches` отсеивают событие **до** создания запуска, поэтому
+    в списке не появляется вообще ничего — ни красного, ни жёлтого, и это сбивает
+    с толку сильнее, чем упавшая сборка. Проверять надо не логи, а сам факт
+    отсутствия запуска: если run не создан, дело в триггере.
+  ref: "https://docs.github.com/actions/using-workflows/triggering-a-workflow"
+
+- id: cicd-github-actions-009
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать значение из одного шага в другой и в следующий job?
+  answer: |
+    Внутри job — записью в `$GITHUB_OUTPUT` (и обращением `steps.<id>.outputs.<имя>`)
+    или в `$GITHUB_ENV` для переменной окружения. Между job'ами — через `outputs`
+    у job и `needs.<job>.outputs.<имя>`.
+  explanation: |
+    Старая команда `set-output` через специальный вывод в лог была выведена
+    из употребления: она позволяла подделать вывод строкой в логе, что становилось
+    дырой при обработке недоверенных данных. Запись в файл такой возможности
+    не даёт — это и была причина смены механизма.
+  ref: "https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions"
+
+- id: cicd-github-actions-010
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает `if: always()` и когда это нужно?
+  answer: |
+    Выполнить шаг независимо от того, упали ли предыдущие. По умолчанию после
+    падения шаги пропускаются. Есть и парные функции: `failure()`, `success()`,
+    `cancelled()`.
+  explanation: |
+    Нужно для того же, для чего `always` в Ansible и `trap` в скриптах: собрать
+    отчёты о тестах, выгрузить логи, освободить занятый ресурс. Без этого падение
+    теста уносит с собой и публикацию его результатов — то есть ровно ту информацию,
+    ради которой всё запускалось.
+  ref: "https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions"
+
+- id: cicd-github-actions-011
+  domain: cicd
+  subtopic: github-actions
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем reusable workflow отличается от composite action?
+  answer: |
+    Reusable workflow вызывается как **целый job** (`uses:` на уровне job)
+    и может содержать несколько job'ов и своё окружение. Composite action —
+    набор шагов, вставляемый **внутрь** существующего job.
+  explanation: |
+    Отсюда выбор: нужно повторить последовательность команд внутри чужого job —
+    composite; нужен целый этап со своими правами, окружением и матрицей —
+    reusable workflow. Второй заодно даёт централизованный контроль: платформенная
+    команда владеет workflow деплоя, а продуктовые вызывают его с параметрами.
+  ref: "https://docs.github.com/actions/using-workflows/reusing-workflows"
+
+- id: cicd-github-actions-012
+  domain: cicd
+  subtopic: github-actions
+  difficulty: senior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем `pull_request_target` опасен по сравнению с `pull_request`?
+  options:
+    a: "Он выполняется в контексте базовой ветки и имеет доступ к секретам"
+    b: "Он запускается только после ручного одобрения"
+    c: "Он не даёт доступа к коду pull request вовсе"
+    d: "Он работает только на self-hosted раннерах"
+  answer: a
+  explanation: |
+    Обычный `pull_request` из форка идёт без секретов и с урезанными правами —
+    именно чтобы чужой код ничего не мог. `pull_request_target` задуман для задач
+    вроде простановки меток и потому получает секреты. Если в нём сделать checkout
+    кода из pull request и что-то из него выполнить — сборку, скрипт из
+    репозитория, — любой посторонний получает исполнение с твоими секретами.
+  ref: "https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/"
+
+- id: cicd-github-actions-013
+  domain: cicd
+  subtopic: github-actions
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему сторонние действия пинят по SHA, а не по тегу версии?
+  answer: |
+    Тег в чужом репозитории можно переставить на другой коммит. Пиннинг по полному
+    SHA фиксирует конкретное содержимое: подмена версии перестаёт быть возможной.
+  explanation: |
+    Это тот же класс риска, что плавающий тег образа, только исполняемый код здесь
+    сразу получает доступ к секретам job'а. Компрометация популярного действия
+    означает утечку токенов у всех, кто ссылался на подвижный тег.
+    Обратная сторона — обновления перестают приезжать сами, поэтому пиннинг
+    держат вместе с автоматическим обновлением зависимостей.
+  ref: "https://docs.github.com/actions/security-guides/security-hardening-for-github-actions"
+
+- id: cicd-github-actions-014
+  domain: cicd
+  subtopic: github-actions
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт `environment` у job, кроме группировки?
+  answer: |
+    Правила защиты: обязательное одобрение людьми, окно ожидания, ограничение
+    веток и **секреты, доступные только этому окружению**. Job встаёт на паузу,
+    пока условия не выполнены.
+  explanation: |
+    Это способ сделать выкат в прод отдельным событием, не заводя вручную ворота
+    в коде: одобрение живёт в настройках репозитория и одинаково для всех workflow.
+    Секреты окружения при этом решают вторую задачу — ключи прода недоступны
+    сборке и тестам, потому что те выполняются вне этого окружения.
+  ref: "https://docs.github.com/actions/deployment/targeting-different-environments"
+
+- id: cicd-github-actions-015
+  domain: cicd
+  subtopic: github-actions
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как дать workflow доступ к облаку без долгоживущих ключей?
+  answer: |
+    Через OIDC: GitHub выдаёт запуску короткоживущий токен, облако меняет его
+    на временные права по заранее настроенному доверию. Статических ключей
+    в секретах не остаётся вовсе.
+  explanation: |
+    Это снимает главный риск CI — секрет с бессрочным доступом в облако, который
+    невозможно ротировать без остановки конвейера. Важная деталь настройки:
+    условие доверия на стороне облака должно ограничивать не только репозиторий,
+    но и ветку или окружение, иначе любой pull request сможет получить
+    права прода.
+  ref: "https://docs.github.com/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect"
+
+- id: cicd-github-actions-016
+  domain: cicd
+  subtopic: github-actions
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Workflow вызывает другой workflow, но тот не запускается. Почему?
+  answer: |
+    События, порождённые `GITHUB_TOKEN`, **не запускают** другие workflow —
+    это защита от бесконечных циклов. Нужен отдельный токен приложения
+    или `workflow_call` / `workflow_dispatch` через API.
+  explanation: |
+    Правило неочевидное и ловит на типовом сценарии: workflow коммитит обновление
+    версии, ожидая, что это запустит сборку, — а ничего не происходит. Понимание
+    причины экономит часы: дело не в правах и не в триггере, а в намеренном
+    ограничении, которое разрывает петлю «коммит запускает workflow,
+    который делает коммит».
+  ref: "https://docs.github.com/actions/using-workflows/triggering-a-workflow"

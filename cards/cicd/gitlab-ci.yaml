@@ -1,0 +1,82 @@
+# cicd / gitlab-ci
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: cicd-gitlab-ci-001
+  domain: cicd
+  subtopic: gitlab-ci
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как устроен конвейер в GitLab CI?
+  answer: |
+    Файл `.gitlab-ci.yml` описывает job'ы, каждый принадлежит **стадии**. Стадии
+    идут последовательно, job'ы внутри стадии — параллельно. Падение job
+    останавливает переход к следующей стадии.
+  explanation: |
+    Отличие от GitHub Actions в модели упорядочивания: там порядок задаётся
+    зависимостями `needs` между job'ами, здесь — стадиями. Это проще для типового
+    конвейера, но менее гибко: `needs` в GitLab тоже есть и позволяет запустить
+    job раньше окончания стадии.
+  ref: "https://docs.gitlab.com/ee/ci/yaml/"
+
+- id: cicd-gitlab-ci-002
+  domain: cicd
+  subtopic: gitlab-ci
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают `rules` и чем они заменили `only`/`except`?
+  answer: |
+    Определяют, будет ли job создан и при каких условиях: ветка, изменённые файлы,
+    переменные. `rules` умеют больше и комбинируются, поэтому `only`/`except`
+    считаются устаревшими.
+  explanation: |
+    Практическая тонкость — `rules` определяют, попадёт ли job **в конвейер** вообще,
+    а не будет ли он пропущен при выполнении. Отсюда тот же класс путаницы,
+    что с фильтрами путей: job не появился в списке, и кажется, что сломался
+    триггер, хотя правило отработало как написано.
+  ref: "https://docs.gitlab.com/ee/ci/yaml/#rules"
+
+- id: cicd-gitlab-ci-003
+  domain: cicd
+  subtopic: gitlab-ci
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как в GitLab CI переиспользуют куски конфигурации?
+  answer: |
+    Через `extends` и скрытые job'ы с точкой в начале имени, через якоря YAML
+    и через `include` — подключение файлов из этого же или другого репозитория.
+  explanation: |
+    `include` из общего репозитория — аналог reusable workflow: платформенная
+    команда владеет шаблоном конвейера, продуктовые подключают его с параметрами.
+    Важно фиксировать ревизию подключаемого файла, иначе чужое изменение
+    поедет во все конвейеры сразу — та же проблема, что плавающая версия модуля.
+  ref: "https://docs.gitlab.com/ee/ci/yaml/#include"
+
+- id: cicd-gitlab-ci-004
+  domain: cicd
+  subtopic: gitlab-ci
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем защищённые переменные в GitLab отличаются от обычных?
+  answer: |
+    Защищённые доступны только job'ам на **защищённых** ветках и тегах. Обычные
+    видны любому конвейеру, включая запущенный из ветки, созданной кем угодно
+    с правом на push.
+  explanation: |
+    Это тот же принцип, что секреты окружения в GitHub Actions: ключи прода
+    не должны быть доступны сборке произвольной ветки. Отдельно стоит помнить
+    про маскирование: оно скрывает значение в логе, но накладывает требования
+    к формату, и не всякий секрет удаётся замаскировать.
+  ref: "https://docs.gitlab.com/ee/ci/variables/#protect-a-cicd-variable"

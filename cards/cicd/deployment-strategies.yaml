@@ -1,0 +1,206 @@
+# cicd / deployment-strategies
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: cicd-deployment-strategies-001
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем blue-green отличается от canary?
+  answer: |
+    Blue-green держит **два полных окружения** и переключает трафик целиком:
+    мгновенный переход и мгновенный откат. Canary выпускает новую версию
+    на небольшую долю трафика и постепенно её наращивает.
+  explanation: |
+    Различие в том, что проверяется. Blue-green отвечает «работает ли новая версия
+    вообще» и требует двойных ресурсов. Canary отвечает «как она ведёт себя
+    под реальной нагрузкой» и ресурсов почти не добавляет, но требует метрик,
+    по которым принимается решение, — без них это просто медленный выкат.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: cicd-deployment-strategies-002
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое feature flag и как он меняет процесс выката?
+  answer: |
+    Переключатель в коде, отделяющий **выкат** от **включения**: новая функциональность
+    едет в прод выключенной и активируется отдельно, без нового деплоя.
+  explanation: |
+    Это снимает главное напряжение релиза: код можно вливать в основную ветку
+    небольшими кусками, не дожидаясь готовности целиком, и включать функцию
+    для доли пользователей. Плата — флаги надо убирать: код с десятками старых
+    переключателей становится нечитаемым, а комбинации — непроверяемыми.
+  ref: "https://docs.github.com/actions/deployment/about-deployments"
+
+- id: cicd-deployment-strategies-003
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Что делает canary настоящим canary, а не просто медленным выкатом?
+  options:
+    a: "Автоматический анализ метрик и решение продолжать или откатиться"
+    b: "Разделение трафика по весам"
+    c: "Наличие двух версий одновременно"
+    d: "Ручное подтверждение на каждом шаге"
+  answer: a
+  explanation: |
+    Веса и сосуществование версий даёт и обычный rolling update. Смысл canary
+    в критерии: доля ошибок и задержка новой версии сравниваются со старой,
+    и решение принимается по данным. Без анализа получается тот же выкат,
+    только дольше, — и он раскатит сломанную версию до конца, если поды
+    проходят проверки готовности.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: cicd-deployment-strategies-004
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему миграции базы данных ломают откат приложения?
+  answer: |
+    Код откатывается мгновенно, а схема — нет: старая версия не понимает изменённую
+    схему. Откат по коду при уже применённой несовместимой миграции не возвращает
+    рабочее состояние.
+  explanation: |
+    Отсюда правило совместимости в обе стороны: миграция должна работать
+    и со старым кодом. Практически это разбиение на шаги — сначала добавить
+    колонку и писать в обе, потом переключить чтение, и только в следующем релизе
+    удалить старую. Долго, зато откат остаётся возможным на каждом шаге.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: cicd-deployment-strategies-005
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое откат и чем он лучше починки «вперёд»?
+  answer: |
+    Возврат к предыдущей заведомо рабочей версии. Лучше тем, что предсказуем:
+    известно, что получится. Починка вперёд — это новый непроверенный код,
+    выкатываемый в состоянии аварии.
+  explanation: |
+    Условие возможности отката — совместимость данных и наличие прежнего артефакта,
+    поэтому старые образы не удаляют слишком рано. Обратная сторона: если откат
+    требует ручной последовательности из шести шагов, в аварии им не воспользуются.
+    Отсюда критерий зрелости — откат должен быть одной операцией.
+  ref: "https://docs.github.com/actions/deployment/about-deployments"
+
+- id: cicd-deployment-strategies-006
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Blue-green переключили, а часть пользователей осталась на старой версии.
+    Почему?
+  answer: |
+    Долгоживущие соединения и кеши: установленные сессии продолжают идти в старое
+    окружение, DNS-запись могла закешироваться у клиентов, а балансировщик
+    балансирует на коннект.
+  explanation: |
+    Отсюда требование не гасить старое окружение сразу после переключения,
+    а дать время на разъезд соединений. И отсюда же предпочтение переключать трафик
+    на уровне балансировщика, а не сменой DNS: у первого поведение предсказуемо,
+    у второго время схождения определяется чужими кешами.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service/"
+
+- id: cicd-deployment-strategies-007
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    По каким метрикам решают, продолжать ли canary?
+  answer: |
+    По сравнению новой версии со старой на одинаковом трафике: доля ошибок,
+    задержка по перцентилям, насыщение ресурсов. Плюс достаточный объём выборки —
+    иначе решение принимается по шуму.
+  explanation: |
+    Ключевое слово — **сравнение**: абсолютные пороги вводят в заблуждение, потому
+    что базовый уровень ошибок ненулевой и зависит от времени суток. И объём
+    трафика: при одном проценте и низкой посещаемости за пять минут не наберётся
+    статистики, чтобы отличить деградацию от случайности.
+  ref: "https://kubernetes.io/docs/concepts/cluster-administration/monitoring/"
+
+- id: cicd-deployment-strategies-008
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем rolling update отличается от canary по способу принятия решения?
+  answer: |
+    Rolling update продвигается по **готовности подов**: приложение стартовало
+    и отвечает на пробу — значит едем дальше. Canary смотрит на поведение
+    под реальным трафиком.
+  explanation: |
+    Отсюда слепое пятно rolling update: версия, которая успешно стартует и отдаёт
+    пятисотки, будет раскатана полностью. Пробы отвечают на вопрос «жив ли процесс»,
+    а не «правильно ли он работает». Именно этот разрыв закрывают инструменты
+    прогрессивной доставки, добавляя недостающий критерий.
+  ref: "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+
+- id: cicd-deployment-strategies-009
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужен деплой в стенд, если есть canary в проде?
+  answer: |
+    Стенд ловит то, что нельзя проверять на пользователях: неверные миграции,
+    падение при старте, ошибки конфигурации. Canary проверяет поведение под реальной
+    нагрузкой, которую стенд не воспроизводит.
+  explanation: |
+    Это разные классы дефектов, и один этап не заменяет другой. При этом стенд тем
+    полезнее, чем ближе он к проду по конфигурации и данным: окружение, где
+    «всё в одном поде и база на файлах», не ловит почти ничего и создаёт
+    ложную уверенность.
+  ref: "https://docs.github.com/actions/deployment/about-deployments"
+
+- id: cicd-deployment-strategies-010
+  domain: cicd
+  subtopic: deployment-strategies
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое dark launch и чем он отличается от canary?
+  answer: |
+    Новая версия получает копию реального трафика, но её ответы **никуда
+    не отдаются** — сравниваются со старыми. Пользователь не затронут вовсе,
+    в отличие от canary.
+  explanation: |
+    Приём нужен там, где ошибка недопустима даже на проценте трафика: расчёты,
+    платежи, поиск. Он же позволяет проверить производительность на настоящем
+    профиле нагрузки до первого живого запроса. Ограничение существенное:
+    для операций с побочными эффектами зеркалирование опасно — они выполнятся дважды.
+  ref: "https://kubernetes.io/docs/concepts/services-networking/service-mesh/"

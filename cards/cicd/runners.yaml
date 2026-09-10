@@ -1,0 +1,207 @@
+# cicd / runners
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: cicd-runners-001
+  domain: cicd
+  subtopic: runners
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем управляемый раннер отличается от self-hosted?
+  answer: |
+    Управляемый предоставляет платформа: чистая одноразовая машина на каждый job,
+    оплата по минутам. Self-hosted — твоя машина: ты отвечаешь за её состояние,
+    обновления и изоляцию.
+  explanation: |
+    Главное отличие не в цене, а в **одноразовости**: управляемый раннер гарантирует
+    чистое окружение, self-hosted по умолчанию накапливает состояние между job'ами.
+    Отсюда и типичный сюрприз — сборка проходит только на одном раннере,
+    потому что там когда-то поставили нужный пакет руками.
+  ref: "https://docs.github.com/actions/hosting-your-own-runners/about-self-hosted-runners"
+
+- id: cicd-runners-002
+  domain: cicd
+  subtopic: runners
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем self-hosted раннеры, если есть управляемые?
+  answer: |
+    Доступ во внутреннюю сеть, специфическое железо (GPU, ARM, много памяти),
+    экономия на больших объёмах и требования, запрещающие выполнять сборку
+    у стороннего провайдера.
+  explanation: |
+    Первый пункт самый частый: раскатить в кластер, доступный только изнутри
+    периметра, с внешнего раннера нельзя — либо открывать доступ наружу, либо
+    ставить раннер внутри. Второй вариант почти всегда безопаснее: соединение
+    инициирует раннер, входящих портов открывать не нужно.
+  ref: "https://docs.github.com/actions/hosting-your-own-runners/about-self-hosted-runners"
+
+- id: cicd-runners-003
+  domain: cicd
+  subtopic: runners
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему self-hosted раннер нельзя подключать к публичному репозиторию?
+  options:
+    a: "Любой может прислать pull request и выполнить свой код на твоей машине"
+    b: "Публичные репозитории не поддерживают self-hosted раннеры технически"
+    c: "Это приведёт к превышению лимита минут"
+    d: "Логи такого раннера станут публичными"
+  answer: a
+  explanation: |
+    Раннер выполняет то, что описано в workflow ветки, а сборку из форка можно
+    предложить любому. На одноразовой машине провайдера это ограничено песочницей
+    и отсутствием секретов, а на твоей машине чужой код получает доступ к сети,
+    к диску и к тому, что осталось от прошлых job'ов. Официальная рекомендация
+    прямая: не использовать self-hosted раннеры с публичными репозиториями.
+  ref: "https://docs.github.com/actions/hosting-your-own-runners/about-self-hosted-runners"
+
+- id: cicd-runners-004
+  domain: cicd
+  subtopic: runners
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает «эфемерный раннер» и зачем он нужен?
+  answer: |
+    Раннер, который выполняет **один** job и уничтожается. Так self-hosted получает
+    главное свойство управляемого — чистое окружение без следов предыдущих сборок.
+  explanation: |
+    Без эфемерности накапливается всё: кеши, изменённые файлы, оставшиеся процессы,
+    а при недоверенном коде — и закладки. Реализуют это обычно контейнерами
+    или виртуалками, поднимаемыми под нагрузку; в Kubernetes — контроллером,
+    который создаёт под на каждый job и удаляет после.
+  ref: "https://docs.github.com/actions/hosting-your-own-runners/managing-self-hosted-runners/autoscaling-with-self-hosted-runners"
+
+- id: cicd-runners-005
+  domain: cicd
+  subtopic: runners
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как раннеры выбираются под job и что такое метки?
+  answer: |
+    Полем `runs-on`: `ubuntu-latest` для управляемых, произвольные метки
+    для self-hosted (`[self-hosted, linux, gpu]`). Job уходит на раннер,
+    у которого есть **все** перечисленные метки.
+  explanation: |
+    Метки — это единственный механизм адресации, и потому источник тихих зависаний:
+    опечатка в метке означает, что подходящего раннера нет, и job висит в очереди
+    без ошибки, пока не сработает таймаут. Отсюда практика — держать список меток
+    коротким и документированным, а не описывать каждым job уникальный набор.
+  ref: "https://docs.github.com/actions/using-jobs/choosing-the-runner-for-a-job"
+
+- id: cicd-runners-006
+  domain: cicd
+  subtopic: runners
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сборка занимает минуты только из-за скачивания зависимостей. Что делают?
+  answer: |
+    Кешируют каталоги пакетных менеджеров с ключом от файла блокировки зависимостей.
+    На одноразовом раннере локального кеша нет, поэтому кеш хранится внешне
+    и восстанавливается в начале job.
+  explanation: |
+    Ключ выбирают так, чтобы он менялся вместе с зависимостями: хеш `package-lock.json`
+    или `go.sum`. Дополнительно задают `restore-keys` — частичное совпадение,
+    чтобы при изменении одной зависимости не качать всё заново. Кеш при этом
+    не заменяет артефакт: промах кеша замедляет, промах артефакта ломает.
+  ref: "https://docs.github.com/actions/using-workflows/caching-dependencies-to-speed-up-workflows"
+
+- id: cicd-runners-007
+  domain: cicd
+  subtopic: runners
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как масштабировать self-hosted раннеры под неравномерную нагрузку?
+  answer: |
+    Автомасштабированием: контроллер следит за очередью job'ов и поднимает
+    эфемерные раннеры под спрос, гася их после. В Kubernetes это отдельный
+    оператор, создающий под на каждый job.
+  explanation: |
+    Статический пул плох с обеих сторон: днём очередь, ночью простаивающие машины,
+    за которые платят. Автомасштабирование решает и вопрос чистоты окружения разом,
+    потому что новые раннеры по построению эфемерны. Плата — задержка на старт
+    раннера, которую сглаживают небольшим тёплым запасом.
+  ref: "https://docs.github.com/actions/hosting-your-own-runners/managing-self-hosted-runners/autoscaling-with-self-hosted-runners"
+
+- id: cicd-runners-008
+  domain: cicd
+  subtopic: runners
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Раннер в Kubernetes собирает образы. Почему монтирование сокета рантайма —
+    плохое решение?
+  answer: |
+    Доступ к сокету равен root на узле, а сборка выполняет код из репозитория —
+    то есть потенциально недоверенный. Собирают безсокетными инструментами:
+    Kaniko, BuildKit в непривилегированном режиме, Buildah.
+  explanation: |
+    Разница в радиусе поражения: при компрометации сборки в первом случае
+    злоумышленник получает узел кластера со всеми чужими подами, во втором —
+    только собственный под. Это тот же аргумент, по которому в кластере вообще
+    не используют привилегированные поды ради удобства.
+  ref: "https://docs.docker.com/build/buildkit/"
+
+- id: cicd-runners-009
+  domain: cicd
+  subtopic: runners
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Job висит в очереди и не стартует. Что проверять?
+  answer: |
+    Есть ли раннер с нужным набором меток и в сети; не исчерпан ли лимит
+    параллельных job'ов; не держит ли его группа `concurrency`; не ждёт ли job
+    одобрения окружения.
+  explanation: |
+    Все четыре причины выглядят одинаково — job в состоянии ожидания без ошибок,
+    и различает их только место проверки: список раннеров, лимиты плана, настройка
+    concurrency, вкладка окружений. Отдельно стоит помнить про таймаут: по умолчанию
+    job имеет несколько часов, и «висит навсегда» обычно означает
+    «висит до конца дня», молча расходуя очередь.
+  ref: "https://docs.github.com/actions/using-jobs/using-concurrency"
+
+- id: cicd-runners-010
+  domain: cicd
+  subtopic: runners
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему таймаут job'а стоит задавать явно, если он и так есть по умолчанию?
+  answer: |
+    Умолчание измеряется часами: зависший тест или ожидание ввода будут держать
+    раннер и очередь всё это время. Явный `timeout-minutes` превращает зависание
+    в быстрый и понятный отказ.
+  explanation: |
+    Особенно заметно на self-hosted пуле: один зависший job занимает машину, и очередь
+    встаёт для всей команды. Полезно задавать таймаут и на уровне шага для тех
+    операций, где нормальная длительность известна, — тогда в логе сразу видно,
+    какой именно шаг завис, а не весь job целиком.
+  ref: "https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions"
