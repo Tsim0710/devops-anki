@@ -1,0 +1,244 @@
+# git / refs-internals
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-refs-internals-001
+  domain: git
+  subtopic: refs-internals
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что физически представляет собой ветка в git?
+  answer: |
+    Файл с одной строкой — SHA коммита, на который она указывает
+    (`.git/refs/heads/main`). Больше ничего: ни истории, ни копии файлов.
+  explanation: |
+    Отсюда дешевизна ветвления: создать ветку — это записать сорок байт, а не
+    скопировать дерево. И отсюда же понятно, почему удаление ветки не удаляет
+    коммиты: указатель пропал, а объекты остались и живут, пока на них
+    ссылается что-то ещё или пока их не соберёт сборщик мусора.
+  ref: "https://git-scm.com/book/en/v2/Git-Internals-Git-References"
+
+- id: git-refs-internals-002
+  domain: git
+  subtopic: refs-internals
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `HEAD`?
+  answer: |
+    Указатель на то, где ты сейчас находишься. Обычно он ссылается на ветку
+    (`ref: refs/heads/main`), и тогда коммит двигает ветку вперёд. Может ссылаться
+    прямо на коммит — это detached HEAD.
+  explanation: |
+    Разница принципиальна: в detached HEAD коммиты создаются, но за ними
+    не тянется ни один указатель. Переключишься на ветку — и найти их можно
+    будет только через reflog. Именно это состояние пугает сообщением
+    «you are in detached HEAD state», хотя ничего не сломано.
+  ref: "https://git-scm.com/book/en/v2/Git-Internals-Git-References"
+
+- id: git-refs-internals-003
+  domain: git
+  subtopic: refs-internals
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие объекты хранит git и как они связаны?
+  answer: |
+    `blob` — содержимое файла, `tree` — каталог со ссылками на blob'ы и другие
+    tree, `commit` — ссылка на корневой tree плюс родители и метаданные,
+    `tag` — аннотированная метка. Все адресуются хешем своего содержимого.
+  explanation: |
+    Адресация по содержимому объясняет два свойства: одинаковые файлы хранятся
+    в одном экземпляре, а изменение чего угодно меняет хеш вверх по цепочке —
+    от blob к tree и к commit. Поэтому подменить коммит в середине истории
+    незаметно невозможно: изменится SHA его и всех последующих.
+  ref: "https://git-scm.com/book/en/v2/Git-Internals-Git-Objects"
+
+- id: git-refs-internals-004
+  domain: git
+  subtopic: refs-internals
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Коммит хранит полную копию дерева файлов или только изменения?
+  options:
+    a: "Полное дерево: неизменённые файлы переиспользуются по хешу"
+    b: "Только diff относительно родителя"
+    c: "Diff, но при упаковке разворачивается в полные копии"
+    d: "Полные копии всех файлов без переиспользования"
+  answer: a
+  explanation: |
+    Git — это не система дельт: каждый коммит ссылается на снимок дерева целиком.
+    Места это не занимает, потому что blob'ы и tree с неизменным содержимым
+    имеют тот же хеш и не дублируются. Diff, который показывают команды, —
+    вычисляемое представление, а не то, что лежит на диске. Дельты появляются
+    позже, при упаковке в packfile, и это деталь хранения.
+  ref: "https://git-scm.com/book/en/v2/Git-Internals-Git-Objects"
+
+- id: git-refs-internals-005
+  domain: git
+  subtopic: refs-internals
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое индекс (staging area) и зачем он нужен?
+  answer: |
+    Промежуточная область между рабочим каталогом и коммитом: `git add` кладёт
+    туда состояние файла, `git commit` делает коммит **из индекса**, а не
+    из рабочего каталога.
+  explanation: |
+    Отсюда возможность собрать коммит из части изменений — `git add -p` добавляет
+    отдельные куски файла. И отсюда же типичное недоумение: правку сделали
+    после `git add`, а в коммит попало старое содержимое, потому что индекс
+    запомнил снимок на момент добавления.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified"
+
+- id: git-refs-internals-006
+  domain: git
+  subtopic: refs-internals
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `origin/main` и чем это отличается от `main`?
+  answer: |
+    `origin/main` — remote-tracking ветка: локальный снимок того, где ветка была
+    на сервере при последнем `fetch`. Двигать её вручную нельзя, она обновляется
+    только обменом с сервером.
+  explanation: |
+    Отсюда понятно, почему `git fetch` «ничего не делает» с рабочим каталогом:
+    он обновляет именно эти указатели, а твои ветки не трогает. И отсюда же
+    смысл `git status` со строкой «ahead 2, behind 1» — это сравнение
+    твоей ветки с её снимком удалённой, а не с сервером в реальном времени.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Remote-Branches"
+
+- id: git-refs-internals-007
+  domain: git
+  subtopic: refs-internals
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем аннотированный тег отличается от легковесного?
+  answer: |
+    Легковесный — просто указатель на коммит, как ветка. Аннотированный — отдельный
+    объект с автором, датой, сообщением и возможной подписью.
+  explanation: |
+    Для релизов берут аннотированный: у него есть кто и когда поставил метку,
+    его можно подписать, и он участвует в `git describe`. Легковесный уместен
+    как временная закладка. Практическая деталь: `git push` не отправляет теги
+    сам — их пушат явно, и об этом регулярно забывают.
+  ref: "https://git-scm.com/book/en/v2/Git-Basics-Tagging"
+
+- id: git-refs-internals-008
+  domain: git
+  subtopic: refs-internals
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое reflog и чем он отличается от истории коммитов?
+  answer: |
+    Журнал перемещений `HEAD` и веток **в твоём репозитории**: куда указывал
+    указатель после каждой операции. Он локальный, не передаётся при клонировании
+    и со временем истекает.
+  explanation: |
+    Это и делает его спасательным кругом: после `reset --hard`, неудачного rebase
+    или удаления ветки коммиты недостижимы из истории, но записаны в reflog,
+    и их можно вернуть. Локальность означает обратное — на свежем клоне reflog
+    пуст, и восстанавливать там нечего.
+  ref: "https://git-scm.com/docs/git-reflog"
+
+- id: git-refs-internals-009
+  domain: git
+  subtopic: refs-internals
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Когда git физически удаляет объекты?
+  answer: |
+    При сборке мусора: `git gc` удаляет объекты, недостижимые из веток, тегов
+    и reflog, и старше порога хранения. До этого они лежат на диске
+    и доступны по SHA.
+  explanation: |
+    Отсюда две практические вещи. Восстановить потерянное можно ещё какое-то время
+    даже без reflog — через `git fsck --lost-found`. И обратное: удаление секрета
+    переписыванием истории не уничтожает объект мгновенно ни локально,
+    ни тем более на сервере, где сборкой мусора управляет платформа.
+  ref: "https://git-scm.com/docs/git-gc"
+
+- id: git-refs-internals-010
+  domain: git
+  subtopic: refs-internals
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое refspec и что на самом деле означает `git push origin main`?
+  answer: |
+    Правило соответствия локальных и удалённых ссылок:
+    `refs/heads/main:refs/heads/main` означает «отправь мою ветку main в ветку main
+    на сервере». Короткая форма — сокращение этого выражения.
+  explanation: |
+    Явный синтаксис объясняет неочевидные приёмы: `git push origin :feature`
+    с пустой левой частью **удаляет** удалённую ветку, а `git push origin
+    HEAD:refs/heads/other` отправляет текущее состояние в ветку с другим именем.
+    Тот же механизм задаёт, какие ветки скачивает `fetch`.
+  ref: "https://git-scm.com/book/en/v2/Git-Internals-The-Refspec"
+
+- id: git-refs-internals-011
+  domain: git
+  subtopic: refs-internals
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему два разных коммита не могут иметь одинаковый SHA, и что это даёт?
+  answer: |
+    SHA считается от содержимого коммита: дерева, родителей, автора, времени
+    и сообщения. Любое различие меняет хеш. Это делает историю проверяемой:
+    имя коммита является доказательством его содержимого.
+  explanation: |
+    Отсюда свойство, на котором держатся подписи и аудит: сославшись на SHA,
+    ты однозначно указываешь на конкретное состояние всего дерева. Именно поэтому
+    в конвейерах пинят действия и образы по хешу, а не по тегу — тег
+    это изменяемое имя, SHA — само содержимое.
+  ref: "https://git-scm.com/book/en/v2/Git-Internals-Git-Objects"
+
+- id: git-refs-internals-012
+  domain: git
+  subtopic: refs-internals
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт с коммитами, если удалить ветку, которая на них указывала?
+  answer: |
+    Ничего сразу: объекты остаются на диске. Они становятся недостижимыми
+    из ссылок, но живут до сборки мусора и находятся через reflog или
+    `git fsck`.
+  explanation: |
+    Поэтому `git branch -d` безопаснее, чем кажется, а `-D` опаснее, чем кажется
+    надёжным: первая откажется удалять невлитую ветку, вторая удалит молча.
+    В обоих случаях восстановление возможно, но только пока не истёк reflog —
+    и только в том репозитории, где операция выполнялась.
+  ref: "https://git-scm.com/docs/git-branch"

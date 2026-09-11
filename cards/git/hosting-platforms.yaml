@@ -1,0 +1,205 @@
+# git / hosting-platforms
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-hosting-platforms-001
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое pull request и является ли он частью git?
+  answer: |
+    Нет, это механизм платформы: запрос на слияние ветки с обсуждением, ревью
+    и проверками. В самом git такого понятия нет — там есть только ветки
+    и слияния.
+  explanation: |
+    Понимание этого объясняет, почему поведение PR различается между платформами:
+    стратегии слияния, обязательные проверки, автоудаление веток — всё
+    это надстройки. И отсюда же следует, что закрыть PR и слить ветку руками —
+    технически то же самое, просто без истории обсуждения.
+  ref: "https://docs.github.com/pull-requests"
+
+- id: git-hosting-platforms-002
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем форк отличается от ветки?
+  answer: |
+    Форк — **отдельная копия репозитория** под своим владельцем, ветка живёт
+    внутри одного. Форки нужны, когда у вносящего изменения нет прав на запись
+    в исходный репозиторий.
+  explanation: |
+    Отсюда и модель работы в открытых проектах: чужой код приходит из форка,
+    и потому конвейер выполняет его без секретов и с урезанными правами.
+    Внутри команды форки избыточны: у всех есть доступ, а ветки проще
+    и не требуют синхронизации с исходным репозиторием.
+  ref: "https://docs.github.com/pull-requests/collaborating-with-pull-requests/working-with-forks"
+
+- id: git-hosting-platforms-003
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает файл `CODEOWNERS`?
+  answer: |
+    Назначает владельцев путям в репозитории: изменение файла автоматически
+    требует ревью от указанной команды. Правила применяются по шаблонам пути,
+    выигрывает последнее совпавшее.
+  explanation: |
+    Это способ выразить ответственность структурой, а не договорённостями:
+    правка в `.github/` требует ревью платформенной команды, правка миграций —
+    владельцев базы. Побочный эффект — обязательное ревью может стать узким
+    местом, если владелец один, поэтому назначают команду, а не человека.
+  ref: "https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners"
+
+- id: git-hosting-platforms-004
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем deploy key отличается от personal access token?
+  options:
+    a: "Deploy key привязан к одному репозиторию, токен — к правам пользователя"
+    b: "Deploy key даёт только чтение, токен только запись"
+    c: "Deploy key не истекает, а токен истекает всегда"
+    d: "Разницы нет, это одно и то же под разными именами"
+  answer: a
+  explanation: |
+    Deploy key — SSH-ключ с доступом ровно к одному репозиторию, и по умолчанию
+    только на чтение; права на запись включаются явно. Токен пользователя,
+    наоборот, действует от его имени везде, где у него есть доступ, — поэтому
+    утечка задевает всё. Для автоматизации правильнее всего третий вариант:
+    приложение или федерация через OIDC, где долгоживущего секрета нет вовсе.
+  ref: "https://docs.github.com/authentication/connecting-to-github-with-ssh/managing-deploy-keys"
+
+- id: git-hosting-platforms-005
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что дают правила защиты ветки, кроме запрета прямого push?
+  answer: |
+    Обязательное ревью и число одобрений, обязательные проверки, запрет
+    force-push и удаления, требование актуальности ветки относительно базовой,
+    требование подписанных коммитов.
+  explanation: |
+    Самое недооценённое — требование актуальности: без него PR проверяется
+    на устаревшей базе, и в основную ветку попадает код, никогда не проверявшийся
+    вместе с тем, что туда влили час назад. Это ровно тот семантический конфликт,
+    который слияние не замечает.
+  ref: "https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches"
+
+- id: git-hosting-platforms-006
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое Git LFS и какую проблему он решает?
+  answer: |
+    Хранение крупных файлов вне истории: в репозиторий попадает указатель,
+    а содержимое лежит в отдельном хранилище и скачивается по мере надобности.
+  explanation: |
+    Проблема в том, что git хранит снимок каждой версии файла, и бинарник
+    на сто мегабайт в десяти версиях превращается в гигабайт, который качает
+    каждый клонирующий. LFS это лечит, но добавляет зависимость: без установленного
+    расширения вместо файла получаешь текстовый указатель — частый источник
+    недоумения в CI.
+  ref: "https://git-lfs.com/"
+
+- id: git-hosting-platforms-007
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Репозиторий сделали приватным после того, как он был публичным. Что с форками?
+  answer: |
+    Существующие форки остаются у их владельцев и приватными не становятся —
+    у них своя копия истории. Данные, попавшие в публичный период, считаются
+    распространёнными.
+  explanation: |
+    Отсюда вывод, важный для секретов: смена видимости не является мерой
+    реагирования. Если в публичный период в истории был ключ, единственное
+    действие — ротация, а не закрытие репозитория. То же касается удалённых
+    коммитов: они остаются доступными по SHA до сборки мусора на платформе.
+  ref: "https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility"
+
+- id: git-hosting-platforms-008
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем нужны окружения с обязательным одобрением, если есть защита ветки?
+  answer: |
+    Защита ветки контролирует **попадание кода** в основную ветку. Окружение
+    контролирует **выкат в конкретную среду**: одобрение перед продом, ограничение
+    веток, отдельные секреты, доступные только ему.
+  explanation: |
+    Это два независимых рубежа с разными вопросами: «можно ли это слить»
+    и «можно ли это выкатывать сейчас». Разделение позволяет свободно вливать
+    в основную ветку, не выкатывая автоматически, — и заодно держать ключи прода
+    вне досягаемости сборки и тестов.
+  ref: "https://docs.github.com/actions/deployment/targeting-different-environments"
+
+- id: git-hosting-platforms-009
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем HTTPS-доступ к репозиторию отличается от SSH на практике?
+  answer: |
+    HTTPS требует токена вместо пароля и удобен там, где SSH закрыт файрволом.
+    SSH использует пару ключей и не требует вводить ничего при каждом обращении.
+  explanation: |
+    Практическая разница проявляется при нескольких аккаунтах: по HTTPS выбор
+    учётной записи определяется сохранёнными кредами, по SSH — ключом, который
+    можно задать для конкретного репозитория. Именно так разводят рабочий
+    и личный аккаунты на одной машине.
+  ref: "https://docs.github.com/authentication/connecting-to-github-with-ssh"
+
+- id: git-hosting-platforms-010
+  domain: git
+  subtopic: hosting-platforms
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Какие права стоит выдавать автоматизации, работающей с репозиторием?
+  answer: |
+    Минимальные и на срок задачи: токен приложения или федерация OIDC вместо
+    личного токена, права по репозиториям, а не по аккаунту, и явное
+    ограничение операций — чтение кода, но не запись в защищённые ветки.
+  explanation: |
+    Личный токен в автоматизации плох дважды: он действует от имени человека,
+    поэтому аудит показывает не того актора, и его отзыв ломает конвейер.
+    Приложение решает обе проблемы — у него своя личность и свой набор прав,
+    не связанный с чьей-то учётной записью.
+  ref: "https://docs.github.com/apps/creating-github-apps/about-creating-github-apps"

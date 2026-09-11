@@ -1,0 +1,167 @@
+# git / history-rewrite
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-history-rewrite-001
+  domain: git
+  subtopic: history-rewrite
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `git commit --amend`?
+  answer: |
+    Заменяет последний коммит новым: с исправленным сообщением или добавленным
+    содержимым индекса. SHA меняется — это **другой** коммит, а не правка старого.
+  explanation: |
+    Отсюда те же ограничения, что у rebase: если коммит уже отправлен,
+    исправленный не встанет на его место без force-push. Для неотправленного —
+    самый дешёвый способ поправить опечатку в сообщении или добавить забытый файл,
+    не плодя коммит «фикс предыдущего».
+  ref: "https://git-scm.com/book/en/v2/Git-Basics-Undoing-Things"
+
+- id: git-history-rewrite-002
+  domain: git
+  subtopic: history-rewrite
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем `--force-with-lease` лучше обычного `--force`?
+  options:
+    a: "Он откажет, если на сервере появились чужие коммиты, которых ты не видел"
+    b: "Он делает резервную копию ветки на сервере"
+    c: "Он требует подтверждения от владельца репозитория"
+    d: "Он переписывает только свои коммиты, чужие оставляет"
+  answer: a
+  explanation: |
+    Обычный `--force` затирает удалённую ветку безусловно — включая коммиты
+    коллеги, запушенные, пока ты делал rebase. `--force-with-lease` сравнивает
+    состояние сервера с твоим последним известным снимком и отказывается,
+    если оно изменилось. Это разница между «я переписываю то, что видел»
+    и «я переписываю что угодно».
+  ref: "https://git-scm.com/docs/git-push"
+
+- id: git-history-rewrite-003
+  domain: git
+  subtopic: history-rewrite
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `git revert` отличается от `git reset` и когда нужен именно revert?
+  answer: |
+    `revert` создаёт **новый** коммит, отменяющий изменения старого, — история
+    не переписывается. `reset` двигает указатель ветки назад, убирая коммиты
+    из неё. Для опубликованного нужен revert.
+  explanation: |
+    Правило простое: всё, что другие уже видели, отменяют движением вперёд,
+    а не назад. Revert при этом честно оставляет в истории и ошибку, и её отмену —
+    это не недостаток, а свойство: видно, что произошло. Отменить сам revert
+    можно ещё одним revert.
+  ref: "https://git-scm.com/docs/git-revert"
+
+- id: git-history-rewrite-004
+  domain: git
+  subtopic: history-rewrite
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делают `reset --soft`, `--mixed` и `--hard`?
+  answer: |
+    Все три двигают указатель ветки. `--soft` оставляет индекс и рабочий каталог
+    нетронутыми, `--mixed` (по умолчанию) сбрасывает индекс, `--hard`
+    **затирает и рабочий каталог**.
+  explanation: |
+    Отсюда практика: `--soft HEAD~1` — разобрать последний коммит обратно
+    в индекс, чтобы пересобрать иначе. `--hard` — единственный вариант,
+    который уничтожает незакоммиченную работу безвозвратно: её нет ни в истории,
+    ни в reflog, потому что она никогда не была коммитом.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified"
+
+- id: git-history-rewrite-005
+  domain: git
+  subtopic: history-rewrite
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Секрет попал в репозиторий и уже запушен. Какой порядок действий?
+  answer: |
+    Сначала **ротировать секрет** — считать его скомпрометированным. Потом,
+    при необходимости, вычистить из истории (`git filter-repo`) и force-push.
+    Порядок именно такой, а не наоборот.
+  explanation: |
+    Переписывание истории не отменяет распространения: коммит мог быть склонирован,
+    попасть в форки, в кеш платформы, в логи конвейера. Объекты остаются
+    доступными по SHA и после force-push, пока платформа не соберёт мусор.
+    Поэтому чистка — гигиена, а единственная надёжная мера — смена значения.
+  ref: "https://docs.github.com/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository"
+
+- id: git-history-rewrite-006
+  domain: git
+  subtopic: history-rewrite
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему `git filter-repo` предпочитают вместо `filter-branch`?
+  answer: |
+    `filter-branch` крайне медленный и полон краевых случаев, из-за которых даёт
+    неверный результат; сам git рекомендует его не использовать. `filter-repo` —
+    отдельный инструмент, быстрый и с безопасными умолчаниями.
+  explanation: |
+    Практическая разница на большом репозитории — часы против минут. Важная
+    деталь любого переписывания: меняются **все** последующие SHA, поэтому
+    операцию согласуют с командой, а открытые pull request придётся пересоздать.
+    Перед запуском делают полную резервную копию репозитория.
+  ref: "https://git-scm.com/docs/git-filter-branch"
+
+- id: git-history-rewrite-007
+  domain: git
+  subtopic: history-rewrite
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что происходит у коллег после force-push переписанной ветки?
+  answer: |
+    Их локальная ветка расходится с удалённой: обычный `pull` попытается слить
+    старую историю с новой и наплодит дубликаты. Правильное действие —
+    `git fetch` и `git reset --hard origin/<ветка>`, предварительно сохранив
+    свою работу.
+  explanation: |
+    Отсюда требование предупреждать перед переписыванием общей ветки: команда
+    должна знать, что нужен не обычный pull, а сброс. Именно поэтому основные
+    ветки защищают от force-push на стороне платформы — цена ошибки здесь
+    не техническая, а организационная.
+  ref: "https://git-scm.com/docs/git-push"
+
+- id: git-history-rewrite-008
+  domain: git
+  subtopic: history-rewrite
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как исправить коммит не последний, а несколькими шагами раньше?
+  answer: |
+    Интерактивным rebase: `git rebase -i HEAD~5`, пометить нужный как `edit`,
+    внести правки, `git commit --amend`, затем `git rebase --continue`.
+    Для готовой правки удобнее `git commit --fixup <sha>` и rebase
+    с `--autosquash`.
+  explanation: |
+    Второй способ лучше в командной работе: ты делаешь обычный коммит-исправление
+    с пометкой, к какому коммиту он относится, ревьюер видит именно дельту,
+    а схлопывание происходит одной командой перед слиянием. Всё это по-прежнему
+    переписывание — значит, до публикации.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History"

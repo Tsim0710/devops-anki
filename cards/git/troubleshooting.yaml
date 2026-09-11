@@ -1,0 +1,285 @@
+# git / troubleshooting
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-troubleshooting-001
+  domain: git
+  subtopic: troubleshooting
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сделал `git reset --hard` и потерял коммиты. Что делать?
+  answer: |
+    `git reflog` покажет, где `HEAD` был до сброса, и `git reset --hard HEAD@{n}`
+    вернёт ветку туда. Коммиты никуда не делись — пропали только указатели.
+  explanation: |
+    Работает это, пока не истёк reflog и не прошла сборка мусора — то есть
+    недели. Не восстанавливается только то, что **не было закоммичено**:
+    незакоммиченные правки, затёртые `--hard`, не существуют ни в одном объекте.
+    Отсюда привычка коммитить перед любой рискованной операцией.
+  ref: "https://git-scm.com/docs/git-reflog"
+
+- id: git-troubleshooting-002
+  domain: git
+  subtopic: troubleshooting
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Файл в `.gitignore`, но git продолжает его отслеживать. Почему?
+  answer: |
+    `.gitignore` действует только на **неотслеживаемые** файлы. Уже добавленный
+    в индекс файл игнорируется правилом, но продолжает отслеживаться. Нужен
+    `git rm --cached <файл>` и коммит.
+  explanation: |
+    Логика в том, что игнорирование — это фильтр для `git add`, а не запрет
+    на существование в репозитории. Типичный случай — файл окружения или каталог
+    сборки, добавленный в первом коммите. И отдельная неприятность: если там был
+    секрет, удаление из индекса не убирает его из истории.
+  ref: "https://git-scm.com/docs/gitignore"
+
+- id: git-troubleshooting-003
+  domain: git
+  subtopic: troubleshooting
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как временно отложить незакоммиченные правки?
+  answer: |
+    `git stash` убирает их и возвращает чистый каталог, `git stash pop` —
+    возвращает обратно. Список отложенного — `git stash list`.
+  explanation: |
+    Практическая тонкость: по умолчанию stash не берёт **неотслеживаемые** файлы,
+    и новый файл останется в каталоге — нужен `-u`. Вторая: `pop` удаляет запись
+    из списка, а `apply` оставляет, и при конфликте это разница между «потерял»
+    и «могу попробовать ещё раз».
+  ref: "https://git-scm.com/docs/git-stash"
+
+- id: git-troubleshooting-004
+  domain: git
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как найти коммит, в котором сломалась функциональность, если их сотни?
+  answer: |
+    `git bisect`: задать заведомо плохой и заведомо хороший коммиты, дальше git
+    делит диапазон пополам, а ты на каждом шаге говоришь `good` или `bad`.
+    Сотня коммитов проверяется за семь шагов.
+  explanation: |
+    Мощь приёма в логарифме: линейный перебор нереален, двоичный поиск —
+    минуты. Процесс автоматизируется через `git bisect run <скрипт>`, где скрипт
+    возвращает ненулевой код на поломке. Условие применимости — воспроизводимая
+    проверка; именно поэтому гранулярные коммиты ценнее одного большого squash.
+  ref: "https://git-scm.com/docs/git-bisect"
+
+- id: git-troubleshooting-005
+  domain: git
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как найти, когда и кем была добавлена или удалена конкретная строка?
+  answer: |
+    `git log -S "строка"` ищет коммиты, где число вхождений изменилось;
+    `git log -G "регулярка"` — где менялись строки по шаблону. `git blame`
+    показывает, кто последним трогал каждую строку файла.
+  explanation: |
+    Разница существенна: `blame` отвечает «кто написал это сейчас», а `-S` —
+    «когда это появилось или исчезло», в том числе если строку потом удалили.
+    Для поиска причины регрессии нужен именно второй: код, которого больше нет,
+    в blame не виден вовсе.
+  ref: "https://git-scm.com/docs/git-log"
+
+- id: git-troubleshooting-006
+  domain: git
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Закоммитил в неправильную ветку. Как перенести?
+  answer: |
+    Если не отправлял: запомнить SHA, `git reset --hard HEAD~1` в текущей ветке,
+    переключиться в нужную и `git cherry-pick <sha>`. Либо перенести всю ветку
+    через `git rebase --onto`.
+  explanation: |
+    Порядок важен: сначала перенести, потом убирать — иначе при ошибке искать
+    коммит придётся в reflog. Ещё безопаснее пометить точку временной веткой
+    перед сбросом: тогда SHA не нужно держать в голове, и возврат тривиален.
+  ref: "https://git-scm.com/docs/git-cherry-pick"
+
+- id: git-troubleshooting-007
+  domain: git
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Клонировали репозиторий, и файлы изменились сами — весь файл показан
+    как изменённый. Что случилось?
+  options:
+    a: "Перевод строк: настройки `core.autocrlf` расходятся между машинами"
+    b: "Повреждение объектов при клонировании"
+    c: "Кто-то переписал историю force-push"
+    d: "Не совпадают права на файлы"
+  answer: a
+  explanation: |
+    Git может конвертировать перевод строк при выгрузке и записи, и при разных
+    настройках на Windows и Unix весь файл выглядит изменённым — diff показывает
+    каждую строку. Лечится не настройками у каждого, а файлом `.gitattributes`
+    в репозитории: он задаёт правила централизованно и одинаково для всех.
+  ref: "https://git-scm.com/docs/gitattributes"
+
+- id: git-troubleshooting-008
+  domain: git
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как отменить `git add`, не потеряв изменения в файле?
+  answer: |
+    `git restore --staged <файл>` — убирает из индекса, оставляя правки
+    в рабочем каталоге. Старый эквивалент — `git reset HEAD <файл>`.
+  explanation: |
+    Важно не спутать с `git restore <файл>` без флага: та команда, наоборот,
+    **затирает** рабочий каталог версией из индекса, и незакоммиченные правки
+    исчезают без возможности восстановления. Разделение `restore` и `switch`
+    появилось как раз потому, что перегруженный `checkout` постоянно приводил
+    к таким потерям.
+  ref: "https://git-scm.com/docs/git-restore"
+
+- id: git-troubleshooting-009
+  domain: git
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Репозиторий клонируется минутами и весит гигабайты. Причины и что делать?
+  answer: |
+    Обычно в истории лежат крупные бинарные файлы — они остаются там навсегда,
+    даже будучи удалёнными. Лечится переписыванием истории с их удалением
+    и переносом в Git LFS или во внешнее хранилище.
+  explanation: |
+    Почему удаление не помогает: коммит хранит снимок дерева, и объект остаётся
+    достижимым из старых коммитов. Паллиатив без переписывания — `git clone
+    --filter=blob:none` или `--depth`: качается только нужное, но проблема
+    самого репозитория остаётся.
+  ref: "https://git-lfs.com/"
+
+- id: git-troubleshooting-010
+  domain: git
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Коммиты потеряны, reflog не помогает. Есть ли ещё шанс?
+  answer: |
+    `git fsck --lost-found` находит недостижимые объекты: они лежат на диске
+    до сборки мусора. По SHA из вывода можно посмотреть содержимое
+    и восстановить ветку.
+  explanation: |
+    Это последний рубеж и он работает, только пока `git gc` не отработал —
+    а он запускается автоматически при обычных операциях. Поэтому при подозрении
+    на потерю первым делом **перестают выполнять команды** в репозитории
+    и делают его копию, а уже потом разбираются.
+  ref: "https://git-scm.com/docs/git-fsck"
+
+- id: git-troubleshooting-011
+  domain: git
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В CI `git log` показывает один коммит и сравнение с базовой веткой не работает.
+    Почему?
+  answer: |
+    Клон сделан с `--depth 1`: скачан только последний коммит, истории нет.
+    Нужно задать большую глубину или полный клон — например `fetch-depth: 0`
+    у действия checkout.
+  explanation: |
+    Мелкий клон — разумное умолчание для скорости, но ломает всё, что опирается
+    на историю: расчёт версии по тегам, сравнение с базовой веткой, определение
+    изменённых файлов, `git blame`. Симптом выглядит как поломка команды,
+    а причина — в параметрах клонирования на шаг выше.
+  ref: "https://git-scm.com/docs/git-clone"
+
+- id: git-troubleshooting-012
+  domain: git
+  subtopic: troubleshooting
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть содержимое файла из другого коммита, не переключаясь?
+  answer: |
+    `git show <ref>:<путь>` печатает файл на нужной ревизии,
+    `git diff <ref> -- <путь>` — разницу с текущим состоянием. Переключать
+    ветку не нужно.
+  explanation: |
+    Это снимает частую причину беспорядка: чтобы «просто посмотреть, как было»,
+    люди переключаются, забывают вернуться и коммитят не туда. Синтаксис
+    с двоеточием работает с любой ревизией — тегом, веткой, `HEAD~3`
+    или SHA из reflog.
+  ref: "https://git-scm.com/docs/git-show"
+
+- id: git-troubleshooting-013
+  domain: git
+  subtopic: troubleshooting
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как понять, содержит ли ветка конкретный коммит, — например попал ли фикс
+    в релиз?
+  answer: |
+    `git branch --contains <sha>` покажет все ветки, содержащие коммит,
+    `git tag --contains <sha>` — теги. Обратный вопрос решает
+    `git log <tag>..<branch>`.
+  explanation: |
+    Оговорка существенная: после cherry-pick, rebase или squash фикс присутствует
+    как **другой** коммит, и по SHA он не найдётся, хотя изменение на месте.
+    В таких репозиториях надёжнее искать по содержимому — `git log -S`
+    по характерной строке из исправления.
+  ref: "https://git-scm.com/docs/git-branch"
+
+- id: git-troubleshooting-014
+  domain: git
+  subtopic: troubleshooting
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    `git status` показывает изменения в файлах, которые ты не трогал. Куда смотреть?
+  answer: |
+    На права доступа (git отслеживает бит исполнения), перевод строк и файлы,
+    которые генерируются сборкой и не внесены в `.gitignore`. Точную причину
+    покажет `git diff`.
+  explanation: |
+    Если `git diff` пуст, а файл числится изменённым, дело почти всегда в правах
+    или переводе строк — содержимое совпадает, метаданные нет. Артефакты сборки
+    в статусе — отдельный симптом: их не должно быть в отслеживаемых вовсе,
+    и правильное лечение это `.gitignore` плюс `git rm --cached`.
+  ref: "https://git-scm.com/docs/git-status"

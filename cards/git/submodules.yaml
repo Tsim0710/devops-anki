@@ -1,0 +1,162 @@
+# git / submodules
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-submodules-001
+  domain: git
+  subtopic: submodules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что именно запоминает родительский репозиторий о submodule?
+  answer: |
+    **Конкретный коммит**, а не ветку: в дереве лежит запись с SHA, а в файле
+    `.gitmodules` — адрес репозитория и путь. Ветка там указывается только
+    как подсказка для обновления.
+  explanation: |
+    Отсюда главное свойство: submodule зафиксирован во времени, и обновление
+    зависимости — это отдельный коммит в родительском репозитории, меняющий SHA.
+    Это же делает сборку воспроизводимой: клон старого коммита даст ровно
+    ту версию зависимости, что была тогда.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Submodules"
+
+- id: git-submodules-002
+  domain: git
+  subtopic: submodules
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Клонировали репозиторий, каталоги submodule пустые. Почему?
+  answer: |
+    Обычный `git clone` не скачивает содержимое подмодулей. Нужен
+    `--recurse-submodules` при клонировании либо `git submodule update --init
+    --recursive` после.
+  explanation: |
+    Это самая частая встреча с подмодулями, и в CI она проявляется как загадочная
+    ошибка сборки: файлов нет, хотя в репозитории они «есть». Действия checkout
+    в конвейерах имеют отдельный параметр для подмодулей, и он по умолчанию
+    выключен.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Submodules"
+
+- id: git-submodules-003
+  domain: git
+  subtopic: submodules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как обновить submodule на свежую версию?
+  answer: |
+    Зайти в его каталог и переключиться на нужный коммит (или
+    `git submodule update --remote`), затем **закоммитить изменение в родительском
+    репозитории** — там обновится записанный SHA.
+  explanation: |
+    Второй шаг забывают постоянно: локально всё работает, а у коллег остаётся
+    старая версия, потому что новый SHA никуда не отправлен. В статусе родителя
+    это выглядит как изменение одной строки — незаметно, если не приглядываться.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Submodules"
+
+- id: git-submodules-004
+  domain: git
+  subtopic: submodules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему внутри submodule обычно detached HEAD?
+  answer: |
+    Потому что родитель ссылается на **коммит**, а не на ветку: git выгружает
+    именно его, и указателя ветки там нет. Чтобы работать внутри, нужно явно
+    переключиться на ветку.
+  explanation: |
+    Отсюда типичная потеря работы: изменения закоммитили внутри подмодуля,
+    находясь в detached HEAD, потом обновили его — и коммиты остались недостижимы.
+    Правило простое: перед правкой подмодуля сначала `git switch` на ветку,
+    и только потом коммитить.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Submodules"
+
+- id: git-submodules-005
+  domain: git
+  subtopic: submodules
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему подмодули считают неудобными и что берут вместо них?
+  answer: |
+    Они добавляют шаг ко всем операциям — клонированию, переключению веток,
+    обновлению, — и легко приводят к рассогласованию. Вместо них берут
+    менеджер пакетов, монорепозиторий или subtree.
+  explanation: |
+    Менеджер пакетов решает ту же задачу привычнее: версия зависимости описана
+    в манифесте, а не в дереве git. Подмодули остаются оправданы там, где нужен
+    именно исходный код с историей и возможностью править его на месте —
+    например общий набор конфигураций, который редактируется вместе с проектом.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Submodules"
+
+- id: git-submodules-006
+  domain: git
+  subtopic: submodules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем subtree отличается от submodule?
+  answer: |
+    Subtree **вливает** содержимое чужого репозитория в дерево твоего: файлы
+    лежат внутри, отдельного репозитория нет, клонирование обычное. Submodule
+    хранит только ссылку.
+  explanation: |
+    Компромисс зеркальный: у subtree нет проблем с клонированием и рассогласованием,
+    но история раздувается, а обновление зависимости требует специальных команд.
+    Для потребителя subtree прозрачен — он даже не знает, что часть кода пришла
+    извне, и это одновременно плюс и минус.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Advanced-Merging"
+
+- id: git-submodules-007
+  domain: git
+  subtopic: submodules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как удалить submodule корректно?
+  answer: |
+    Тремя шагами: `git submodule deinit`, затем `git rm` пути, и удалить остатки
+    конфигурации в `.git/modules`. Просто стереть каталог недостаточно —
+    записи останутся в `.gitmodules` и в конфигурации.
+  explanation: |
+    Незавершённое удаление проявляется позже: у коллег при обновлении возникают
+    ошибки про несуществующий подмодуль, а клонирование с рекурсией падает.
+    Многошаговость — следствие того, что состояние подмодуля размазано
+    по трём местам: дереву, `.gitmodules` и локальной конфигурации.
+  ref: "https://git-scm.com/docs/git-submodule"
+
+- id: git-submodules-008
+  domain: git
+  subtopic: submodules
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что произойдёт, если репозиторий-подмодуль удалят или он станет приватным?
+  answer: |
+    Клонирование с рекурсией начнёт падать у всех, у кого нет доступа: родитель
+    хранит только ссылку, а содержимое приходит извне. Старые клоны продолжат
+    работать, пока в них есть локальная копия.
+  explanation: |
+    Это делает подмодуль внешней зависимостью времени сборки со всеми вытекающими:
+    доступность чужого репозитория становится условием работы твоего конвейера.
+    Отсюда практика зеркалировать критичные подмодули к себе — та же логика,
+    что с зеркалом реестра образов.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Submodules"

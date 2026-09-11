@@ -1,0 +1,201 @@
+# git / branching
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-branching-001
+  domain: git
+  subtopic: branching
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `git switch` отличается от `git checkout`?
+  answer: |
+    `switch` делает только одно — переключает ветки. `checkout` перегружен:
+    он и переключает ветки, и восстанавливает файлы, и создаёт detached HEAD.
+    Для восстановления файлов есть `git restore`.
+  explanation: |
+    Разделение появилось именно из-за перегруженности: `git checkout -- file`
+    молча затирал незакоммиченные правки, и эту команду путали с переключением
+    веток. Новые команды делают намерение явным, а поведение — предсказуемым.
+  ref: "https://git-scm.com/docs/git-switch"
+
+- id: git-branching-002
+  domain: git
+  subtopic: branching
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое upstream у ветки и зачем он нужен?
+  answer: |
+    Связь локальной ветки с удалённой: после `git push -u origin feature`
+    команды `git push` и `git pull` без аргументов знают, куда ходить,
+    а `git status` показывает расхождение.
+  explanation: |
+    Без upstream каждый push требует явного указания удалённой ветки — отсюда
+    и подсказка git при первом отправлении новой ветки. Строка «ahead 2, behind 1»
+    в статусе считается относительно снимка `origin/feature`, поэтому после
+    долгого перерыва она врёт, пока не сделаешь `fetch`.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Remote-Branches"
+
+- id: git-branching-003
+  domain: git
+  subtopic: branching
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое fast-forward слияние?
+  answer: |
+    Слияние без нового коммита: если в целевой ветке не появилось собственных
+    коммитов, git просто передвигает её указатель вперёд на вершину сливаемой.
+  explanation: |
+    Отсюда чистая линейная история, но и потеря информации о том, что ветка
+    существовала. Флаг `--no-ff` заставляет создать коммит слияния, сохраняя
+    границы ветки в истории. Что лучше — вопрос соглашения команды, а не
+    технической правильности.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging"
+
+- id: git-branching-004
+  domain: git
+  subtopic: branching
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `git branch -d` отличается от `-D`?
+  answer: |
+    `-d` удалит ветку, только если она влита в текущую или в upstream — иначе
+    откажется. `-D` удаляет безусловно.
+  explanation: |
+    Проверка у `-d` спасает от потери работы, но она смотрит на достижимость
+    из **текущей** ветки: после rebase или squash-merge коммиты формально
+    не влиты, хотя изменения уже в основной ветке, — и git честно предупреждает.
+    В обоих случаях сами коммиты остаются до сборки мусора и находятся в reflog.
+  ref: "https://git-scm.com/docs/git-branch"
+
+- id: git-branching-005
+  domain: git
+  subtopic: branching
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Локально висят ветки, которых давно нет на сервере. Что делать?
+  answer: |
+    `git fetch --prune` убирает устаревшие remote-tracking ветки. Локальные ветки
+    он не трогает — их удаляют отдельно, обычно после проверки, что они влиты.
+  explanation: |
+    Различать две сущности здесь важно: `origin/feature` — снимок серверной ветки,
+    `feature` — твоя. Первый удаляется автоматически при prune, вторая остаётся,
+    и именно из них со временем набирается список мёртвых веток. Настройка
+    `fetch.prune` включает очистку по умолчанию.
+  ref: "https://git-scm.com/docs/git-fetch"
+
+- id: git-branching-006
+  domain: git
+  subtopic: branching
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему ветвление в git дешёвое, а в старых системах было дорогим?
+  answer: |
+    Потому что ветка — это указатель на коммит, а не копия файлов. История
+    целиком лежит локально, поэтому создание ветки и переключение не требуют
+    ни сети, ни копирования дерева.
+  explanation: |
+    Дешевизна изменила практику: короткие ветки под каждую задачу стали нормой,
+    потому что стоимость их создания нулевая. Обратная сторона в том, что легко
+    завести десятки веток и забыть про них — отсюда регулярная чистка
+    и правило удалять ветку сразу после слияния.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell"
+
+- id: git-branching-007
+  domain: git
+  subtopic: branching
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Долгоживущая ветка живёт третий месяц. Чем это плохо?
+  answer: |
+    Расхождение растёт нелинейно: чем дольше ветка, тем больше конфликтов
+    при слиянии и тем меньше её код проверен вместе с основным. Интеграционный
+    риск копится и реализуется разом.
+  explanation: |
+    Это тот же аргумент, что за частые небольшие выкаты: размер изменения
+    определяет и вероятность поломки, и стоимость разбора. Практический выход —
+    короткие ветки и feature flags: код вливается в основную ветку, но включается
+    отдельно, и сливать становится нечего.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Branching-Workflows"
+
+- id: git-branching-008
+  domain: git
+  subtopic: branching
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Нужно срочно посмотреть другую ветку, не бросая начатую работу.
+    Что кроме stash?
+  answer: |
+    `git worktree add ../hotfix main` — вторая рабочая копия репозитория
+    в отдельном каталоге со своей веткой. Обе ветки выгружены одновременно,
+    история и объекты общие.
+  explanation: |
+    Это снимает главную причину stash: не нужно откладывать работу, чтобы
+    переключиться. Особенно окупается при долгой сборке — окружение первой ветки
+    остаётся нетронутым. Ограничение одно: одну ветку нельзя выгрузить в двух
+    worktree сразу, git этого не позволит. Убирается каталог
+    через `git worktree remove`.
+  ref: "https://git-scm.com/docs/git-stash"
+
+- id: git-branching-009
+  domain: git
+  subtopic: branching
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как создать ветку от конкретного коммита или тега, а не от текущего места?
+  answer: |
+    Указать точку явно: `git switch -c hotfix v1.2.3` или
+    `git switch -c fix a1b2c3d`. Без третьего аргумента ветка создаётся
+    от текущего `HEAD`.
+  explanation: |
+    Это штатный путь для горячих исправлений: ветка от релизного тега, а не
+    от основной ветки, где уже накопились неготовые изменения. Тот же приём
+    нужен, когда работу начали не от той базы, — ветку пересоздают от правильной
+    точки, а коммиты переносят.
+  ref: "https://git-scm.com/docs/git-switch"
+
+- id: git-branching-010
+  domain: git
+  subtopic: branching
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означает «ветка защищена» и что именно это запрещает?
+  answer: |
+    Правило на стороне платформы: запрет прямого push, обязательные проверки
+    и ревью перед слиянием, запрет force-push и удаления ветки. Локально git
+    об этих правилах ничего не знает.
+  explanation: |
+    Отсюда и место срабатывания — сервер отвергает push, а не локальная команда.
+    Практическая тонкость: обязательные проверки перечисляются **по имени job**,
+    и переименование job молча выводит его из-под требования — проверка идёт,
+    но слиянию больше не мешает.
+  ref: "https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches"

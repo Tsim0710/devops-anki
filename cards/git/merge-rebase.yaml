@@ -1,0 +1,285 @@
+# git / merge-rebase
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: git-merge-rebase-001
+  domain: git
+  subtopic: merge-rebase
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает merge и что делает rebase с точки зрения истории?
+  answer: |
+    Merge создаёт **новый коммит** с двумя родителями, сохраняя обе линии истории
+    как они были. Rebase **переписывает** коммиты ветки поверх новой базы —
+    у них появляются новые SHA.
+  explanation: |
+    Отсюда и разница в свойствах: merge честно фиксирует, что работа шла
+    параллельно, но история становится ветвистой. Rebase даёт линейную историю
+    ценой того, что коммиты перестают быть теми же объектами — а это и есть
+    причина всех запретов на rebase опубликованного.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Rebasing"
+
+- id: git-merge-rebase-002
+  domain: git
+  subtopic: merge-rebase
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему нельзя делать rebase ветки, которую уже видели другие?
+  options:
+    a: "Коммиты получают новые SHA, и у коллег остаются старые — истории расходятся"
+    b: "Rebase технически невозможен для запушенных веток"
+    c: "Сервер отклонит такой push по умолчанию в любом случае"
+    d: "Потому что rebase удаляет коммиты безвозвратно"
+  answer: a
+  explanation: |
+    После rebase это уже **другие** объекты с тем же содержимым. Коллега, у которого
+    в локальной ветке лежат старые, при следующем `pull` получит их обратно
+    и сольёт со своими — в истории появятся дубликаты каждого коммита.
+    Отсюда «золотое правило»: переписывать можно то, что существует только у тебя.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Rebasing"
+
+- id: git-merge-rebase-003
+  domain: git
+  subtopic: merge-rebase
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем `git pull` отличается от `git pull --rebase`?
+  answer: |
+    Обычный `pull` — это `fetch` плюс `merge`: при расхождении создаётся коммит
+    слияния. С `--rebase` твои локальные коммиты переносятся поверх скачанных,
+    и история остаётся линейной.
+  explanation: |
+    Коммиты слияния от `pull` — основной источник мусора в истории: они ничего
+    не означают, кроме «я синхронизировался». Поэтому во многих командах
+    `pull.rebase` включают глобально. Важно понимать, что это всё равно
+    переписывание — но только твоих неопубликованных коммитов, что безопасно.
+  ref: "https://git-scm.com/docs/git-pull"
+
+- id: git-merge-rebase-004
+  domain: git
+  subtopic: merge-rebase
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает интерактивный rebase?
+  answer: |
+    Даёт переписать серию коммитов: изменить порядок, объединить (`squash`,
+    `fixup`), переформулировать сообщение (`reword`), удалить (`drop`) или
+    остановиться на коммите и поправить (`edit`).
+  explanation: |
+    Это основной инструмент приведения ветки в порядок перед ревью: десяток
+    коммитов вида «фикс», «ещё фикс», «опечатка» схлопывается в два осмысленных.
+    Ограничение то же — переписывать можно только неопубликованное, и потому
+    уборку делают до отправки ветки, а не после.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History"
+
+- id: git-merge-rebase-005
+  domain: git
+  subtopic: merge-rebase
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем squash merge отличается от обычного слияния?
+  answer: |
+    В основную ветку попадает **один** коммит со всеми изменениями ветки,
+    а её собственные коммиты в историю не входят. Связь с исходной веткой
+    теряется.
+  explanation: |
+    Компромисс понятный: история основной ветки читается как список задач,
+    но детализация работы исчезает, а `git bisect` теряет гранулярность.
+    Практическое следствие — после squash-слияния ветка формально не влита,
+    и `git branch -d` откажется её удалять.
+  ref: "https://docs.github.com/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges"
+
+- id: git-merge-rebase-006
+  domain: git
+  subtopic: merge-rebase
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что означают маркеры конфликта и что делать после правки?
+  answer: |
+    Между `<<<<<<<` и `=======` — версия текущей стороны, ниже до `>>>>>>>` —
+    входящая. Нужно оставить правильный результат, **удалить сами маркеры**,
+    затем `git add` и продолжить операцию.
+  explanation: |
+    `git add` здесь означает не «добавить файл», а «конфликт разрешён» — именно
+    так git узнаёт, что можно двигаться дальше. Отсюда и частая ошибка: файл
+    поправили, но не добавили, и продолжение не работает. Если стало хуже —
+    `git merge --abort` или `git rebase --abort` возвращают исходное состояние.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging"
+
+- id: git-merge-rebase-007
+  domain: git
+  subtopic: merge-rebase
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему при rebase один и тот же конфликт возникает несколько раз?
+  answer: |
+    Rebase применяет коммиты **по одному**, и если конфликтующий участок трогается
+    в нескольких коммитах, конфликт повторяется на каждом. Merge разрешает
+    расхождение один раз.
+  explanation: |
+    Это главная практическая цена rebase на длинной ветке. Смягчает её `rerere`:
+    git запоминает, как ты разрешил конкретный конфликт, и применяет то же решение
+    автоматически при повторе. Включается настройкой `rerere.enabled`
+    и особенно окупается на долгоживущих ветках.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Rerere"
+
+- id: git-merge-rebase-008
+  domain: git
+  subtopic: merge-rebase
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `git cherry-pick` и когда он уместен?
+  answer: |
+    Применяет изменения конкретного коммита поверх текущей ветки, создавая **новый**
+    коммит с другим SHA. Уместен для переноса исправления в релизную ветку.
+  explanation: |
+    Поскольку SHA новый, один и тот же фикс существует в истории дважды —
+    и при последующем слиянии веток git обычно разбирается, но иногда даёт
+    конфликт «уже применено». Отсюда правило: cherry-pick — точечный инструмент
+    для hotfix, а не способ регулярно переносить работу между ветками.
+  ref: "https://git-scm.com/docs/git-cherry-pick"
+
+- id: git-merge-rebase-009
+  domain: git
+  subtopic: merge-rebase
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `git rebase --onto` и зачем он нужен?
+  answer: |
+    Переносит **произвольный отрезок** коммитов на новую базу: `git rebase --onto
+    main feature-base feature` возьмёт коммиты после `feature-base` и положит
+    их поверх `main`.
+  explanation: |
+    Нужен, когда ветка была создана не от той базы или от другой ветки, которую
+    уже влили: обычный rebase потянул бы за собой чужие коммиты. Три аргумента
+    читаются как «куда, откуда начиная, что переносим» — и именно эта явность
+    делает команду безопасной для нетривиальных перестановок.
+  ref: "https://git-scm.com/docs/git-rebase"
+
+- id: git-merge-rebase-010
+  domain: git
+  subtopic: merge-rebase
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое `ours` и `theirs` при конфликте и почему их легко перепутать
+    в rebase?
+  answer: |
+    При merge `ours` — твоя текущая ветка. При rebase стороны **меняются местами**:
+    `ours` — это база, поверх которой переносят, а `theirs` — твои переносимые
+    коммиты.
+  explanation: |
+    Инверсия логична, если помнить механику: rebase поочерёдно применяет твои
+    коммиты **поверх** целевой ветки, поэтому «текущей» оказывается она.
+    Но интуиция подсказывает обратное, и выбор стратегии `-X ours` в rebase
+    регулярно приводит к потере именно того, что хотели сохранить.
+  ref: "https://git-scm.com/docs/git-rebase"
+
+- id: git-merge-rebase-011
+  domain: git
+  subtopic: merge-rebase
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Merge прошёл без конфликтов, но код сломался. Как так?
+  answer: |
+    Git сливает **текст**, а не смысл. Две стороны могли изменить разные участки
+    файла или разные файлы так, что по отдельности всё корректно, а вместе —
+    нет: переименованная функция и новый вызов старого имени.
+  explanation: |
+    Это называют семантическим конфликтом, и он не ловится никакими настройками
+    слияния — только тестами после него. Отсюда и практическая ценность
+    обязательного прогона проверок **на результате слияния**, а не только
+    на ветке: платформы для этого и сливают PR с базой перед запуском проверок.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging"
+
+- id: git-merge-rebase-012
+  domain: git
+  subtopic: merge-rebase
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Команда спорит: merge или rebase. Как выбрать без религии?
+  answer: |
+    По тому, что ценнее в истории. Нужна точная летопись, кто и когда
+    интегрировал, — merge. Нужна линейная читаемая история и удобный `bisect` —
+    rebase локальных веток плюс squash или fast-forward при слиянии.
+  explanation: |
+    Технически обе модели рабочие, и спор обычно про вкус. Объективны только
+    два ограничения: опубликованное не переписывают, и правило должно быть
+    одно на репозиторий, потому что смесь подходов даёт худшее из обоих —
+    и ветвистость, и потерянные коммиты после чужого rebase.
+  ref: "https://git-scm.com/book/en/v2/Git-Branching-Rebasing"
+
+- id: git-merge-rebase-013
+  domain: git
+  subtopic: merge-rebase
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как посмотреть, что именно приедет, до слияния?
+  answer: |
+    Диапазонами: `git log main..feature` — коммиты, которых нет в main;
+    `git diff main...feature` — итоговые изменения ветки относительно точки
+    расхождения.
+  explanation: |
+    Три точки в diff существенны: `main..feature` покажет и то, что изменилось
+    в main после ответвления, а `main...feature` — только твою работу. Это самый
+    быстрый способ проверить ветку перед отправкой на ревью: убедиться,
+    что в ней нет случайно затесавшихся чужих или отладочных изменений.
+  ref: "https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection"
+
+- id: git-merge-rebase-014
+  domain: git
+  subtopic: merge-rebase
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Rebase пошёл не так и ветка выглядит сломанной. Как вернуться?
+  answer: |
+    Если операция идёт — `git rebase --abort`. Если уже завершилась —
+    через reflog: `git reflog` покажет позицию до rebase, и `git reset --hard
+    HEAD@{n}` вернёт ветку туда.
+  explanation: |
+    Работает это потому, что старые коммиты никуда не делись — исчезли только
+    указатели на них. Отсюда практическая привычка: перед рискованной операцией
+    над историей поставить временную ветку (`git branch backup`), тогда
+    возврат не потребует чтения reflog вовсе.
+  ref: "https://git-scm.com/docs/git-reflog"
