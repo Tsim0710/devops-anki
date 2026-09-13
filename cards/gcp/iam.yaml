@@ -1,0 +1,322 @@
+# gcp / iam
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: gcp-iam-001
+  domain: gcp
+  subtopic: iam
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Из чего состоит allow policy в GCP IAM и к чему её прикрепляют?
+  answer: |
+    Из **role bindings**: каждая привязка связывает одну роль со списком principals
+    (пользователи, группы, service accounts), опционально с condition. Policy
+    прикрепляется к ресурсу — organization, folder, project или отдельному ресурсу
+    вроде бакета. Permissions напрямую не выдаются, только в составе роли.
+  explanation: |
+    Модель «кто — какая роль — на чём» задаёт порядок разбора любого доступа: смотреть
+    нужно policy самого ресурса и всех его предков. Своего списка прав у пользователя
+    в GCP нет. А раз выдаются только роли, точечное право без лишнего получают
+    через custom role, когда predefined-роль оказалась шире нужного.
+  ref: "https://docs.cloud.google.com/iam/docs/overview"
+
+- id: gcp-iam-002
+  domain: gcp
+  subtopic: iam
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему basic-роли `Owner`, `Editor` и `Viewer` не выдают в продовых проектах?
+  options:
+    a: "Они работают только в консоли и не действуют на вызовы API"
+    b: "Каждая включает тысячи permissions по всем сервисам — наименьшие привилегии с ними недостижимы"
+    c: "Они не наследуются вниз по иерархии ресурсов"
+    d: "Их можно выдать только пользователям, но не группам и service accounts"
+  answer: b
+  explanation: |
+    Basic-роли появились раньше IAM и не режут доступ по сервисам: `Editor` меняет
+    почти любой ресурс проекта, включая сервисы, которыми команда не пользуется.
+    Документация прямо требует не выдавать их в проде, если есть альтернатива, —
+    брать самые узкие predefined или custom роли. Вдобавок к привязке basic-роли
+    нельзя приложить condition, так что ограничить её по времени или ресурсу не выйдет.
+  ref: "https://docs.cloud.google.com/iam/docs/roles-overview"
+
+- id: gcp-iam-003
+  domain: gcp
+  subtopic: iam
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Роль выдана на folder. На что она действует?
+  answer: |
+    На всё внутри: вложенные folders, projects и их ресурсы — включая те, что создадут
+    позже. Иерархия: organization → folders → projects → ресурсы, и эффективная policy
+    ресурса складывается из его собственной и policies всех предков.
+  explanation: |
+    Наследование аддитивно: allow policy на нижнем уровне может добавить доступ,
+    но не отнять выданное выше. Поэтому широкие роли на organization и folder — самые
+    дорогие ошибки: одна привязка открывает доступ ко всем будущим проектам. Отсюда
+    практика давать наверху только то, что действительно нужно везде, а рабочие роли —
+    на проекте или ресурсе.
+  ref: "https://docs.cloud.google.com/resource-manager/docs/cloud-platform-resource-hierarchy"
+
+- id: gcp-iam-004
+  domain: gcp
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Право унаследовано с folder, а в одном проекте его нужно отнять. Allow policy
+    проекта тут бессильна. Чем это делается?
+  answer: |
+    **Deny policy.** IAM проверяет deny policies раньше allow: если permission запрещена
+    principal'у, никакие роли её не вернут. Для исключений в deny rule есть
+    `exceptionPrincipals`.
+  explanation: |
+    Allow policies умеют только складываться, поэтому без deny вычитание существовало бы
+    лишь как «переделать выдачу наверху». Deny оперирует permissions, а не ролями,
+    и прикрепляется к organization, folder или project — это guardrail поверх любой
+    раздачи ролей. Но это инструмент для исключений: если deny приходится писать часто,
+    роли раздаются слишком широко.
+  ref: "https://docs.cloud.google.com/iam/docs/deny-overview"
+
+- id: gcp-iam-005
+  domain: gcp
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Выдал коллеге роль через консоль, а через минуту у него всё ещё `403`.
+    Самое вероятное объяснение?
+  options:
+    a: "Роль начнёт действовать только после повторного входа в аккаунт"
+    b: "Нужно перезапустить ресурс, на который выдан доступ"
+    c: "Роли, выданные через консоль, применяются после ежесуточной синхронизации"
+    d: "Изменение policy распространяется не мгновенно: обычно около 2 минут, иногда 7 и дольше"
+  answer: d
+  explanation: |
+    IAM — распределённая система с eventual consistency. С группами ещё медленнее:
+    изменение членства может идти часами, причём удаление из группы распространяется
+    медленнее добавления. Два практических вывода: автоматизация, которая выдаёт роль
+    и сразу ей пользуется, нуждается в ретраях, а отзыв доступа через группу —
+    не мгновенная мера при инциденте.
+  ref: "https://docs.cloud.google.com/iam/docs/access-change-propagation"
+
+- id: gcp-iam-006
+  domain: gcp
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Какая роль нужна человеку, чтобы выполнять `gcloud` от имени сервисного аккаунта
+    через `--impersonate-service-account`?
+  options:
+    a: "`roles/iam.serviceAccountUser` на этот SA"
+    b: "`roles/iam.serviceAccountAdmin` на проект"
+    c: "`roles/iam.serviceAccountTokenCreator` на этот SA"
+    d: "`roles/iam.serviceAccountKeyAdmin` на этот SA"
+  answer: c
+  explanation: |
+    Impersonation — это выпуск short-lived токена от имени SA, и право на это даёт
+    `serviceAccountTokenCreator`. `serviceAccountUser` решает другую задачу — прикрепить
+    SA к ресурсу. `serviceAccountAdmin` управляет самими аккаунтами, `serviceAccountKeyAdmin` —
+    ключами, от которых impersonation как раз избавляет. Все эти роли выдаются на SA
+    как на ресурс: сервисный аккаунт одновременно principal и объект со своей allow policy.
+  ref: "https://docs.cloud.google.com/iam/docs/service-account-impersonation"
+
+- id: gcp-iam-007
+  domain: gcp
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    У разработчика нет прав на Cloud Storage, но есть право создавать VM
+    и `roles/iam.serviceAccountUser` на весь проект. Чем это опасно?
+  answer: |
+    Он может создать VM с прикреплённым SA, у которого права шире его собственных,
+    и через код на этой VM действовать от имени SA — в том числе читать бакеты.
+    Permission `iam.serviceAccounts.actAs` и есть проверка «можно ли пользоваться этим SA»,
+    а роль на проект даёт её на все SA проекта.
+  explanation: |
+    Проверку `actAs` ввели именно потому, что прикрепление SA без неё давало неочевидную
+    эскалацию: права человека складывались с правами любого SA проекта. Защита —
+    выдавать `serviceAccountUser` на конкретные SA, не держать в проекте SA с широкими
+    ролями и помнить про дефолтный SA Compute Engine, который в старых проектах
+    получает `Editor`.
+  ref: "https://docs.cloud.google.com/iam/docs/service-accounts-actas"
+
+- id: gcp-iam-008
+  domain: gcp
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему VM с дефолтным сервисным аккаунтом Compute Engine — плохая идея даже
+    для внутреннего сервиса?
+  answer: |
+    В зависимости от org policy этот SA может автоматически получить `Editor` на проект,
+    а к VM он прикрепляется по умолчанию. Любой процесс на VM получает токен с правами
+    менять почти всё в проекте.
+  explanation: |
+    Для организаций, созданных после 3 мая 2024, constraint
+    `iam.automaticIamGrantsForDefaultServiceAccounts` действует по умолчанию и этот грант
+    не выдаётся — но старые проекты живут с ним. Токен достаётся с metadata server любым
+    кодом на машине, так что уязвимость в приложении становится доступом к проекту.
+    Правило: отдельный SA на нагрузку с минимальными ролями.
+  ref: "https://docs.cloud.google.com/iam/docs/service-account-types"
+
+- id: gcp-iam-009
+  domain: gcp
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложению нужен доступ к GCP API. Как обойтись без ключа сервисного аккаунта
+    и почему ключ — крайний случай?
+  answer: |
+    - код внутри GCP — **прикреплённый SA**: VM, Cloud Run, GKE через Workload Identity;
+    - внешняя система — **Workload Identity Federation**: обмен её токена на токен GCP;
+    - человек или скрипт — **impersonation** с выдачей short-lived токена.
+
+    Ключ — долгоживущий секрет: он утекает, и по нему нельзя достоверно установить,
+    кто им воспользовался.
+  explanation: |
+    Все альтернативы выдают токены, которые живут недолго и выпускаются по проверке
+    личности в момент запроса, так что украсть «навсегда» нечего. У ключа ровно обратные
+    свойства. Для организаций, созданных после 3 мая 2024, создание и загрузка ключей
+    запрещены org policy по умолчанию — снимать запрет стоит только при отсутствии
+    другого пути.
+  ref: "https://docs.cloud.google.com/iam/docs/best-practices-service-accounts"
+
+- id: gcp-iam-010
+  domain: gcp
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Настраиваешь Workload Identity Federation для GitHub Actions. Почему provider
+    без attribute condition — дыра и что писать в условие?
+  answer: |
+    GitHub выпускает OIDC-токены всех организаций с **одного issuer**, поэтому provider
+    без условия примет токен из любого чужого репозитория. Условие ограничивает claims:
+    минимум владелец (`assertion.repository_owner_id` или `repository_owner`), дальше —
+    репозиторий, ветка, environment.
+  explanation: |
+    Для GitHub Google требует condition обязательно. Поля-имена вроде `repository_owner`
+    уязвимы к squatting: организацию переименовали или удалили — имя может занять кто-то
+    другой, а числовые `*_id` не переиспользуются. Доступ затем выдают не пулу целиком,
+    а `principalSet` по атрибуту — например, на конкретный репозиторий.
+  ref: "https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines"
+
+- id: gcp-iam-011
+  domain: gcp
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Нужно, чтобы ни в одном проекте организации нельзя было создать VM с внешним IP —
+    даже владельцу проекта. Каким механизмом?
+  options:
+    a: "IAM deny policy на permission `compute.instances.create`"
+    b: "Organization Policy с constraint `compute.vmExternalIpAccess`"
+    c: "Custom role, в которой нет permissions на внешние адреса"
+    d: "Firewall rule, запрещающая ingress из `0.0.0.0/0`"
+  answer: b
+  explanation: |
+    IAM отвечает на вопрос «кто может», Organization Policy — «как вообще можно
+    сконфигурировать ресурс», и её ограничение действует на любого, какая бы роль у него
+    ни была. Deny на `create` запретил бы создание VM целиком, custom role не мешает
+    владельцу с `Owner`, а firewall не препятствует выдаче адреса — только режет трафик.
+    Org policy наследуется вниз по иерархии, как и IAM.
+  ref: "https://docs.cloud.google.com/resource-manager/docs/organization-policy/overview"
+
+- id: gcp-iam-012
+  domain: gcp
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое service agent и чем грозит отзыв его ролей?
+  answer: |
+    Google-managed сервисный аккаунт, от имени которого сервис работает с вашими
+    ресурсами; роли ему выдаются автоматически. Если их отозвать, сервис ломается:
+    например, без прав у агента Compute Engine перестают работать managed instance groups
+    и автоскейлинг.
+  explanation: |
+    Чаще всего агентов ломает не человек в консоли, а authoritative-управление IAM
+    из кода: конфигурация не перечисляет роли агентов, и применение её их снимает. Внешне
+    это выглядит как внезапная деградация сервиса без изменений в нём самом. Узнать агента
+    можно по адресу: в нём номер проекта и служебный домен сервиса, а не
+    `PROJECT_ID.iam.gserviceaccount.com`.
+  ref: "https://docs.cloud.google.com/iam/docs/service-agents"
+
+- id: gcp-iam-013
+  domain: gcp
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В Terraform для IAM проекта есть `google_project_iam_policy`, `_binding` и `_member`.
+    Чем они отличаются и какой может отрезать доступ всем?
+  answer: |
+    - `_policy` — authoritative для **всей** policy проекта: всё, чего нет в коде, удаляется;
+    - `_binding` — authoritative для **одной роли**: убирает остальных членов этой роли;
+    - `_member` — non-authoritative: добавляет одного principal, остальных не трогает.
+
+    Отрезать доступ всем может `_policy`.
+  explanation: |
+    `_policy` перезаписывает policy целиком, поэтому легко сносит роли service agents
+    и собственный доступ, а удаление такого ресурса оставляет проект доступным только тем,
+    у кого права на уровне организации. `_policy` нельзя смешивать с `_binding` и `_member` —
+    они будут переписывать друг друга на каждом `apply`; `_binding` с `_member` уживаются,
+    только если не трогают одну и ту же роль.
+  ref: "https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/google_project_iam"
+
+- id: gcp-iam-014
+  domain: gcp
+  subtopic: iam
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    После `gcloud auth login` команды `gcloud` работают, а Terraform и Python-клиент
+    не находят учётных данных. Почему?
+  answer: |
+    `gcloud auth login` даёт учётные данные только самому gcloud CLI. Клиентские библиотеки
+    и Terraform берут **Application Default Credentials**, а локально их создаёт отдельная
+    команда `gcloud auth application-default login`.
+  explanation: |
+    ADC проверяет по порядку: переменную `GOOGLE_APPLICATION_CREDENTIALS`, локальный файл
+    от `application-default login`, затем metadata server с прикреплённым SA. Поэтому один
+    и тот же код без правок работает и на ноутбуке, и на VM — меняется только источник
+    личности. И поэтому забытая переменная с путём к старому ключу молча перебивает
+    всё остальное.
+  ref: "https://docs.cloud.google.com/docs/authentication/application-default-credentials"

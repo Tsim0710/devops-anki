@@ -1,0 +1,333 @@
+# gcp / networking
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Общие механизмы облачных сетей (публичная подсеть через маршрут, нетранзитивность
+# пиринга, PrivateLink против пиринга, bastion против агента) живут в networks/cloud-vpc.
+# Здесь — как это устроено именно в GCP.
+
+- id: gcp-networking-001
+  domain: gcp
+  subtopic: networking
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как VPC в GCP устроен по географии и что это даёт по сравнению с «сетью на регион»?
+  answer: |
+    VPC — **глобальный** ресурс: маршруты и firewall rules общие для всех регионов.
+    Регионален только **subnet**. VM в разных регионах одной сети общаются
+    по внутренним адресам без пиринга и VPN.
+  explanation: |
+    Мультирегиональная архитектура в одном VPC не требует связывать сети между собой:
+    нет пиринга, нет согласования CIDR между региональными сетями, одно место для правил.
+    Обратная сторона — сеть становится общим доменом ошибки: неудачная firewall rule
+    или маршрут действуют сразу во всех регионах.
+  ref: "https://docs.cloud.google.com/vpc/docs/vpc"
+
+- id: gcp-networking-002
+  domain: gcp
+  subtopic: networking
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Почему для прода не используют VPC в auto mode?
+  options:
+    a: "Auto mode не поддерживает firewall rules с приоритетами"
+    b: "Подсети в нём зональные, а не региональные"
+    c: "Auto mode нельзя перевести в custom mode"
+    d: "Все такие сети берут подсети из одного `10.128.0.0/9` — они пересекаются между собой и с типовыми внутренними сетями"
+  answer: d
+  explanation: |
+    Auto mode сам создаёт подсеть в каждом регионе из общего блока `10.128.0.0/9`.
+    Два таких VPC нельзя соединить пирингом или Cloud VPN, а офисная сеть из RFC 1918
+    легко с ними пересечётся. Адресный план продовой сети проектируют заранее, поэтому
+    берут custom mode. Перевод auto → custom возможен, но только в одну сторону.
+  ref: "https://docs.cloud.google.com/vpc/docs/vpc"
+
+- id: gcp-networking-003
+  domain: gcp
+  subtopic: networking
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему сеть `default`, которая есть в новом проекте, в проде не используют?
+  answer: |
+    В ней заранее созданы правила `default-allow-ssh` (TCP 22) и `default-allow-rdp`
+    (TCP 3389) с источником `0.0.0.0/0`, `default-allow-icmp` из интернета
+    и `default-allow-internal` на весь `10.128.0.0/9`. Любая VM с внешним IP в этой сети
+    сразу доступна по SSH и RDP со всего интернета.
+  explanation: |
+    Сама модель VPC закрыта по умолчанию: implied rules запрещают весь входящий трафик.
+    Открытость `default` — не свойство GCP, а стартовые правила для удобства, которые в проде
+    превращаются в поверхность атаки. Поэтому сеть `default` удаляют или запрещают
+    её создание в новых проектах, а рабочие сети создают сами с явными правилами.
+  ref: "https://docs.cloud.google.com/firewall/docs/firewalls"
+
+- id: gcp-networking-004
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Firewall rule можно применить к VM по network tag или по service account.
+    Почему второй вариант надёжнее?
+  options:
+    a: "Тег может поменять любой, у кого есть право редактировать VM, а смена SA требует остановки VM и права пользоваться этим SA"
+    b: "Правила по service account проверяются раньше правил по тегам"
+    c: "Правила по тегам не поддерживают egress"
+    d: "Теги действуют только в пределах одной зоны"
+  answer: a
+  explanation: |
+    Network tag — произвольная строка: навесил `allow-db` на свою VM — и она попала
+    под правило, открывающее доступ к базе. Service account — идентичность: у VM он один,
+    заменить его можно только на остановленной VM и только имея `actAs` на новый SA.
+    Правило «кто есть кто» надёжнее правила «кто как себя подписал».
+  ref: "https://docs.cloud.google.com/firewall/docs/firewalls"
+
+- id: gcp-networking-005
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Cloud NAT настроен, но после удаления маршрута `0.0.0.0/0` VM без внешних IP потеряли
+    интернет. Почему, если NAT — отдельный сервис?
+  answer: |
+    Cloud NAT — распределённый software-defined сервис, а не VM или appliance на пути трафика.
+    Он транслирует только трафик, который идёт по маршрутам с next hop **default internet
+    gateway**. Нет такого маршрута — нечего транслировать.
+  explanation: |
+    По той же причине NAT перестаёт работать, когда `0.0.0.0/0` перенаправляют на VPN или
+    на VM-файрвол: трафик уходит мимо. У Cloud NAT нет адреса, на который можно направить
+    маршрут, поэтому разбор начинается с таблицы маршрутов, а не с состояния шлюза. К VM
+    с собственным внешним IP Cloud NAT не применяется вовсе.
+  ref: "https://docs.cloud.google.com/nat/docs/nat-product-interactions"
+
+- id: gcp-networking-006
+  domain: gcp
+  subtopic: networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис за Cloud NAT массово ходит в один внешний API, и часть соединений падает
+    по таймауту, хотя остальной интернет работает. Что проверить?
+  answer: |
+    Исчерпание NAT-портов. На каждую VM резервируется ограниченное число пар «NAT IP :
+    source port» — при static port allocation по умолчанию **64**, — и оно ограничивает число
+    одновременных соединений к **одному** адресу, порту и протоколу. Сверх лимита пакеты
+    отбрасываются.
+  explanation: |
+    Симптом избирательный: к разным назначениям портов хватает, к одному горячему — нет.
+    Лечат увеличением минимума портов на VM, dynamic port allocation, дополнительными NAT IP,
+    а со стороны приложения — переиспользованием соединений. Отброшенные пакеты видны только
+    при включённом логировании ошибок Cloud NAT, поэтому его включают заранее.
+  ref: "https://docs.cloud.google.com/nat/docs/ports-and-addresses"
+
+- id: gcp-networking-007
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    VM без внешнего IP должна писать в Cloud Storage, а доступа в интернет ей давать нельзя.
+    Что включить?
+  options:
+    a: "Cloud NAT на регион подсети"
+    b: "Shared VPC с проектом, где лежит бакет"
+    c: "VPC Network Peering с сетью Google"
+    d: "Private Google Access на подсети VM"
+  answer: d
+  explanation: |
+    Private Google Access включается **на подсеть** и даёт VM с одними внутренними адресами
+    доступ к Google APIs, не открывая интернет. Cloud NAT открыл бы весь интернет, а трафик
+    к Google APIs через NAT и так не идёт. Shared VPC делит сеть, а не доступ к API.
+    Для VM с внешним IP настройка ничего не меняет — они ходят к API напрямую.
+  ref: "https://docs.cloud.google.com/vpc/docs/private-google-access"
+
+- id: gcp-networking-008
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как устроен Shared VPC и кто в нём чем управляет?
+  answer: |
+    Сеть живёт в **host project**, а VM, кластеры и прочие ресурсы создаются в подключённых
+    **service projects**. Сетевая команда управляет подсетями, маршрутами и firewall в host;
+    команды приложений получают `roles/compute.networkUser` на нужные подсети и размещают
+    в них свои ресурсы.
+  explanation: |
+    Это разделение ответственности без разделения сети: IAM и квоты у каждого проекта свои,
+    а адресный план и правила централизованы. В отличие от пиринга это одна сеть,
+    так что вопроса транзитивности не возникает. Ограничения: service project подключается
+    только к одному host, а host не может сам быть service project.
+  ref: "https://docs.cloud.google.com/vpc/docs/shared-vpc"
+
+- id: gcp-networking-009
+  domain: gcp
+  subtopic: networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Cloud SQL с private IP доступен из основного VPC, но не из второго VPC, связанного
+    с основным пирингом. Почему?
+  answer: |
+    Private services access сам по себе — **VPC Network Peering** между вашей сетью и сетью
+    провайдера сервиса. Путь «второй VPC → основной → сеть Cloud SQL» — два пиринга подряд,
+    а пиринг нетранзитивен.
+  explanation: |
+    Ловушка в том, что пиринг с сетью Google не воспринимается как «ваш», и кажется, будто
+    Cloud SQL просто живёт в основной сети. Обходы: разместить потребителей в той же сети,
+    например через Shared VPC, Network Connectivity Center или Private Service Connect,
+    где endpoint сервиса — адрес в вашей сети. Для доступа из офиса в сеть провайдера
+    экспортируют custom routes.
+  ref: "https://docs.cloud.google.com/vpc/docs/private-services-access"
+
+- id: gcp-networking-010
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Backends за глобальным внешним Application Load Balancer все `UNHEALTHY`, хотя сервис
+    на VM отвечает. Первое, что проверить в сети?
+  answer: |
+    Firewall rule на ingress от адресов Google Front End — `35.191.0.0/16`
+    и `130.211.0.0/22` — на порт backend'а. Implied deny режет входящий трафик,
+    и health check до VM не доходит.
+  explanation: |
+    Проверки приходят не «изнутри сети», а с отдельных диапазонов Google, и для VPC это
+    обычный входящий трафик. Проверка `curl` с соседней VM ничего не доказывает: она идёт
+    из внутреннего диапазона, который открыт. У regional Application Load Balancer схема
+    другая: трафик идёт из proxy-only subnet, и открывают правило для неё.
+  ref: "https://docs.cloud.google.com/load-balancing/docs/firewall-rules"
+
+- id: gcp-networking-011
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что нужно, чтобы зайти по SSH на VM без внешнего IP через IAP TCP forwarding?
+  answer: |
+    - firewall rule на ingress из `35.235.240.0/20` на порт 22;
+    - роль `roles/iap.tunnelResourceAccessor` у пользователя;
+    - `gcloud compute ssh --tunnel-through-iap`.
+
+    Внешний IP не нужен: IAP принимает поток по HTTPS, проверяет IAM и пересылает его
+    на внутренний адрес VM.
+  explanation: |
+    Порт на VM всё-таки открывается — но только для диапазона IAP, а не для интернета,
+    и решение о доступе принимается по IAM, а не по адресу пользователя. Отсюда типовая
+    поломка: роль выдана, а соединение висит — забыли правило для `35.235.240.0/20`,
+    и implied deny закрывает ingress. На VM при этом ничего не ставят: соединение
+    устанавливает IAP снаружи.
+  ref: "https://docs.cloud.google.com/iap/docs/using-tcp-forwarding"
+
+- id: gcp-networking-012
+  domain: gcp
+  subtopic: networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Офис подключён Cloud VPN с BGP к Cloud Router в `europe-west1`. Подсети этого региона
+    из офиса видны, а подсети `us-central1` того же VPC — нет. Почему?
+  answer: |
+    У VPC **regional** dynamic routing mode: Cloud Router анонсирует только подсети своего
+    региона, а выученные маршруты действуют только в нём. В режиме **global** анонсируются
+    подсети всех регионов, и выученные маршруты распространяются на весь VPC.
+  explanation: |
+    Regional — значение по умолчанию, и при одном регионе разница незаметна до появления
+    подсети в другом. Режим задаётся на уровне VPC, а не Cloud Router, и меняет поведение
+    всех роутеров сети. Подсетям из других регионов в global-режиме к MED добавляется
+    межрегиональная стоимость, так что при туннелях в нескольких регионах трафик
+    предпочитает ближайший.
+  ref: "https://docs.cloud.google.com/network-connectivity/docs/router/how-to/configuring-routing-mode"
+
+- id: gcp-networking-013
+  domain: gcp
+  subtopic: networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Злоумышленник украл ключ SA с правом читать бакет. Какой механизм не даст ему выгрузить
+    данные, хотя IAM разрешает?
+  answer: |
+    **VPC Service Controls**: периметр вокруг проектов и сервисов. Запрос к защищённому API
+    извне периметра — из чужой сети или в ресурс за его пределами — отклоняется, даже если
+    IAM его разрешает.
+  explanation: |
+    IAM проверяет личность, а украденный ключ и есть личность. VPC Service Controls добавляет
+    проверку контекста — откуда пришёл запрос и куда уходят данные, — поэтому закрывает
+    и работу с украденными учётными данными с чужой машины, и копирование в чужой бакет.
+    Включают через dry run: периметр сначала только логирует нарушения, иначе легко отрезать
+    легитимные интеграции.
+  ref: "https://docs.cloud.google.com/vpc-service-controls/docs/overview"
+
+- id: gcp-networking-014
+  domain: gcp
+  subtopic: networking
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем Premium Tier отличается от Standard Tier в сети GCP?
+  options:
+    a: "Premium шифрует трафик, Standard — нет"
+    b: "Standard доступен только для внутреннего трафика"
+    c: "В Premium трафик входит в сеть Google и выходит из неё в точке присутствия ближе к пользователю, в Standard — у региона ресурса"
+    d: "Premium гарантирует пропускную способность, Standard работает best effort"
+  answer: c
+  explanation: |
+    Разница в том, где трафик переходит между интернетом и сетью Google. Premium держит его
+    в сети Google как можно дольше, Standard отдаёт в интернет у региона — дешевле, но путь
+    длиннее и менее предсказуем. Отсюда ограничение: глобальные внешние адреса и глобальные
+    балансировщики есть только в Premium. Premium используется по умолчанию.
+  ref: "https://docs.cloud.google.com/network-tiers/docs/overview"
+
+- id: gcp-networking-015
+  domain: gcp
+  subtopic: networking
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как GCP выбирает, какая firewall rule сработает, и что будет, если не подошла ни одна?
+  answer: |
+    Выигрывает правило с **наименьшим** числом priority (0–65535, по умолчанию 1000);
+    при равном приоритете deny сильнее allow. Если не подошло ни одно, действуют implied
+    rules: ingress запрещён, egress разрешён.
+  explanation: |
+    «Чем меньше число, тем важнее» — частая путаница при переносе привычек из других систем.
+    Implied rules не удалить, но их перебивает любое явное правило: закрыть исходящий трафик —
+    это явное deny egress с большим числом priority плюс allow на нужное с меньшим.
+    Правила stateful: ответный трафик разрешённого соединения проходит сам.
+  ref: "https://docs.cloud.google.com/firewall/docs/firewalls"

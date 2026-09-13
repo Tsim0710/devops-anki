@@ -1,0 +1,254 @@
+# gcp / storage
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: gcp-storage-001
+  domain: gcp
+  subtopic: storage
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Данные в классе Archive нужно прочитать срочно. Сколько ждать доступа?
+  options:
+    a: "Несколько часов на восстановление, как у ленточного архива"
+    b: "До 12 часов, если не заказан ускоренный режим"
+    c: "Миллисекунды: восстановление не нужно, но за чтение берут retrieval fee"
+    d: "Сутки — Archive читается только через запрос в поддержку"
+  answer: c
+  explanation: |
+    Все классы Cloud Storage — Standard, Nearline, Coldline, Archive — отдают данные
+    с миллисекундной задержкой. Разница только в цене: чем холоднее класс, тем дешевле
+    хранение и дороже обращение, плюс минимальный срок хранения. Выбор класса — прогноз
+    частоты доступа, а не скорости.
+  ref: "https://docs.cloud.google.com/storage/docs/storage-classes"
+
+- id: gcp-storage-002
+  domain: gcp
+  subtopic: storage
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Логи положили в Coldline и через 10 дней удалили за ненадобностью. Что будет в счёте?
+  answer: |
+    Оплата как за **90 дней**: у Coldline минимальный срок хранения 90 дней, и за досрочно
+    удалённые объекты берут early deletion charge. У Nearline минимум 30 дней,
+    у Archive — 365.
+  explanation: |
+    Холодный класс для короткоживущих данных выходит дороже Standard: экономия на хранении
+    не успевает накопиться, а плата за досрочное удаление её съедает. Поэтому данные пишут
+    в Standard, а в холодные классы переводят lifecycle-правилом по возрасту — когда уже
+    понятно, что их хранят долго.
+  ref: "https://docs.cloud.google.com/storage/docs/storage-classes"
+
+- id: gcp-storage-003
+  domain: gcp
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Бакет открыли для `allAuthenticatedUsers`, решив, что это «все сотрудники компании».
+    Кто на самом деле получил доступ?
+  options:
+    a: "Все пользователи и service accounts организации"
+    b: "Только principals с ролями в проекте бакета"
+    c: "Все пользователи Cloud Identity и Workspace, без service accounts"
+    d: "Любой, у кого есть Google-аккаунт, включая личный Gmail, и любой service account"
+  answer: d
+  explanation: |
+    `allAuthenticatedUsers` означает «кто угодно, прошедший аутентификацию в Google»,
+    без привязки к организации — по сути публичный доступ с формальностью в виде логина.
+    Для сотрудников выдают доступ группе или домену (`domain:example.com`), а от случайной
+    публикации защищает public access prevention: он блокирует и `allUsers`,
+    и `allAuthenticatedUsers`, перекрывая уже выданные привязки.
+  ref: "https://docs.cloud.google.com/iam/docs/principals-overview"
+
+- id: gcp-storage-004
+  domain: gcp
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает uniform bucket-level access и почему его включение планируют?
+  answer: |
+    Выключает ACL: доступ к бакету и объектам определяет только IAM на уровне бакета.
+    Кто имел доступ лишь через ACL объектов, теряет его. Вернуть назад можно в течение
+    **90 дней**, потом настройка становится постоянной.
+  explanation: |
+    Две модели прав одновременно — источник незаметных дыр: объект может быть публичным
+    по ACL при закрытом IAM. UBLA оставляет одну модель, и часть функций работает только
+    с ним: managed folders, hierarchical namespace, IAM conditions на бакете. Перед включением
+    ищут, кто полагается на ACL, иначе после переключения что-то молча сломается.
+  ref: "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access"
+
+- id: gcp-storage-005
+  domain: gcp
+  subtopic: storage
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как дать внешнему клиенту скачать один объект из приватного бакета, не заводя
+    ему аккаунт?
+  answer: |
+    **Signed URL**: ссылка, подписанная ключом аккаунта с доступом к объекту. Кто владеет
+    ссылкой, тот и пользуется ей, пока она не истекла, — для V4 максимум **7 дней**.
+  explanation: |
+    Права берутся у подписавшего, а не у получателя, так что ссылка — временно переданный
+    доступ, и её утечка равна утечке объекта до истечения срока. Точечно отозвать одну
+    ссылку нельзя: остаётся ротация ключа подписи, которая заденет все ссылки этого ключа.
+    Отсюда короткие сроки и подпись отдельным SA с правами только на нужный бакет.
+  ref: "https://docs.cloud.google.com/storage/docs/access-control/signed-urls"
+
+- id: gcp-storage-006
+  domain: gcp
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    На бакете включили Object Versioning, и через полгода счёт за хранение вырос в разы,
+    хотя объём «живых» данных не менялся. Почему?
+  answer: |
+    Каждая перезапись и удаление оставляют **noncurrent version**, и она тарифицируется
+    как обычный объект. Без lifecycle-правил версии копятся бесконечно. Ограничивают
+    их условиями `numNewerVersions` или `daysSinceNoncurrentTime`.
+  explanation: |
+    Удаление в версионированном бакете не удаляет данные, а делает живую версию noncurrent,
+    поэтому «почистили бакет» ничего не экономит. Versioning и lifecycle включают только
+    вместе: первый защищает от ошибки, второй ограничивает её цену. Особенно заметно
+    на часто перезаписываемых объектах — state-файлах, отчётах, выгрузках.
+  ref: "https://docs.cloud.google.com/storage/docs/object-versioning"
+
+- id: gcp-storage-007
+  domain: gcp
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Объект удалили из бакета без versioning. Можно ли его вернуть?
+  answer: |
+    Обычно да: **soft delete** включён по умолчанию для всех бакетов, которые его
+    поддерживают, с retention **7 дней**. Удалённый объект хранится это время
+    и восстанавливается; платят за него как за хранение.
+  explanation: |
+    Soft delete страхует от случайного и злонамеренного удаления, в том числе целого бакета.
+    Для бакетов с огромной текучкой временных объектов его иногда отключают, ставя срок 0, —
+    иначе неделю платишь за уже удалённый мусор. Решение принимают осознанно: это последняя
+    страховка, и после её отключения удаление необратимо сразу.
+  ref: "https://docs.cloud.google.com/storage/docs/soft-delete"
+
+- id: gcp-storage-008
+  domain: gcp
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Публичный объект в Cloud Storage перезаписали, а пользователи ещё долго получают старую
+    версию. Разве Cloud Storage не strongly consistent?
+  answer: |
+    Strongly consistent, но публично читаемый объект без заданного `Cache-Control` может
+    кешироваться **до 60 минут**. Кеш на пути к пользователю отдаёт старое содержимое,
+    пока не истечёт срок.
+  explanation: |
+    Read-after-write, листинг и удаление в самом Cloud Storage консистентны сразу; исключение
+    касается только кеширования публичных объектов. Для часто меняющихся файлов ставят свой
+    `Cache-Control` — `no-store` или короткий `max-age` — либо публикуют новую версию под новым
+    именем, с хешем в пути.
+  ref: "https://docs.cloud.google.com/storage/docs/consistency"
+
+- id: gcp-storage-009
+  domain: gcp
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Для аудита на бакет поставили retention policy и заблокировали её. Что после этого
+    уже нельзя сделать?
+  answer: |
+    Снять policy или сократить срок: блокировка **необратима**, срок можно только увеличить.
+    Удалить бакет можно лишь тогда, когда все объекты в нём отлежали срок.
+  explanation: |
+    В этом смысл Bucket Lock: WORM-хранилище, которое не ослабить никакой ролью, и потому
+    оно годится под требования регуляторов. И поэтому ошибка в сроке превращается
+    в долговременный счёт: поставили десять лет вместо одного — платишь десять лет.
+    Блокировку делают отдельным шагом, после проверки policy.
+  ref: "https://docs.cloud.google.com/storage/docs/bucket-lock"
+
+- id: gcp-storage-010
+  domain: gcp
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как выбрать между region, dual-region и multi-region для бакета?
+  answer: |
+    - **region** — данные рядом с вычислениями: минимальная задержка, нет межрегионального трафика;
+    - **dual-region** — копии в двух выбранных регионах, доступна turbo replication с RPO **15 минут**;
+    - **multi-region** — копии по большой географии, для раздачи и доступности.
+  explanation: |
+    Главная ошибка — multi-region «для надёжности» под вычисления в одном регионе: платишь
+    за репликацию, а VM всё равно в одном месте. Обычная репликация между регионами
+    асинхронна, её цель — до 12 часов для всех новых объектов, так что при потере региона
+    свежие данные могут не успеть скопироваться. Если нужен предсказуемый RPO, берут
+    dual-region с turbo replication.
+  ref: "https://docs.cloud.google.com/storage/docs/availability-durability"
+
+- id: gcp-storage-011
+  domain: gcp
+  subtopic: storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Базу положили на Local SSD ради IOPS. Какие события уничтожат данные?
+  answer: |
+    Удаление VM и сбой хоста, после которого Compute Engine не может восстановить данные.
+    Остановка и suspend сохраняют Local SSD, только если явно выбрать сохранение.
+    Перезагрузка гостевой ОС и live migration данные не трогают.
+  explanation: |
+    Local SSD физически привязан к хосту — поэтому он быстрый и поэтому не годится
+    как долговременное хранилище. На нём держат кеши, временные файлы и реплики, которые
+    восстанавливаются из других копий. Для данных, которые должны пережить потерю зоны,
+    есть regional persistent disk: синхронная запись в две зоны и force-attach к VM
+    в соседней зоне.
+  ref: "https://docs.cloud.google.com/compute/docs/disks/local-ssd"
+
+- id: gcp-storage-012
+  domain: gcp
+  subtopic: storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что включить на бакете Cloud Storage, в котором Terraform хранит state?
+  answer: |
+    **Object Versioning** — чтобы откатить испорченный или удалённый state; доступ
+    только через IAM с uniform bucket-level access и узкий круг ролей на запись.
+    Блокировки backend `gcs` поддерживает сам, дополнительных ресурсов для них не нужно.
+  explanation: |
+    State содержит секреты открытым текстом, так что это бакет с секретами: никакой
+    публичности, запись только у конвейера и администраторов. Versioning здесь нужен
+    не ради истории, а для восстановления: испорченный state без предыдущей версии означает
+    ручной `import` всей инфраструктуры. Для шифрования своим ключом backend поддерживает
+    ключи Cloud KMS.
+  ref: "https://developer.hashicorp.com/terraform/language/backend/gcs"

@@ -1,0 +1,348 @@
+# gcp / gke
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Kubernetes как таковой — в домене k8s. Здесь то, что специфично для GKE:
+# режимы кластера, идентичность подов, сеть, апгрейды, интеграция с балансировщиком.
+
+- id: gcp-gke-001
+  domain: gcp
+  subtopic: gke
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем GKE Autopilot отличается от Standard?
+  options:
+    a: "В Autopilot нет control plane, поды запускаются напрямую в Cloud Run"
+    b: "Autopilot поддерживает только stateless-нагрузки"
+    c: "В Autopilot узлами управляет Google, а платишь за requests подов; в Standard узлы и их оплата — твои"
+    d: "Autopilot — это Standard с включённым cluster autoscaler"
+  answer: c
+  explanation: |
+    В Standard ты выбираешь типы машин, создаёшь node pools и платишь за узлы, даже полупустые.
+    В Autopilot узлы подбирает и обслуживает Google, а счёт считается по запросам подов;
+    если requests не заданы, Autopilot подставляет свои значения. Цена этого — ограничения:
+    privileged-контейнеры запрещены, SSH на узлы нет, hostPath только на чтение `/var/log`.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/autopilot-security"
+
+- id: gcp-gke-002
+  domain: gcp
+  subtopic: gke
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем regional GKE-кластер надёжнее zonal, если нагрузка в обоих переживает потерю узла?
+  answer: |
+    Control plane: у regional-кластера несколько реплик в разных зонах, у zonal — одна.
+    Пока control plane zonal-кластера обновляется, нагрузка работает, но деплоить и менять
+    её нельзя; regional обновляет реплики по одной и остаётся доступен.
+  explanation: |
+    Потеря зоны у zonal-кластера — это потеря API: поды живут, но ни масштабировать,
+    ни перезапустить их нельзя, то есть инцидент даже не начать чинить. Для прода это
+    решающий аргумент. Узлы regional-кластера по умолчанию тоже разложены по трём зонам.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/cluster-upgrades"
+
+- id: gcp-gke-003
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Regional GKE-кластер создан с node pool по умолчанию. Сколько в нём узлов и почему?
+  answer: |
+    **Девять**: по три узла **на зону** в трёх зонах региона. В regional-кластере
+    `--num-nodes` задаёт число узлов на зону, а не на кластер.
+  explanation: |
+    Отсюда классический сюрприз в счёте: `--num-nodes 5` «для теста» в regional-кластере —
+    пятнадцать машин. Так же считаются лимиты автоскейлинга пула: `--min-nodes`
+    и `--max-nodes` — на зону. Зато при потере зоны остаются две трети ёмкости, а не ноль.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/regional-clusters"
+
+- id: gcp-gke-004
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Workload Identity Federation for GKE включена. Какими двумя способами выдать
+    Kubernetes ServiceAccount роль на ресурс GCP?
+  answer: |
+    1. **Напрямую**: роль выдаётся principal'у самого KSA —
+       `principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/PROJECT_ID.svc.id.goog/subject/ns/NAMESPACE/sa/KSA`.
+    2. **Через IAM service account**: роль выдаётся IAM SA, на KSA ставится аннотация
+       `iam.gke.io/gcp-service-account`, а KSA получает `roles/iam.workloadIdentityUser`
+       на этот IAM SA.
+  explanation: |
+    В обоих случаях запрос пода к metadata server перехватывает GKE metadata server и выдаёт
+    токен, привязанный к namespace и имени KSA, — поэтому права приложений на одном узле
+    разделены, а код менять не нужно. Прямая выдача проще: нет промежуточного SA. Связка
+    с IAM SA нужна там, где сервис не принимает principal пула и требует настоящий
+    сервисный аккаунт. В Autopilot механизм включён всегда.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/workload-identity"
+
+- id: gcp-gke-005
+  domain: gcp
+  subtopic: gke
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в GKE-кластере без Workload Identity Federation аккуратные права для каждого
+    приложения ничего не дают?
+  answer: |
+    Под обращается к metadata server узла и получает токен **сервисного аккаунта узла**.
+    Все поды на узле делят одни права, и уязвимость в любом из них — это права узла,
+    а при дефолтном SA Compute Engine — возможно, `Editor` на проект.
+  explanation: |
+    Metadata concealment эту дыру не закрывает: доступ к SA узла он не ограничивает,
+    и Google рекомендует вместо него WIF for GKE во всех случаях. Второй слой — минимально
+    привилегированный SA для узлов, чтобы даже утечка токена узла давала мало.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/protecting-cluster-metadata"
+
+- id: gcp-gke-006
+  domain: gcp
+  subtopic: gke
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В VPC-native кластере новые узлы перестали добавляться из-за нехватки адресов, хотя подов
+    на узлах мало. При чём тут `max pods per node`?
+  answer: |
+    Каждому узлу выделяется кусок **Pod secondary range** под максимум подов: при дефолтных
+    110 подах на узел в Standard — `/24`, 256 адресов. Число узлов ограничено числом таких
+    кусков в диапазоне, и узел с тремя подами занимает кусок целиком.
+  explanation: |
+    Адресов на узел берут вдвое больше максимума подов, чтобы не переиспользовать адрес
+    сразу после удаления пода. Отсюда рычаги: меньший `max pods per node` для новых node pools —
+    кусок станет меньше — или дополнительные Pod ranges (discontiguous multi-Pod CIDR).
+    Адресный план кластера поэтому считают от числа узлов, а не подов.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/flexible-pod-cidr"
+
+- id: gcp-gke-007
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Узлы GKE без внешних IP. Образы из Artifact Registry тянутся, а из Docker Hub —
+    `ImagePullBackOff`. Почему?
+  answer: |
+    Узлам без внешних адресов интернет недоступен без **Cloud NAT**. Artifact Registry работает,
+    потому что к Google APIs хватает Private Google Access — GKE включает его на подсети сам,
+    если сеть не Shared VPC.
+  explanation: |
+    Симптом обманчив: «одни образы тянутся, другие нет» похоже на проблему реестра или
+    авторизации, а причина — сетевой путь. Решения: Cloud NAT для исходящего трафика или
+    remote repository в Artifact Registry, который проксирует и кеширует Docker Hub, — тогда
+    узлы ходят только в Google API, а сборки перестают упираться в лимиты Docker Hub.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/network-isolation"
+
+- id: gcp-gke-008
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Кластер GKE подписан на release channel. Можно ли навсегда запретить ему автоматические
+    апгрейды?
+  options:
+    a: "Да, maintenance exclusion со scope «No upgrades» без срока"
+    b: "Нет: исключения ограничены по сроку и не продлевают жизнь версии после конца поддержки"
+    c: "Да, если выключить auto-upgrade у node pools"
+    d: "Да, в канале Extended апгрейды не выполняются"
+  answer: b
+  explanation: |
+    Кластеры в release channel GKE обновляет сам, управлять можно только тем, **когда**:
+    maintenance windows и exclusions. «No upgrades» — не дольше 90 дней, «No minor upgrades»
+    и «No minor or node upgrades» — до конца поддержки минорной версии, после чего апгрейд
+    всё равно случится. Extended растягивает поддержку версии до 24 месяцев, но конец
+    у неё есть. Отсюда практика — регулярно разбирать deprecated API, а не копить апгрейды.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/maintenance-windows-and-exclusions"
+
+- id: gcp-gke-009
+  domain: gcp
+  subtopic: gke
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Во время surge-апгрейда node pool под защищён PDB, который не допускает ни одного
+    выселения. Что сделает GKE?
+  answer: |
+    Будет уважать PodDisruptionBudget **до часа**, после чего выселит оставшиеся поды
+    принудительно и продолжит апгрейд.
+  explanation: |
+    Ручной `kubectl drain` с таким PDB висит бесконечно, а апгрейд GKE — нет: платформа
+    не даёт одному неудачному PDB остановить обслуживание кластера навсегда. PDB без запаса
+    не защищает, а откладывает сбой на час, поэтому он должен допускать выселение хотя бы
+    одной реплики. Для чувствительных нагрузок есть blue-green стратегия: новые узлы создаются
+    заранее, старые ждут soak time, и апгрейд можно откатить.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/node-pool-upgrade-strategies"
+
+- id: gcp-gke-010
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    GKE Ingress отдаёт `502`, поды `Running` и `Ready`, а backend в балансировщике
+    `UNHEALTHY`. Приложение на `/` отвечает `404`. Связь?
+  answer: |
+    Health check балансировщика по умолчанию шлёт запрос на `/` и ждёт `200`. Параметры
+    берутся из `readinessProbe`, только если поды существовали в момент создания Ingress, —
+    иначе действует дефолт, и `404` на `/` делает backend нездоровым.
+  explanation: |
+    Readiness в кластере и health check балансировщика — две разные проверки: kubelet под
+    принимает, а Cloud Load Balancing — нет. Изменения `readinessProbe` после создания Ingress
+    на health check уже не влияют. Надёжный путь — задать проверку явно через `BackendConfig`
+    с `healthCheck.requestPath`, а не полагаться на вывод из пробы.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/ingress-configuration"
+
+- id: gcp-gke-011
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт container-native load balancing в GKE по сравнению с балансировкой
+    на instance groups?
+  answer: |
+    Балансировщик шлёт трафик **прямо на IP подов** через network endpoint groups, минуя
+    NodePort на узлах. Без него трафик приходит на узел и оттуда ещё раз балансируется
+    до пода, возможно на другом узле.
+  explanation: |
+    Исчезает второй прыжок: меньше задержка, нет лишнего трафика между узлами, балансировщик
+    видит здоровье конкретных подов, а не узлов, и распределение становится честным.
+    Включается автоматически для VPC-native кластеров, если сеть не Shared VPC и выполнены
+    остальные условия.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/ingress"
+
+- id: gcp-gke-012
+  domain: gcp
+  subtopic: gke
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    У пользователя `roles/container.developer` на проект. Где действует это право и как
+    оно сочетается с RBAC в кластере?
+  options:
+    a: "Во всех кластерах проекта; доступ есть, если его даёт IAM или RBAC"
+    b: "Только в кластерах, где пользователь добавлен в RoleBinding; нужны оба разрешения"
+    c: "Только в namespace `default`, остальное задаёт RBAC"
+    d: "Во всех кластерах проекта, но RBAC может запретить часть действий"
+  answer: a
+  explanation: |
+    IAM-роль не сузить до кластера или namespace: выданная на проект, она действует во всех
+    его кластерах, а на folder — во всех проектах папки. RBAC тоньше, но складывается с IAM,
+    а не ограничивает его: достаточно разрешения на любом уровне, и запрещать RBAC не умеет.
+    Поэтому широкая IAM-роль перекрывает любую аккуратную схему namespace'ов. Практика —
+    минимальная IAM-роль для входа в кластер и вся раздача прав через RBAC на группы.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/access-control"
+
+- id: gcp-gke-013
+  domain: gcp
+  subtopic: gke
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что делает `gcloud container clusters get-credentials` и зачем `kubectl` нужен
+    `gke-gcloud-auth-plugin`?
+  answer: |
+    Команда записывает в `kubeconfig` контекст кластера: адрес control plane и способ
+    аутентификации. Сам токен в файл не кладётся — его при обращении выдаёт
+    `gke-gcloud-auth-plugin` из учётных данных gcloud. Плагин обязателен начиная
+    с Kubernetes 1.26.
+  explanation: |
+    Токен короткоживущий, хранить его в файле бессмысленно, поэтому `kubectl` вызывает плагин
+    через механизм credential plugins из client-go. Отсюда типовые ошибки: на CI-машине без
+    плагина `kubectl` падает сразу, а при протухшей сессии gcloud — на аутентификации.
+    Права определяются IAM-личностью, от имени которой работает gcloud.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl"
+
+- id: gcp-gke-014
+  domain: gcp
+  subtopic: gke
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    У пода на Spot-узле GKE `terminationGracePeriodSeconds: 120`, но при вытеснении узла
+    он не успевает корректно завершиться. Почему?
+  answer: |
+    При вытеснении Spot VM на весь shutdown по умолчанию **30 секунд**: 15 обычным подам,
+    затем 15 системным. `terminationGracePeriodSeconds` в манифесте этот лимит не расширяет.
+    Общий бюджет можно поднять максимум до 120 секунд через `shutdownGracePeriodSeconds`
+    в конфигурации узлов.
+  explanation: |
+    Grace period пода — обещание kubelet при обычном удалении, а при вытеснении время
+    диктует Compute Engine. Поэтому нагрузку на Spot проектируют под завершение за 15–25
+    секунд: чекпоинты, короткие транзакции, идемпотентная переобработка. Spot-узлы GKE
+    помечает меткой `cloud.google.com/gke-spot=true` — по ней и направляют туда только то,
+    что это переживёт.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/spot-vms"
+
+- id: gcp-gke-015
+  domain: gcp
+  subtopic: gke
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Под с `nodeSelector` на GPU висит в `Pending`, cluster autoscaler включён, но узел
+    не появляется. Что должно быть включено, чтобы это решилось само?
+  answer: |
+    **Node auto-provisioning.** Cluster autoscaler добавляет узлы только в существующие
+    node pools: если ни один пул не подходит под требования пода, масштабировать нечего.
+    NAP сам создаёт node pool под требования ожидающих подов и удаляет его, когда он
+    больше не нужен.
+  explanation: |
+    Для NAP обязательно задают лимиты ресурсов на весь кластер — CPU и память, для GPU
+    отдельно лимит ускорителей, — иначе автоматике не на что опереться, решая, где остановиться.
+    В Autopilot это поведение встроено: узлы под требования подов подбираются всегда.
+  ref: "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/node-auto-provisioning"
+
+- id: gcp-gke-016
+  domain: gcp
+  subtopic: gke
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему на узел GKE с Container-Optimized OS нельзя поставить пакет для отладки?
+  answer: |
+    В COS **нет пакетного менеджера**, а корневая файловая система смонтирована только
+    на чтение и проверяется при загрузке. Инструменты отладки запускают в контейнере
+    через `toolbox`.
+  explanation: |
+    Минимальный неизменяемый образ уменьшает поверхность атаки и дрейф узлов: нечего
+    доустановить «временно», все узлы пула одинаковы. `/var` и `/home` доступны на запись,
+    но смонтированы `noexec`. Ручные изменения на узле не переживут его пересоздания
+    при апгрейде — всё, что нужно на узлах, доставляют DaemonSet'ом.
+  ref: "https://docs.cloud.google.com/container-optimized-os/docs/concepts/security"

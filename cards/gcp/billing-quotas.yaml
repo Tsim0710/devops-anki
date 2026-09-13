@@ -1,0 +1,178 @@
+# gcp / billing-quotas
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: gcp-billing-quotas-001
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    На billing account настроен budget на 500 долларов с алертами на 50, 90 и 100%.
+    Что произойдёт, когда расходы превысят 500?
+  options:
+    a: "Ресурсы проектов будут остановлены"
+    b: "Биллинг отключится, данные сохранятся на 30 дней"
+    c: "Придёт уведомление, а расходы продолжатся"
+    d: "Новые ресурсы перестанут создаваться, работающие останутся"
+  answer: c
+  explanation: |
+    Budget с алертами — инструмент уведомления, а не лимит. Жёсткую остановку строят
+    автоматикой: программные уведомления бюджета в Pub/Sub и функция, которая, например,
+    отключает биллинг проекта. Данные о затратах приходят с задержкой, поэтому порог ставят
+    ниже реально доступной суммы — к моменту алерта потрачено уже больше.
+  ref: "https://docs.cloud.google.com/billing/docs/how-to/budgets"
+
+- id: gcp-billing-quotas-002
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Создание VM падает с `ZONE_RESOURCE_POOL_EXHAUSTED`, хотя квота CPU в регионе далеко
+    не выбрана. В чём дело и что делать?
+  answer: |
+    Это не квота, а нехватка ёмкости в зоне: у Google нет свободных ресурсов нужного типа.
+    Помогают другая зона или регион, другой тип машины, повтор позже; для гарантии —
+    **reservations** заранее.
+  explanation: |
+    Квота — лимит на твой проект, её поднимают запросом. Stockout — состояние облака, запросом
+    его не исправить. Отсюда архитектурный вывод: то, что обязано подняться — масштабирование
+    на пике, DR, — не должно зависеть от одного типа машин в одной зоне. Помогают regional
+    MIG, несколько допустимых типов и резервирование.
+  ref: "https://docs.cloud.google.com/compute/docs/troubleshooting/troubleshooting-resource-availability"
+
+- id: gcp-billing-quotas-003
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Скрипт массово создаёт диски и получает ошибку квоты, а через минуту те же вызовы
+    проходят. Какой тип квоты он задел?
+  options:
+    a: "Rate quota — лимит запросов к API за интервал времени"
+    b: "Allocation quota — лимит на число дисков в проекте"
+    c: "System limit — фиксированное ограничение платформы"
+    d: "Billing quota — лимит расходов billing account"
+  answer: a
+  explanation: |
+    Allocation quota ограничивает, сколько ресурса у тебя есть, и освобождается только
+    удалением ресурсов. Rate quota ограничивает скорость потребления и сбрасывается сама
+    по истечении интервала — поэтому ошибка «проходит» через минуту. Лечение разное:
+    для rate — экспоненциальный backoff и батчинг, для allocation — запрос на увеличение
+    или уборка. System limits не меняются вовсе.
+  ref: "https://docs.cloud.google.com/docs/quotas/overview"
+
+- id: gcp-billing-quotas-004
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    VM остановлена уже месяц, а в счёте по проекту всё ещё есть Compute Engine.
+    За что платим?
+  answer: |
+    За всё, что осталось привязано к VM: persistent disks, зарезервированные статические
+    внешние IP и прочие подключённые ресурсы. Остановка снимает оплату vCPU и памяти,
+    но не хранения и адресов.
+  explanation: |
+    «Выключить, чтобы не платить» работает наполовину. Долго простаивающую машину выгоднее
+    сохранить в snapshot или образ и удалить. Такие хвосты ищут по отчётам биллинга
+    в разрезе SKU: диски без VM, неиспользуемые адреса, забытые snapshots.
+  ref: "https://docs.cloud.google.com/compute/docs/instances/stop-start-instance"
+
+- id: gcp-billing-quotas-005
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем sustained use discounts отличаются от committed use discounts?
+  answer: |
+    **SUD** — автоматическая скидка за то, что ресурс работает большую часть месяца.
+    Покупать ничего не нужно, но действует она только на часть серий — N1, N2, N2D, C2,
+    M1, M2; у E2 её нет. **CUD** — обязательство на 1 или 3 года: скидка больше,
+    но платишь весь срок независимо от использования, а resource-based обязательство
+    отменить нельзя.
+  explanation: |
+    SUD — бонус, CUD — финансовое решение. CUD покупают на стабильную базовую нагрузку,
+    которая гарантированно проживёт срок, а пики закрывают on-demand и Spot. Скидки
+    не складываются: на использование, покрытое CUD, SUD не начисляется. Spend-based CUD
+    считается в деньгах и распространяется не только на Compute Engine, но и на Cloud Run
+    и GKE.
+  ref: "https://docs.cloud.google.com/docs/cuds"
+
+- id: gcp-billing-quotas-006
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Нужно ограничить IAM-роль условием «только на ресурсах с пометкой env=prod».
+    Что использовать как пометку?
+  options:
+    a: "Labels"
+    b: "Resource Manager tags"
+    c: "Network tags"
+    d: "Пользовательские метаданные VM"
+  answer: b
+  explanation: |
+    Resource Manager tags — отдельные ресурсы с управляемым доступом: их заранее определяют
+    на уровне организации или проекта, они наследуются вниз по иерархии и поддерживаются
+    в условиях allow и deny policies и в org policy. Labels — метаданные для фильтрации
+    и разбивки затрат: повесить их может любой, кто редактирует ресурс, и в условиях
+    доступа они не работают. Network tags служат только firewall и маршрутам.
+  ref: "https://docs.cloud.google.com/resource-manager/docs/tags/tags-overview"
+
+- id: gcp-billing-quotas-007
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Финансы просят разбивку затрат за прошлый год по командам. Экспорт биллинга в BigQuery
+    включили только что. Что получится?
+  answer: |
+    Прошлого года не будет: экспорт не заливает историю. В мультирегиональный dataset
+    (US или EU) попадут данные с начала предыдущего месяца, в региональный — только
+    с момента включения. Разбивка по командам ещё и требует labels, которые висели
+    на ресурсах в тот период.
+  explanation: |
+    Биллинговый экспорт и метки — инфраструктура первого дня, а не то, что включают, когда
+    спросили. Отчёты в консоли дают агрегаты, а детальный анализ по labels, SKU и ресурсам
+    делают в BigQuery. Labels, навешенные сегодня, на старые строки затрат не ложатся.
+  ref: "https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery"
+
+- id: gcp-billing-quotas-008
+  domain: gcp
+  subtopic: billing-quotas
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Проект удалили по ошибке. Что можно вернуть и что уже необратимо?
+  answer: |
+    Проект переходит в shutdown и **30 дней** может быть восстановлен. Необратимо другое:
+    его project ID больше никогда нельзя использовать, даже после окончательного удаления.
+  explanation: |
+    Project ID глобально уникален и занят навсегда, поэтому скрипты, пересоздающие проект
+    под тем же ID, ломаются, и в Terraform ID часто делают со случайным суффиксом.
+    Восстановление возвращает конфигурацию и данные, но не отменяет простой, пока проект
+    был выключен. Защита от случайного удаления — lien на проекте.
+  ref: "https://docs.cloud.google.com/resource-manager/docs/creating-managing-projects"

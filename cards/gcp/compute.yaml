@@ -1,0 +1,238 @@
+# gcp / compute
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: gcp-compute-001
+  domain: gcp
+  subtopic: compute
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем Spot VM отличается от preemptible VM?
+  options:
+    a: "У preemptible максимум 24 часа работы, у Spot лимита нет; прервать можно обе в любой момент"
+    b: "Spot дешевле, но preemptible нельзя прервать в первые 24 часа"
+    c: "Spot поддерживает live migration, preemptible — нет"
+    d: "Spot покрыт SLA, preemptible — нет"
+  answer: a
+  explanation: |
+    Spot — новая версия preemptible с той же моделью: дешёвая ёмкость, которую Compute
+    Engine забирает, когда она нужна. Preemptible вдобавок останавливается через 24 часа
+    работы, Spot — нет. Ни одна не покрыта SLA. Поэтому на обе кладут только то, что
+    переживает внезапную остановку: батчи, stateless-реплики, CI.
+  ref: "https://docs.cloud.google.com/compute/docs/instances/spot"
+
+- id: gcp-compute-002
+  domain: gcp
+  subtopic: compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Зачем metadata server требует заголовок `Metadata-Flavor: Google`?
+  answer: |
+    Чтобы отличить осознанный запрос к метаданным от случайного. Без заголовка сервер
+    отклоняет запрос — так ссылка или редирект, заставившие приложение сходить
+    на `169.254.169.254`, не получают токен сервисного аккаунта.
+  explanation: |
+    Metadata server отдаёт процессу на VM токен прикреплённого SA, startup scripts
+    и атрибуты. Для SSRF это главная цель: уязвимость «сервер делает HTTP-запрос по адресу
+    от пользователя» превращается в облачные учётные данные. Типичный SSRF не умеет
+    выставить произвольный заголовок, и требование отсекает самый частый сценарий.
+    Запрос и ответ при этом не покидают физический хост.
+  ref: "https://docs.cloud.google.com/compute/docs/metadata/querying-metadata"
+
+- id: gcp-compute-003
+  domain: gcp
+  subtopic: compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    SA на VM выдана роль `Storage Object Admin`, а запись в бакет с этой VM получает `403`.
+    Роль на месте. Что ещё ограничивает права?
+  answer: |
+    **Access scopes** VM. Токен с metadata server действует только там, где разрешают
+    **и** роли SA, **и** scopes. Если VM создана со scope только на чтение Storage,
+    роль не поможет.
+  explanation: |
+    Scopes — механизм из эпохи до IAM, но он по-прежнему работает как верхняя граница.
+    Сменить SA или scopes можно только на остановленной VM, так что исправление — ещё
+    и даунтайм. Рекомендация Google — ставить scope `cloud-platform` и управлять доступом
+    только ролями, чтобы не держать две системы прав одновременно.
+  ref: "https://docs.cloud.google.com/compute/docs/access/service-accounts"
+
+- id: gcp-compute-004
+  domain: gcp
+  subtopic: compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Нужно поменять тип машины у VM в managed instance group. Почему нельзя просто
+    отредактировать instance template?
+  answer: |
+    Instance template **неизменяем** после создания. Создают новый шаблон и накатывают
+    его на группу через rolling update — или выборочно на отдельные VM.
+  explanation: |
+    Неизменяемость делает шаблон версией конфигурации: по нему видно, из чего создана
+    каждая VM, а откат — это переключение группы на предыдущий шаблон. В Terraform отсюда
+    типовой приём: `name_prefix` и `create_before_destroy` у шаблона, иначе замена упрётся
+    в то, что старый шаблон ещё использует группа.
+  ref: "https://docs.cloud.google.com/compute/docs/instance-templates"
+
+- id: gcp-compute-005
+  domain: gcp
+  subtopic: compute
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    MIG с autohealing пересоздаёт VM по кругу, хотя приложение в итоге поднимается.
+    Что не так с настройкой?
+  answer: |
+    Проверка autohealing срабатывает раньше, чем приложение успевает стартовать, или она
+    так же агрессивна, как проверка балансировщика. VM объявляется нездоровой, пересоздаётся —
+    и цикл начинается заново. Нужны начальная задержка под реальное время старта
+    и отдельный, более терпимый health check для autohealing.
+  explanation: |
+    У двух проверок разная цена ложного срабатывания. Балансировщик временно не шлёт трафик,
+    autohealing уничтожает VM вместе с прогретыми кешами. Поэтому Google рекомендует разные
+    health checks: быстрый для трафика и консервативный для пересоздания. Та же логика
+    разделяет readiness и liveness в Kubernetes.
+  ref: "https://docs.cloud.google.com/compute/docs/instance-groups/autohealing-instances-in-migs"
+
+- id: gcp-compute-006
+  domain: gcp
+  subtopic: compute
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт OS Login по сравнению с SSH-ключами в метаданных проекта?
+  answer: |
+    Доступ по SSH управляется IAM: `roles/compute.osLogin` — вход без sudo,
+    `roles/compute.osAdminLogin` — с sudo. Ключи в метаданных при включённом OS Login
+    игнорируются, а отзыв роли отзывает и доступ к VM.
+  explanation: |
+    Ключ в метаданных проекта открывает все VM проекта, и отозвать его — значит найти
+    и удалить ключ, не зная, где ещё лежат копии. С OS Login уход сотрудника — это удаление
+    его из группы в IAM, а вход привязан к Google-аккаунту, так что видно, кто именно зашёл.
+  ref: "https://docs.cloud.google.com/compute/docs/oslogin"
+
+- id: gcp-compute-007
+  domain: gcp
+  subtopic: compute
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Startup script VM добавляет строку в конфиг и создаёт пользователя. После перезагрузки
+    в конфиге две одинаковые строки. Почему?
+  options:
+    a: "Metadata server повторяет скрипт при каждом изменении метаданных"
+    b: "Startup script выполняется при каждой загрузке VM, а не только при первой"
+    c: "При перезагрузке VM пересоздаётся из образа, и скрипт применяется к чистому диску"
+    d: "Скрипт запускается дважды: от root и от пользователя по умолчанию"
+  answer: b
+  explanation: |
+    Startup script выполняется от root при **каждой** загрузке. Скрипт, написанный как
+    разовая инициализация, накапливает побочные эффекты: дубли строк, ошибки «пользователь
+    уже существует». Его пишут идемпотентным — проверка перед изменением — или ставят маркер
+    первого запуска. Та же дисциплина, что в Ansible, только без модулей, которые берут
+    её на себя.
+  ref: "https://docs.cloud.google.com/compute/docs/instances/startup-scripts/linux"
+
+- id: gcp-compute-008
+  domain: gcp
+  subtopic: compute
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Google обслуживает физический хост под VM. Что происходит с VM и у каких VM
+    так не получится?
+  answer: |
+    Обычно — **live migration**: VM переносится на другой хост без перезагрузки.
+    Не мигрируют, а останавливаются, с опциональным рестартом, VM с GPU, большинство
+    Confidential VM и bare metal.
+  explanation: |
+    Для обычных VM обслуживание хоста незаметно, поэтому о нём не думают — и удивляются,
+    когда GPU-нагрузка перезапускается «сама». Для таких VM приходит уведомление заранее,
+    для большинства GPU — за час, и нагрузку нужно уметь чекпоинтить или переносить.
+    Поведение задаётся host maintenance policy: `MIGRATE` или `TERMINATE`.
+  ref: "https://docs.cloud.google.com/compute/docs/instances/live-migration-process"
+
+- id: gcp-compute-009
+  domain: gcp
+  subtopic: compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис на Cloud Run после ответа клиенту запускает фоновую отправку метрик — и она
+    то тормозит, то не доходит. Почему?
+  answer: |
+    В режиме **request-based billing**, который включён по умолчанию, CPU выделяется
+    контейнеру только во время обработки запроса. После ответа фоновый код остаётся
+    без процессора. Для фоновой работы нужен **instance-based billing**, где CPU есть
+    всё время жизни инстанса.
+  explanation: |
+    Модель «платишь только за обработку запросов» оплачена ограничением: между запросами
+    контейнер заморожен по CPU. Отсюда тормозящие горутины, агенты мониторинга, планировщики
+    внутри фреймворков. Либо меняют режим биллинга, либо выносят фоновую работу в отдельный
+    механизм — очередь и воркер.
+  ref: "https://docs.cloud.google.com/run/docs/configuring/billing-settings"
+
+- id: gcp-compute-010
+  domain: gcp
+  subtopic: compute
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Сервис на Cloud Run хранит данные текущего запроса в глобальной переменной и изредка
+    отдаёт клиенту чужие данные. Какая особенность Cloud Run это объясняет?
+  options:
+    a: "Минимальное число инстансов больше нуля"
+    b: "Request-based billing"
+    c: "Таймаут запроса по умолчанию"
+    d: "Concurrency: один инстанс по умолчанию обрабатывает много запросов одновременно"
+  answer: d
+  explanation: |
+    Cloud Run шлёт в инстанс несколько запросов параллельно: по умолчанию 80 на vCPU
+    при деплое через CLI или Terraform, максимум 1000. Код с глобальным состоянием начинает
+    смешивать запросы. Правильное лечение — убрать общее состояние; concurrency, равная 1,
+    тоже спасает, но ценой многократного роста числа инстансов при всплесках.
+  ref: "https://docs.cloud.google.com/run/docs/about-concurrency"
+
+- id: gcp-compute-011
+  domain: gcp
+  subtopic: compute
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт managed instance group по сравнению с набором одинаковых VM, созданных руками?
+  answer: |
+    MIG создаёт VM из instance template и поддерживает их число: пересоздаёт упавшие
+    (autohealing), масштабирует по нагрузке (autoscaling), обновляет конфигурацию волнами
+    (rolling update). Regional MIG вдобавок распределяет VM по зонам региона.
+  explanation: |
+    Главное — декларативность: задаёшь шаблон и целевое число, группа сама приводит факт
+    к описанию. Отсюда требование к VM в MIG быть заменяемыми: всё важное хранится вне диска
+    конкретной машины, иначе autohealing и скейл-ин его уничтожат. Облачный аналог
+    ReplicaSet в Kubernetes.
+  ref: "https://docs.cloud.google.com/compute/docs/instance-groups"

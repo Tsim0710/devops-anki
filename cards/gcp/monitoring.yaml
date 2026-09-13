@@ -1,0 +1,198 @@
+# gcp / monitoring
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Prometheus в кластере, golden signals, cardinality — в k8s/observability.
+# Здесь Cloud Logging и Cloud Monitoring как сервисы.
+
+- id: gcp-monitoring-001
+  domain: gcp
+  subtopic: monitoring
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Куда Cloud Logging складывает логи проекта по умолчанию и сколько их хранит?
+  answer: |
+    В два бакета. `_Required` — Admin Activity и System Event audit logs, хранятся
+    **400 дней**, изменить или удалить его нельзя. `_Default` — всё остальное,
+    по умолчанию **30 дней**, срок и фильтры настраиваются.
+  explanation: |
+    Разделение отвечает на вопрос «что гарантированно найдётся при расследовании»:
+    изменения конфигурации ресурсов видны больше года при любых настройках проекта.
+    Логи приложений через месяц исчезают — если они нужны дольше, срок `_Default`
+    увеличивают или настраивают sink в BigQuery или Cloud Storage заранее, а не после
+    инцидента.
+  ref: "https://docs.cloud.google.com/logging/docs/routing/overview"
+
+- id: gcp-monitoring-002
+  domain: gcp
+  subtopic: monitoring
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Нужно выяснить, кто скачал объект из бакета неделю назад, а в audit logs проекта
+    таких записей нет. Почему?
+  options:
+    a: "Чтение объектов логируется только для бакетов с uniform bucket-level access"
+    b: "Admin Activity logs хранятся 7 дней"
+    c: "Чтение данных пишется в Data Access audit logs, а они по умолчанию выключены почти для всех сервисов"
+    d: "Audit logs записываются только для действий через консоль"
+  answer: c
+  explanation: |
+    Admin Activity фиксирует изменения конфигурации и включены всегда. Чтение данных —
+    Data Access — по умолчанию выключено, кроме BigQuery: объём таких логов огромный,
+    и за него платят. Включать их нужно заранее и точечно, на чувствительные бакеты
+    и сервисы: задним числом записи не появятся.
+  ref: "https://docs.cloud.google.com/logging/docs/audit"
+
+- id: gcp-monitoring-003
+  domain: gcp
+  subtopic: monitoring
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    У VM в Cloud Monitoring есть загрузка CPU и сетевой трафик, но нет утилизации памяти.
+    Почему?
+  answer: |
+    Без агента метрики берутся с **гипервизора**: CPU, дисковый и сетевой трафик, uptime.
+    Как гостевая ОС использует память, гипервизор не видит. Память, заполнение файловых
+    систем и процессы даёт только **Ops Agent** внутри VM.
+  explanation: |
+    Гипервизор знает, сколько памяти выделено VM, но не различает внутри неё кеш, буферы
+    и память процессов. Практическое следствие: алерт на нехватку памяти или заполнение
+    диска без агента не построить, поэтому Ops Agent ставят сразу — в образ или политикой
+    установки, — а не когда понадобится.
+  ref: "https://docs.cloud.google.com/monitoring/agent/ops-agent"
+
+- id: gcp-monitoring-004
+  domain: gcp
+  subtopic: monitoring
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Создал log-based metric на ошибку, которая сыпалась всю прошлую неделю, а график пустой.
+    Почему?
+  answer: |
+    User-defined log-based metric считает только записи, пришедшие **после** её создания.
+    По уже сохранённым логам задним числом она не заполняется.
+  explanation: |
+    Метрика — счётчик на входящем потоке логов, а не запрос к хранилищу. Для разбора прошлого
+    остаются Logs Explorer и Log Analytics по сохранённым логам. Вывод для алертинга простой:
+    метрики на важные ошибки заводят заранее, вместе с сервисом.
+  ref: "https://docs.cloud.google.com/logging/docs/logs-based-metrics"
+
+- id: gcp-monitoring-005
+  domain: gcp
+  subtopic: monitoring
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Счёт за Cloud Logging вырос из-за болтливых debug-логов. Чем exclusion filter на sink
+    отличается от переноса этих логов в дешёвое хранилище?
+  answer: |
+    Exclusion filter **выбрасывает** подходящие записи для этого sink: в его бакет они
+    не попадают, и восстановить их нельзя. Отдельный sink в Cloud Storage сохраняет логи
+    дешевле, и они остаются доступны. Исключение на `_Default` не действует на другие sinks.
+  explanation: |
+    Решение зависит от того, понадобятся ли логи при расследовании. Типовая схема: исключить
+    шум из `_Default`, чтобы не платить за запись в лог-бакет, и одновременно направить
+    те же логи отдельным sink в Cloud Storage с lifecycle-правилами. Admin Activity и System
+    Event исключить невозможно — это защита от «сэкономили на аудите».
+  ref: "https://docs.cloud.google.com/logging/docs/routing/overview"
+
+- id: gcp-monitoring-006
+  domain: gcp
+  subtopic: monitoring
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Сервис упал целиком, метрика запросов перестала приходить, а алерт «ошибок больше 5%»
+    не сработал. Что нужно было добавить?
+  options:
+    a: "Уменьшить окно выравнивания condition до одной минуты"
+    b: "Второй канал уведомлений"
+    c: "Severity `Critical` у политики"
+    d: "Condition на отсутствие метрики — metric-absence"
+  answer: d
+  explanation: |
+    Threshold condition оценивает пришедшие данные: когда их нет, по умолчанию новый
+    инцидент не открывается — сравнивать с порогом нечего. Мёртвый сервис и мёртвый
+    экспортёр выглядят как тишина, и ловит её отдельный metric-absence condition: он
+    срабатывает, когда временной ряд перестаёт присылать данные. Другой путь — настроить
+    у threshold condition обработку пропусков как нарушение.
+  ref: "https://docs.cloud.google.com/monitoring/alerts/concepts-indepth"
+
+- id: gcp-monitoring-007
+  domain: gcp
+  subtopic: monitoring
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервисы живут в десяти проектах, а дежурным нужны один дашборд и одни алерты на все.
+    Как это устроено в Cloud Monitoring?
+  answer: |
+    Через **metrics scope**: в scoping project добавляют остальные проекты, и он видит
+    их метрики. Дашборды, alerting policies и uptime checks хранятся в scoping project.
+  explanation: |
+    Данные остаются в своих проектах — scope даёт представление, а не копирует метрики.
+    Типовая схема: отдельный проект мониторинга без нагрузки, в чей scope добавлены все
+    прод-проекты. Алерты и дашборды тогда живут в одном месте и не теряются при пересоздании
+    рабочих проектов.
+  ref: "https://docs.cloud.google.com/monitoring/settings"
+
+- id: gcp-monitoring-008
+  domain: gcp
+  subtopic: monitoring
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что даёт Managed Service for Prometheus по сравнению с Prometheus, развёрнутым
+    в GKE-кластере?
+  answer: |
+    Хранилище и запросы берёт Google: данные лежат в Monarch **24 месяца** — неделю
+    с полной детализацией, дальше с прореживанием, — а PromQL-запросы идут глобально
+    по регионам и проектам. Сбор либо managed через оператор в кластере, либо self-deployed
+    как замена бинарника Prometheus.
+  explanation: |
+    Самые болезненные части своего Prometheus — диск, retention, HA-пары, федерация между
+    кластерами — исчезают. Остаются разметка метрик и cardinality: платят за объём принятых
+    сэмплов, так что взрыв лейблов оборачивается уже не OOM, а счётом. Grafana подключается
+    через стандартный Prometheus API.
+  ref: "https://docs.cloud.google.com/stackdriver/docs/managed-prometheus"
+
+- id: gcp-monitoring-009
+  domain: gcp
+  subtopic: monitoring
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Куда Log Router может отправлять логи и для чего каждое направление?
+  answer: |
+    - **log bucket** — поиск в Logs Explorer, в том числе в центральном проекте;
+    - **BigQuery** — аналитика SQL-запросами;
+    - **Cloud Storage** — дешёвый долгий архив;
+    - **Pub/Sub** — поток во внешние системы, например в SIEM.
+  explanation: |
+    Sink — это фильтр плюс направление, и одна запись может уйти в несколько мест сразу.
+    Отсюда типовая схема для организации: aggregated sink на уровне организации или folder
+    собирает audit logs всех проектов в отдельный проект безопасности, куда владельцы
+    проектов не дотянутся, чтобы что-то подчистить.
+  ref: "https://docs.cloud.google.com/logging/docs/routing/overview"

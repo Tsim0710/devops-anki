@@ -1,0 +1,225 @@
+# gcp / cloud-build
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Общие принципы конвейеров (артефакт собирается один раз, OIDC вместо ключей,
+# чужой код рядом с секретами) — в домене cicd. Здесь специфика Cloud Build.
+
+- id: gcp-cloud-build-001
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как шаги Cloud Build передают друг другу файлы?
+  answer: |
+    Каждый шаг — отдельный контейнер, но все монтируют общий volume в `/workspace`,
+    куда изначально положен исходный код. Что записано туда, видят следующие шаги;
+    файлы в других путях пропадают вместе с контейнером шага, если не объявить
+    дополнительный `volumes`.
+  explanation: |
+    Модель «шаг = образ» даёт свободу инструментов — у каждого шага свой набор утилит, —
+    но делает состояние явным. Типичная ошибка — поставить зависимости в `/root`
+    или `/usr/local` в одном шаге и ждать их в следующем. Шаги идут в одной сборке
+    на одной машине, поэтому, в отличие от job'ов в GitHub Actions, артефакты между ними
+    выгружать и скачивать не нужно.
+  ref: "https://docs.cloud.google.com/build/docs/build-config-file-schema"
+
+- id: gcp-cloud-build-002
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Конфиг тегирует образ `$SHORT_SHA`. Из триггера сборка проходит, а `gcloud builds submit`
+    с ноутбука падает на подстановке. Почему?
+  options:
+    a: "`$SHORT_SHA` заполняется только в сборках, запущенных триггером"
+    b: "С ноутбука нельзя пушить в Artifact Registry без триггера"
+    c: "Подстановки в `gcloud builds submit` нужно писать через `${}`"
+    d: "`gcloud builds submit` не читает `cloudbuild.yaml` из текущей директории"
+  answer: a
+  explanation: |
+    Во всех сборках доступны только `$PROJECT_ID`, `$BUILD_ID`, `$PROJECT_NUMBER`
+    и `$LOCATION`. Всё, что про git, — `$COMMIT_SHA`, `$SHORT_SHA`, `$BRANCH_NAME`,
+    `$TAG_NAME` — появляется, только когда сборку запустил триггер. Вдобавок в ручной
+    сборке неизвестная подстановка по умолчанию — ошибка, а у триггеров включён
+    `ALLOW_LOOSE`. Для ручного запуска заводят свою подстановку вида `_TAG`
+    со значением по умолчанию.
+  ref: "https://docs.cloud.google.com/build/docs/configuring-builds/substitute-variable-values"
+
+- id: gcp-cloud-build-003
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как передать шагу Cloud Build секрет из Secret Manager и почему в аргументах пишут
+    `$$PASSWORD`, а не `$PASSWORD`?
+  answer: |
+    В `availableSecrets.secretManager` связывают версию секрета с именем переменной, в шаге
+    перечисляют её в `secretEnv`, а в `args` при `entrypoint: bash` обращаются как
+    `$$PASSWORD`. Одиночный `$` Cloud Build считает подстановкой и пытается заменить сам,
+    ещё до запуска шага.
+  explanation: |
+    `$$` экранирует символ для Cloud Build, и до bash доезжает `$PASSWORD` — переменная
+    окружения, заполненная из секрета. Так значение не попадает ни в конфиг, ни в описание
+    сборки. SA сборки нужна роль `roles/secretmanager.secretAccessor` на секрет, иначе
+    прочитать его не выйдет.
+  ref: "https://docs.cloud.google.com/build/docs/securing-builds/use-secrets"
+
+- id: gcp-cloud-build-004
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Куда складывать образы из Cloud Build — в `gcr.io` или в Artifact Registry —
+    и как выглядит адрес образа?
+  answer: |
+    В Artifact Registry. Container Registry выключен: с 18 марта 2025 запись в него
+    недоступна. Адрес Docker-образа — `LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE`,
+    например `europe-west1-docker.pkg.dev/my-proj/apps/api:1.4.2`.
+  explanation: |
+    Кроме домена меняется модель доступа: в Artifact Registry права выдаются на отдельный
+    репозиторий, а не на весь мультирегион, как было у Container Registry. Региональный
+    репозиторий рядом с кластером ещё и не создаёт межрегионального трафика при pull.
+    Адреса `gcr.io`, которые продолжают работать, обслуживает уже Artifact Registry.
+  ref: "https://docs.cloud.google.com/artifact-registry/docs/transition/transition-from-gcr"
+
+- id: gcp-cloud-build-005
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    От имени какого сервисного аккаунта идёт сборка Cloud Build и почему его стоит
+    задавать явно?
+  answer: |
+    Если SA не указан, берётся дефолтный: в проектах, где первая сборка была после
+    мая–июня 2024, это дефолтный SA Compute Engine, в более старых — legacy-аккаунт
+    `PROJECT_NUMBER@cloudbuild.gserviceaccount.com`. Рекомендация — user-specified SA
+    с минимальными ролями под конкретный конвейер.
+  explanation: |
+    Сборка исполняет код из репозитория: любой, кто может изменить `cloudbuild.yaml`
+    в ветке триггера, действует с правами этого SA. Дефолтные аккаунты исторически
+    получают широкие роли, вплоть до `Editor`. Отдельный SA на триггер ограничивает ущерб
+    одним конвейером, а org policy позволяет запретить сборки на дефолтных аккаунтах.
+  ref: "https://docs.cloud.google.com/build/docs/cloud-build-service-account-updates"
+
+- id: gcp-cloud-build-006
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Как в Cloud Build запустить два шага параллельно с самого начала сборки?
+  options:
+    a: "Поставить у обоих `waitFor: ['-']`"
+    b: "Указать им одинаковый `id`"
+    c: "Вынести их в отдельный конфиг и включить `options.parallel`"
+    d: "Шаги в Cloud Build и так идут параллельно, если нет `waitFor`"
+  answer: a
+  explanation: |
+    Без `waitFor` шаг ждёт успешного завершения **всех** предыдущих, так что по умолчанию
+    сборка последовательна. `'-'` означает «стартовать сразу при начале сборки», а список
+    `id` — «ждать именно эти шаги». Из этого собирается граф: линтер и тесты с `'-'`,
+    сборка образа — с `waitFor` на оба.
+  ref: "https://docs.cloud.google.com/build/docs/configuring-builds/configure-build-step-order"
+
+- id: gcp-cloud-build-007
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сборка Cloud Build должна ходить к внутреннему сервису на VM по её private IP,
+    но запрос висит по таймауту. Почему и что делать?
+  answer: |
+    Сборки в default pool выполняются в сети, управляемой Google, без доступа к вашему VPC.
+    Нужен **private pool**, подключённый к сети через peering: тогда сборка достаёт
+    до ресурсов по внутренним адресам.
+  explanation: |
+    Таймаут, а не отказ, — признак сетевой недоступности: пакет некому отклонить. Private pool
+    даёт и то, чего нет у default pool: больше типов машин, отключение публичных IP,
+    поддержку VPC Service Controls. Помнить про peering: цель, которая сама доступна вашей
+    сети только через другой пиринг, из private pool не достижима — пиринг нетранзитивен.
+  ref: "https://docs.cloud.google.com/build/docs/private-pools/private-pools-overview"
+
+- id: gcp-cloud-build-008
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Триггер Cloud Build собирает pull requests в публичном репозитории. Что мешает внешнему
+    автору выполнить свой код в сборке с правами SA проекта?
+  answer: |
+    **Comment control** у триггера. В режиме «Required except for owners and collaborators»
+    их PR собираются сами, а PR внешнего автора запустится, только когда owner или
+    collaborator оставит комментарий `/gcbrun`.
+  explanation: |
+    PR меняет не только код, но и `cloudbuild.yaml`, скрипты сборки и тесты — то есть то,
+    что будет исполнено с правами SA. Комментарий превращает запуск в решение человека,
+    который посмотрел diff. Режим «Not required» на публичном репозитории возвращает ровно
+    ту дыру, от которой механизм защищает.
+  ref: "https://docs.cloud.google.com/build/docs/automating-builds/github/build-repos-from-github"
+
+- id: gcp-cloud-build-009
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Если Cloud Build и так умеет выполнить `kubectl apply`, зачем в стеке GCP нужен
+    Cloud Deploy?
+  answer: |
+    Cloud Build — CI: собрать, проверить, опубликовать артефакт. Cloud Deploy управляет
+    **продвижением** уже собранного релиза по цепочке окружений: delivery pipeline
+    с targets, promotion в следующий target, approval перед продом, откат на предыдущий
+    успешный релиз.
+  explanation: |
+    Деплой шагом сборки не помнит, что и куда уже выкачено: откат — это пересборка или ручной
+    поиск старого тега, а «тот же артефакт в stage и prod» держится на дисциплине. В Cloud
+    Deploy release фиксирует артефакты и продвигается по окружениям как единица, так что
+    в прод едет ровно то, что прошло stage. Связка обычная: CI в конце создаёт release,
+    дальше работает Cloud Deploy.
+  ref: "https://docs.cloud.google.com/deploy/docs/overview"
+
+- id: gcp-cloud-build-010
+  domain: gcp
+  subtopic: cloud-build
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как в GKE гарантировать, что в кластер попадают только образы, прошедшие ваш конвейер?
+  answer: |
+    **Binary Authorization**: при деплое policy проверяет образ, и без нужных attestations —
+    подписанных записей «этот образ прошёл этап», которые проверяют attestors, — деплой
+    блокируется. Конвейер создаёт attestation после сборки и проверок.
+  explanation: |
+    Attestation содержит digest образа, а не тег: тег можно перевесить на другой образ,
+    digest — нет, так что подпись не «наследуется» подменой. Поэтому в манифестах надёжнее
+    указывать образ по digest — проверяется именно он. Для внедрения есть dry run, где
+    нарушения только логируются, а для аварий — breakglass, обходящий проверку.
+  ref: "https://docs.cloud.google.com/binary-authorization/docs/overview"
