@@ -29,11 +29,11 @@
         "cicd",
         "terraform",
         "ansible",
+        "aws",
         "gcp",
         "cloudflare",
         "git",
-        "observability",
-        "security"
+        "observability"
       ]
     },
     "subtopic": {

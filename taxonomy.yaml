@@ -155,12 +155,16 @@ observability:
   - slo-sli
   - methodologies
 
-security:
-  - tls-pki
-  - secrets
-  - authn-authz
-  - container-security
-  - supply-chain
-  - network-security
-  - vulnerability-management
-  - hardening
+aws:
+  - iam
+  - vpc-networking
+  - ec2-compute
+  - s3-storage
+  - eks
+  - rds-databases
+  - load-balancing
+  - route53-dns
+  - cloudwatch
+  - lambda-serverless
+  - kms-secrets
+  - cost-billing
