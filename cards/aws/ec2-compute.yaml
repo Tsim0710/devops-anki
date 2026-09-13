@@ -1,0 +1,204 @@
+# aws / ec2-compute
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: aws-ec2-compute-001
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как приложение на EC2 получает учётные данные IAM-роли без ключей в конфиге?
+  answer: |
+    Роль передаётся инстансу через **instance profile** — контейнер ровно для одной роли.
+    SDK на инстансе забирает временные учётные данные роли из Instance Metadata Service,
+    и AWS обновляет их до истечения.
+  explanation: |
+    Ключи в конфиге или user data утекают вместе с образом, логами и бэкапами, а учётные
+    данные из метаданных короткоживущие и привязаны к машине. Консоль создаёт instance
+    profile с именем роли, поэтому их путают; в Terraform и CLI это два ресурса. Права
+    инстанса лучше менять заменой instance profile: удаление роли из профиля применяется
+    с задержкой до часа.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2_instance-profiles.html"
+
+- id: aws-ec2-compute-002
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    На EC2 с обязательным IMDSv2 SDK внутри Docker-контейнера не получает учётные данные
+    роли, а на самом хосте всё работает. В чём дело?
+  answer: |
+    В **hop limit** ответа на запрос токена. IMDSv2 сначала выдаёт токен сессии в ответ
+    на `PUT /latest/api/token`, и если AMI не помечен как IMDSv2-only, этот ответ
+    по умолчанию проходит один сетевой прыжок. Контейнер за мостом Docker — лишний прыжок,
+    ответ до него не доходит. Для контейнеров AWS рекомендует `HttpPutResponseHopLimit=2`.
+  explanation: |
+    Ограничение прыжков — часть защиты IMDSv2: токен не уходит за пределы машины через
+    открытый reverse proxy или NAT, а SSRF, умеющий только GET, токен не получит. В EKS
+    ту же настройку используют в обратную сторону: hop limit 1 не даёт подам вне
+    `hostNetwork` дотянуться до роли узла, если их права выданы через IRSA или Pod Identity.
+    Вдобавок часть SDK при отсутствии ответа молча откатывается на IMDSv1 с задержкой.
+  ref: "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html"
+
+- id: aws-ec2-compute-003
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    EBS-том создан в `eu-central-1a`, а нужный инстанс работает в `eu-central-1b`.
+    Как подключить том?
+  options:
+    a: "Сделать snapshot тома и создать из него новый том в `eu-central-1b`"
+    b: "Подключить напрямую: EBS — региональный сервис"
+    c: "Включить на томе Multi-Attach"
+    d: "Перенести том командой `modify-volume` с новой зоной"
+  answer: a
+  explanation: |
+    EBS-том живёт в одной зоне и подключается только к инстансам этой зоны. Snapshot
+    хранится на уровне региона, поэтому путь между зонами лежит через него. Multi-Attach
+    подключает том к нескольким инстансам, но тоже в пределах зоны. Из этого же ограничения
+    растёт привязка PersistentVolume к зоне в EKS: под с EBS-томом не переедет на узел
+    в другой зоне.
+  ref: "https://docs.aws.amazon.com/ebs/latest/userguide/ebs-attaching-volume.html"
+
+- id: aws-ec2-compute-004
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сколько времени есть у Spot-инстанса перед прерыванием и откуда приложение
+    об этом узнаёт?
+  answer: |
+    **Две минуты.** Уведомление появляется в метаданных инстанса (`spot/instance-action`)
+    и как событие `EC2 Spot Instance Interruption Warning` в EventBridge. AWS рекомендует
+    проверять метаданные каждые 5 секунд.
+  explanation: |
+    Две минуты уходят на дренаж: снять инстанс с балансировщика, дописать чекпоинт,
+    вернуть задачу в очередь. Уведомления выдаются best effort, так что нагрузка всё равно
+    должна переживать внезапную смерть. Если поведение при прерывании — hibernate,
+    двухминутного предупреждения нет: гибернация начинается сразу.
+  ref: "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html"
+
+- id: aws-ec2-compute-005
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Приложение на инстансе в Auto Scaling group зависло и отдаёт балансировщику ошибки,
+    но ASG инстанс не заменяет. Что не настроено?
+  options:
+    a: "Scaling policy по CPU"
+    b: "Lifecycle hook на завершение"
+    c: "Health checks Elastic Load Balancing для группы: без них ASG опирается на статус-проверки EC2"
+    d: "Detailed monitoring инстансов"
+  answer: c
+  explanation: |
+    Встроенная проверка ASG — статус-проверки EC2: они видят отказ хоста, сети или ОС,
+    но не зависшее приложение. Проверки балансировщика включаются для группы явно, и тогда
+    инстанс, признанный балансировщиком нездоровым, заменяется. Вместе с ними задают health
+    check grace period, иначе ещё стартующий инстанс будут пересоздавать по кругу.
+  ref: "https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-health-checks.html"
+
+- id: aws-ec2-compute-006
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    База на gp2-томе в 200 GiB первые полчаса нагрузочного теста летает, а потом IOPS
+    проседают. Почему и что сделать?
+  answer: |
+    У gp2 базовые IOPS — 3 на GiB, здесь 600, а до 3000 том поднимается за счёт **burst
+    credits**. Кредиты кончились — том вернулся к базе. gp3 даёт 3000 IOPS и 125 MiB/s
+    независимо от размера и без кредитов, стоит дешевле, а перевод gp2 → gp3 делается
+    через Elastic Volumes без остановки инстанса.
+  explanation: |
+    Короткий тест на свежем томе показывает burst-производительность, а не установившуюся,
+    и отсюда ложные выводы при планировании. Остаток кредитов виден в метрике `BurstBalance`.
+    На gp3 IOPS и throughput докупаются отдельно от объёма, так что не нужно раздувать том
+    ради скорости, как с gp2.
+  ref: "https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html"
+
+- id: aws-ec2-compute-007
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    У EBS-backed инстанса провалился **system** status check. Почему reboot не поможет,
+    а stop/start — обычно да?
+  answer: |
+    System status check говорит о проблеме инфраструктуры AWS под инстансом: хост, питание,
+    сеть. Reboot перезапускает ОС на том же хосте, а stop/start в большинстве случаев
+    переносит инстанс на новый. **Instance** status check, наоборот, про саму машину —
+    сеть в ОС, память, файловую систему — и чинится изнутри.
+  explanation: |
+    Различение двух проверок сразу делит пространство причин: system — ждать AWS или
+    сменить хост, instance — разбираться с ОС. Данные instance store при остановке
+    теряются, поэтому для таких инстансов лечение — замена, а не stop/start.
+    Восстановление после system-сбоев автоматизируют CloudWatch alarm с действием recover.
+  ref: "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/monitoring-system-instance-status-check.html"
+
+- id: aws-ec2-compute-008
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Команда перевела сервис с m5 на t3 ради экономии, а счёт вырос. Как так?
+  answer: |
+    T3 по умолчанию работают в режиме **unlimited**: когда CPU-кредиты кончаются, инстанс
+    продолжает работать выше baseline на surplus credits, и если средняя загрузка за сутки
+    выше baseline, излишек оплачивается отдельно. Постоянно загруженный на 100% t3 стоит
+    примерно в полтора раза дороже сопоставимого m5.
+  explanation: |
+    Burstable-инстансы выгодны, пока средняя загрузка ниже точки безубыточности: у `t3.large`
+    baseline 30% на vCPU, а равенство цены с `m5.large` наступает около 42.5%. В режиме
+    standard вместо счёта будет троттлинг до baseline — проблема превратится из финансовой
+    в производительную. Следят за метрикой `CPUSurplusCreditsCharged`.
+  ref: "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-unlimited-mode-concepts.html"
+
+- id: aws-ec2-compute-009
+  domain: aws
+  subtopic: ec2-compute
+  difficulty: senior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Кластер Cassandra должен переживать отказ стойки и знать, какие узлы на каких стойках.
+    Какую placement group выбрать?
+  options:
+    a: "Cluster — все узлы рядом ради минимальной задержки"
+    b: "Partition — разделы на отдельных стойках, раздел виден инстансу"
+    c: "Spread — каждый инстанс на отдельной стойке"
+    d: "Никакую: достаточно разных зон"
+  answer: b
+  explanation: |
+    Partition group делит инстансы на разделы без общих стоек и сообщает, в каком разделе
+    инстанс, — topology-aware системы вроде HDFS, HBase и Cassandra раскладывают реплики
+    с учётом этого. Spread тоже разносит по стойкам, но не больше семи работающих инстансов
+    на зону — это для нескольких критичных машин. Cluster собирает всё в одной зоне ради
+    пропускной способности и расширяет общий домен отказа.
+  ref: "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-strategies.html"

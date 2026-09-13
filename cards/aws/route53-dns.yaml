@@ -1,0 +1,161 @@
+# aws / route53-dns
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Устройство DNS — в networks/dns. Здесь Route 53 как сервис.
+
+- id: aws-route53-dns-001
+  domain: aws
+  subtopic: route53-dns
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Как направить сам апекс зоны, `example.com`, на Application Load Balancer в Route 53?
+  options:
+    a: "CNAME на DNS-имя балансировщика"
+    b: "A-запись на текущие IP-адреса балансировщика"
+    c: "Alias-запись типа A на балансировщик"
+    d: "NS-запись на балансировщик"
+  answer: c
+  explanation: |
+    CNAME на апексе зоны создать нельзя, а IP-адреса ALB меняются при масштабировании —
+    A-запись с ними быстро протухнет. Alias — расширение Route 53: снаружи это обычная
+    A-запись, а Route 53 сам отдаёт актуальные адреса ресурса. Запросы к alias на ресурсы
+    AWS не тарифицируются, а TTL задать нельзя — он берётся у цели.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-choosing-alias-non-alias.html"
+
+- id: aws-route53-dns-002
+  domain: aws
+  subtopic: route53-dns
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Private hosted zone привязана к VPC, записи в ней есть, а инстансы этой VPC имена
+    не резолвят. Что проверить в настройках VPC?
+  answer: |
+    Атрибуты VPC `enableDnsSupport` и `enableDnsHostnames` — оба должны быть `true`.
+    Без них private hosted zones в VPC не работают.
+  explanation: |
+    `enableDnsSupport` включает резолвер VPC на адресе VPC+2, `enableDnsHostnames` — DNS-имена
+    инстансов; private hosted zones требуют обоих. Ресурс `aws_vpc` в Terraform
+    по умолчанию создаёт VPC с выключенными DNS hostnames, и это частая причина. Второе, что
+    проверяют, — не стоит ли на инстансах свой DNS-сервер, не пересылающий запросы на VPC+2.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/hosted-zone-private-considerations.html"
+
+- id: aws-route53-dns-003
+  domain: aws
+  subtopic: route53-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Есть публичная зона `example.com` и private hosted zone `example.com`, привязанная к VPC.
+    Из VPC `api.example.com` резолвится, а `www.example.com`, существующий только
+    в публичной зоне, отдаёт `NXDOMAIN`. Почему?
+  answer: |
+    Если имя попадает в private hosted zone, резолвер VPC ищет запись **только в ней**
+    и при её отсутствии отвечает `NXDOMAIN`, не обращаясь к публичному DNS. Нужные
+    публичные записи дублируют в private zone.
+  explanation: |
+    Split-horizon в Route 53 работает по совпадению зоны, а не записи: private zone целиком
+    перекрывает публичную для своего namespace, а из нескольких подходящих private zones
+    выигрывает самая специфичная. Поэтому узкие зоны вроде `internal.example.com` безопаснее
+    private zone на весь домен: они не перехватывают чужие имена.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/hosted-zone-private-considerations.html"
+
+- id: aws-route53-dns-004
+  domain: aws
+  subtopic: route53-dns
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Основной регион обслуживает весь трафик, а резервный должен получать его только при
+    падении основного. Какую routing policy выбрать в Route 53?
+  options:
+    a: "Latency"
+    b: "Weighted 100/0 без health checks"
+    c: "Geolocation"
+    d: "Failover с health check на основной записи"
+  answer: d
+  explanation: |
+    Failover отдаёт primary-запись, пока её health check здоров, и secondary — когда нет.
+    Latency выбирает ближайший по задержке регион, то есть активно шлёт трафик в оба.
+    Weighted без health checks сам на резерв не переключится. Geolocation делит
+    пользователей по местоположению. Скорость переключения ограничена TTL и кешами клиентов,
+    так что DNS failover — это минуты, а не мгновение.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html"
+
+- id: aws-route53-dns-005
+  domain: aws
+  subtopic: route53-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Failover-запись в private hosted zone должна проверять внутренний сервис с одним
+    приватным адресом. Почему обычный health check не работает и что делать?
+  answer: |
+    Health checkers Route 53 находятся **вне VPC** и до приватных адресов не дотягиваются.
+    Вместо проверки по адресу создают CloudWatch alarm на метрику сервиса — например,
+    `StatusCheckFailed` инстанса — и health check, основанный на состоянии этого alarm.
+  explanation: |
+    Проверка через alarm опирается на данные, которые уже собираются внутри AWS, и годится
+    для чего угодно приватного. Цена — задержка: alarm срабатывает по периодам метрики,
+    а не по частым пробам, и переключение медленнее. Альтернатива из документации —
+    публичный адрес инстансу, что обычно противоречит смыслу приватного сервиса.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-private-hosted-zones.html"
+
+- id: aws-route53-dns-006
+  domain: aws
+  subtopic: route53-dns
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Офис должен резолвить имена из private hosted zones, а инстансы в VPC — имена офисного
+    домена. Что настраивают в Route 53 Resolver?
+  answer: |
+    - **Inbound endpoint** — адреса в VPC, на которые офисный DNS пересылает запросы к зонам AWS;
+    - **outbound endpoint** и **forwarding rule** на офисный домен — резолвер VPC пересылает
+      такие запросы на офисные DNS-серверы.
+
+    Связь идёт по VPN или Direct Connect.
+  explanation: |
+    Резолвер VPC на VPC+2 доступен только изнутри VPC, поэтому офису нужна точка входа,
+    а VPC — точка выхода с правилами, какие домены куда пересылать. Forwarding rules можно
+    расшарить на много аккаунтов и VPC. Деталь приоритета: resolver rule на имя перекрывает
+    private hosted zone с тем же именем, так что правило на весь `example.com` незаметно
+    отключит собственную private zone.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resolver.html"
+
+- id: aws-route53-dns-007
+  domain: aws
+  subtopic: route53-dns
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Hosted zone домена удалили и пересоздали из Terraform с теми же записями, и домен
+    перестал резолвиться. Почему?
+  answer: |
+    Новая hosted zone получила **свой набор из четырёх name servers**, а у регистратора
+    в делегировании остались NS старой зоны. Резолверы идут на серверы, которые эту зону
+    больше не обслуживают. Нужно обновить NS у регистратора на значения из NS-записи
+    новой зоны.
+  explanation: |
+    Делегирование живёт у родителя — в зоне TLD через регистратора, — а не в самой hosted
+    zone, поэтому пересоздание ломает цепочку при всех записях на месте. Отказ проявляется
+    постепенно, по мере истечения TTL закешированных NS, что путает диагностику. Для зон
+    под Terraform это довод защитить их от destroy, а при регулярном пересоздании
+    использовать reusable delegation set.
+  ref: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/SOA-NSrecords.html"

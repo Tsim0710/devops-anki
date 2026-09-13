@@ -1,0 +1,160 @@
+# aws / rds-databases
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: aws-rds-databases-001
+  domain: aws
+  subtopic: rds-databases
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Чем standby в Multi-AZ DB instance отличается от read replica?
+  options:
+    a: "Standby асинхронна и принимает чтение, read replica синхронна и нужна для failover"
+    b: "Standby реплицируется синхронно и не обслуживает чтение, read replica — асинхронно и принимает чтение"
+    c: "Ничем, различается только цена"
+    d: "Standby может быть в другом регионе, read replica — только в той же зоне"
+  answer: b
+  explanation: |
+    Standby существует ради отказоустойчивости: синхронная запись в другую зону означает,
+    что подтверждённые транзакции при failover не теряются, но читать с неё нельзя.
+    Read replica — для разгрузки чтения: асинхронная, с лагом, и в DR её повышают
+    до самостоятельного инстанса вручную, теряя недоехавшее. Нужны и защита от отказа,
+    и масштабирование чтения — значит, нужны оба. Читаемые standby даёт отдельный вариант —
+    Multi-AZ DB cluster.
+  ref: "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html"
+
+- id: aws-rds-databases-002
+  domain: aws
+  subtopic: rds-databases
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    После failover Multi-AZ приложение ещё долго не может подключиться к базе, хотя RDS
+    переключение уже завершил. Где искать проблему?
+  answer: |
+    На стороне клиента. Endpoint базы — DNS-имя, и при failover RDS переводит его запись
+    на standby. Приложение, закешировавшее адрес или держащее пул мёртвых соединений без
+    проверки, продолжает стучаться в старый инстанс.
+  explanation: |
+    Failover не меняет строку подключения — ради этого и существует endpoint, — но
+    переключение идёт через DNS, поэтому клиент обязан уважать TTL и уметь переподключаться.
+    Типовые виновники — долгий DNS-кеш в рантайме и пулы соединений без валидации.
+    RDS Proxy сглаживает эту проблему: он удерживает клиентские соединения и сам
+    переключается на новый инстанс.
+  ref: "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html"
+
+- id: aws-rds-databases-003
+  domain: aws
+  subtopic: rds-databases
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Нужно включить шифрование на существующем незашифрованном RDS-инстансе. Как?
+  answer: |
+    Напрямую нельзя: шифрование задаётся только при создании. Путь — snapshot инстанса,
+    **копия snapshot с включённым шифрованием** и восстановление из неё нового инстанса.
+    Это новый инстанс с новым endpoint, поэтому нужны переключение приложения и окно
+    на догонку данных.
+  explanation: |
+    Ограничение распространяется на всю цепочку: зашифрованную read replica незашифрованного
+    инстанса не создать, незашифрованный snapshot в зашифрованный инстанс не восстановить.
+    Отключить шифрование или сменить KMS-ключ у инстанса тоже нельзя — только через копию
+    snapshot. Поэтому шифрование закладывают в шаблоны сразу, а не «потом».
+  ref: "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html"
+
+- id: aws-rds-databases-004
+  domain: aws
+  subtopic: rds-databases
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    При всплеске трафика сотни Lambda одновременно открывают соединения к PostgreSQL в RDS,
+    и база упирается в лимит соединений. Что решает проблему без переписывания кода?
+  answer: |
+    **RDS Proxy**: он держит пул соединений к базе и мультиплексирует на него клиентские
+    соединения, ставя лишние в очередь, а не открывая новые. Приложение подключается
+    к endpoint прокси как к базе.
+  explanation: |
+    Каждое окружение Lambda — отдельный клиент со своим соединением, так что масштабирование
+    функции превращается в шторм подключений, дорогих для базы по памяти и CPU. Прокси
+    ограничивает число соединений к базе и ускоряет failover. Ограничения: прокси живёт
+    в той же VPC и публично недоступен, а часть операций закрепляет сессию за соединением
+    (pinning) и снижает выигрыш.
+  ref: "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html"
+
+- id: aws-rds-databases-005
+  domain: aws
+  subtopic: rds-databases
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему новый reader в Aurora появляется быстро даже у многотерабайтной базы, а read
+    replica в обычном RDS создаётся долго?
+  answer: |
+    В Aurora данные лежат в общем **cluster volume**, реплицированном по трём зонам,
+    а инстансы — только вычисления поверх него. Новый reader подключается к тому же тому,
+    копировать данные не нужно. Read replica RDS создаётся из snapshot и получает своё
+    хранилище, которое затем догоняет источник репликацией.
+  explanation: |
+    Отделение хранения от вычислений объясняет и другие свойства Aurora: failover на reader
+    быстрее, потому что данные уже на месте; удаление инстанса не трогает данные — они
+    исчезают только вместе с кластером; том растёт автоматически. Цена — своя модель
+    ввода-вывода и тарификации, и для I/O-тяжёлых нагрузок выбирают конфигурацию
+    I/O-Optimized.
+  ref: "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html"
+
+- id: aws-rds-databases-006
+  domain: aws
+  subtopic: rds-databases
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Таблица DynamoDB с запасом по общей ёмкости троттлит запросы к части ключей.
+    В чём дело?
+  answer: |
+    **Горячий раздел.** Каждый раздел выдерживает до 3 000 read units и 1 000 write units
+    в секунду, и если трафик сосредоточен на нескольких значениях partition key, они
+    упираются в лимит раздела при свободной ёмкости таблицы. Лечится ключом с высокой
+    кардинальностью или write sharding — суффиксом, размазывающим запись по разделам.
+  explanation: |
+    Общая ёмкость распределяется по разделам, поэтому равномерность доступа по ключам важнее
+    суммы. Adaptive capacity частично перераспределяет ёмкость в пользу горячих разделов,
+    но физический лимит раздела не отменяет. Типичные плохие ключи — дата, статус,
+    идентификатор крупнейшего клиента. Размер элемента тоже в счёт: строго консистентное
+    чтение 20-килобайтного элемента съедает 5 read units.
+  ref: "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html"
+
+- id: aws-rds-databases-007
+  domain: aws
+  subtopic: rds-databases
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Таблицу в RDS случайно очистили час назад. Что даст point-in-time restore и почему это
+    не «откат» текущей базы?
+  answer: |
+    Восстановление на момент до ошибки создаёт **новый** DB instance со своим endpoint,
+    текущий инстанс не меняется. Нужные данные переносят из восстановленной копии или
+    переключают приложение на неё.
+  explanation: |
+    PITR работает из автоматических бэкапов в пределах retention period, поэтому
+    с выключенными автоматическими бэкапами восстанавливать нечего. Новый инстанс — это
+    время на восстановление большой базы, новые параметры подключения и расхождение
+    с записями, сделанными после точки восстановления. Отсюда практика — знать реальное
+    время восстановления заранее и проверять его учениями.
+  ref: "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html"

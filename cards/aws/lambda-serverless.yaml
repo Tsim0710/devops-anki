@@ -1,0 +1,182 @@
+# aws / lambda-serverless
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: aws-lambda-serverless-001
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что такое cold start в Lambda и какими средствами его убирают?
+  answer: |
+    Задержка вызова в новом execution environment: Lambda скачивает код, запускает рантайм
+    и выполняет инициализацию вне handler'а, прежде чем обработать запрос. Убирают
+    **provisioned concurrency** — заранее прогретые окружения за плату — или **SnapStart** —
+    восстановление окружения из снимка после инициализации, для Java, Python и .NET.
+  explanation: |
+    Холодные старты случаются при масштабировании и после простоя, обычно в малой доле
+    вызовов, но бьют по хвосту латентности. Главный бесплатный рычаг — тяжесть инициализации:
+    размер пакета, импортируемые библиотеки, число соединений. SnapStart и provisioned
+    concurrency нельзя включить на одной версии функции, а со SnapStart уникальные значения
+    генерируют уже после восстановления, иначе они повторятся во всех окружениях.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/snapstart.html"
+
+- id: aws-lambda-serverless-002
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Функция Lambda держит соединение с базой в глобальной переменной. Почему это правильно
+    и почему это не смешивает данные параллельных запросов?
+  answer: |
+    Execution environment переиспользуется между вызовами: объекты, созданные вне handler'а,
+    и содержимое `/tmp` переживают вызов, и соединение не открывается заново. При этом одно
+    окружение обрабатывает **один вызов за раз** — параллельные запросы получают разные
+    окружения, и глобальное состояние между ними не смешивается.
+  explanation: |
+    Отсюда два правила: переиспользуемое — клиенты SDK, соединения — создают вне handler'а,
+    а данные конкретного запроса держат в локальных переменных, потому что следующий вызов
+    в том же окружении увидит оставленное. На долгую жизнь окружения рассчитывать нельзя:
+    Lambda закрывает окружения раз в несколько часов даже под постоянной нагрузкой.
+    У Lambda Managed Instances модель другая — там возможна конкурентная обработка.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtime-environment.html"
+
+- id: aws-lambda-serverless-003
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Одна функция приняла шквал событий, и остальные функции региона начали получать
+    троттлинг. Какой механизм от этого защищает?
+  options:
+    a: "Provisioned concurrency на шумной функции"
+    b: "Увеличенный timeout у остальных функций"
+    c: "SnapStart на критичных функциях"
+    d: "Reserved concurrency: ограничить шумную функцию и зарезервировать ёмкость критичным"
+  answer: d
+  explanation: |
+    Concurrency — общий пул региона, по умолчанию 1 000 одновременных выполнений на аккаунт,
+    и функции без резерва делят его на всех. Reserved concurrency одновременно гарантирует
+    функции её долю и ограничивает её сверху, так что шумная функция не выест пул.
+    Не меньше 100 единиц всегда остаётся в незарезервированном пуле. Provisioned concurrency
+    про прогрев, а не про изоляцию, и стоит денег.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html"
+
+- id: aws-lambda-serverless-004
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Каковы timeout Lambda-функции по умолчанию и его максимум?
+  options:
+    a: "30 секунд и 5 минут"
+    b: "60 секунд и 15 минут"
+    c: "3 секунды и 15 минут"
+    d: "3 секунды и 60 минут"
+  answer: c
+  explanation: |
+    По умолчанию 3 секунды, так что функция, которая ходит во внешние сервисы, легко падает
+    по таймауту на первом медленном ответе. Максимум — 900 секунд. Timeout подбирают
+    по длительности на верхних границах объёма данных, а для работы дольше 15 минут берут
+    другие модели — Step Functions, durable functions, контейнеры. От timeout функции
+    считают и visibility timeout очереди SQS.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html"
+
+- id: aws-lambda-serverless-005
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Функция, вызываемая асинхронно — например, событием S3, — упала с ошибкой. Что сделает
+    Lambda и почему функция должна быть идемпотентной?
+  answer: |
+    Повторит ещё **два раза** — через минуту и через две. При троттлинге и системных ошибках
+    событие возвращается в очередь и повторяется **до 6 часов** по умолчанию. Окончательно
+    неудачные события сохраняют через on-failure destination или dead-letter queue.
+  explanation: |
+    Идемпотентность нужна дважды: ретраи повторяют событие после частично выполненной
+    работы, а внутренняя очередь асинхронных вызовов eventually consistent и может доставить
+    одно событие несколько раз даже без ошибок. Без destination или DLQ событие после
+    исчерпания попыток просто отбрасывается. Число повторов и максимальный возраст события
+    настраиваются.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-error-handling.html"
+
+- id: aws-lambda-serverless-006
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Lambda читает SQS пачками по 10 сообщений; одно сообщение в пачке падает, и вся пачка
+    обрабатывается снова и снова. Как настроить правильно?
+  answer: |
+    Включить **partial batch responses** (`ReportBatchItemFailures`) и возвращать из функции
+    идентификаторы только упавших сообщений — остальные удаляются из очереди. Visibility
+    timeout очереди ставят не меньше **шести timeout'ов функции**, а `maxReceiveCount`
+    в redrive policy — от 5, чтобы ядовитое сообщение ушло в DLQ.
+  explanation: |
+    По умолчанию ошибка на любом сообщении возвращает в очередь всю пачку, и успешные
+    сообщения обрабатываются повторно — ещё одна причина для идемпотентности. Запас
+    visibility timeout нужен, чтобы сообщения не всплыли снова, пока Lambda повторяет пачку
+    после троттлинга. Timeout функции больше visibility timeout очереди Lambda не даст
+    настроить вовсе.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html"
+
+- id: aws-lambda-serverless-007
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Lambda подключили к VPC, выбрав публичные подсети с Internet Gateway, и функция
+    перестала ходить во внешний API — висит до таймаута. Почему?
+  answer: |
+    Подключение к публичной подсети не даёт функции интернета: у сетевых интерфейсов Lambda
+    нет публичных адресов. Функцию подключают к **приватным** подсетям с маршрутом
+    на NAT Gateway, а к сервисам AWS ходят через VPC endpoints.
+  explanation: |
+    Без VPC-конфигурации функция работает в сети, управляемой AWS, с доступом в интернет,
+    поэтому перенос в VPC ломает то, что работало. Симптом — таймаут, а не отказ: пакеты
+    уходят, а ответу вернуться некуда. Security group функции должна разрешать исходящий
+    трафик.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc-internet.html"
+
+- id: aws-lambda-serverless-008
+  domain: aws
+  subtopic: lambda-serverless
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Функция выполняется 20 мс и получает 30 000 запросов в секунду. Concurrency всего 600
+    при квоте 1 000, а запросы троттлятся. Почему?
+  answer: |
+    Кроме concurrency, Lambda ограничивает **запросы в секунду** значением в 10 раз больше
+    квоты concurrency — при 1 000 это 10 000 RPS. Очень короткие функции упираются в него
+    раньше, чем в concurrency. Здесь нужна квота concurrency не меньше 3 000.
+  explanation: |
+    Concurrency считается как RPS × длительность: 30 000 × 0.02 = 600, и по ней запас есть.
+    Но при длительности меньше 100 мс ограничивающим становится RPS-лимит. То же правило
+    действует для provisioned concurrency и для скорости масштабирования, поэтому ёмкость
+    коротких функций планируют по обоим лимитам.
+  ref: "https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html"

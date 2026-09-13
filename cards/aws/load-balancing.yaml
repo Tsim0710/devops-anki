@@ -1,0 +1,95 @@
+# aws / load-balancing
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# L4 против L7, ALB против NLB, X-Forwarded-For, idle timeout и 502, health checks
+# вообще — в networks/load-balancing. Здесь поведение ELB как сервиса.
+
+- id: aws-load-balancing-001
+  domain: aws
+  subtopic: load-balancing
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как Application Load Balancer решает, в какую target group отправить запрос?
+  answer: |
+    По **listener rules**: правила listener'а с условиями — host, path, заголовки, метод,
+    query string, IP источника — оцениваются по приоритету, и первое совпавшее отправляет
+    запрос в свою target group. Внутри группы цель выбирает алгоритм балансировки,
+    по умолчанию round robin.
+  explanation: |
+    Так один ALB обслуживает много сервисов по доменам и путям, а health checks задаются
+    на target group, то есть у каждого сервиса свои. Если ни одно правило не совпало,
+    срабатывает действие по умолчанию, поэтому его делают осмысленным — например, фиксированным
+    `404`, а не отправкой в случайный сервис.
+  ref: "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html"
+
+- id: aws-load-balancing-002
+  domain: aws
+  subtopic: load-balancing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Rolling deploy за ALB идёт мучительно долго: каждый старый инстанс по пять минут висит
+    в `draining`. Что это и как ускорить?
+  answer: |
+    **Deregistration delay** target group, по умолчанию 300 секунд: столько балансировщик
+    ждёт завершения запросов к снимаемой цели, прежде чем вывести её. Ставят значение чуть
+    больше максимальной длительности обычного запроса.
+  explanation: |
+    Задержка защищает запросы от обрыва при выводе цели, но пять минут по умолчанию
+    рассчитаны на худший случай, и для API с запросами в секунды хватит десятков секунд.
+    Слишком малое значение обрывает долгие запросы — выгрузки, отчёты — и даёт ошибки
+    клиентам. Это та же задача, что решают `terminationGracePeriodSeconds` и preStop
+    в Kubernetes.
+  ref: "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html"
+
+- id: aws-load-balancing-003
+  domain: aws
+  subtopic: load-balancing
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    За Network Load Balancer в зоне A два инстанса, в зоне B — восемь. Инстансы зоны A
+    перегружены. Почему?
+  answer: |
+    У NLB **cross-zone load balancing по умолчанию выключен**: узел балансировщика в каждой
+    зоне отправляет трафик только целям своей зоны. DNS делит клиентов между узлами поровну,
+    так что каждый из двух инстансов зоны A получает по 25% трафика, а каждый из восьми
+    в зоне B — по 6.25%.
+  explanation: |
+    У ALB cross-zone всегда включён на уровне балансировщика и отключается только на target
+    group, поэтому та же схема за ALB распределила бы нагрузку ровно, по 10%. Для NLB либо
+    держат одинаковое число целей в зонах, либо включают cross-zone. Разница умолчаний —
+    частая причина жалоб «балансировщик кривой» при переходе с ALB на NLB.
+  ref: "https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/how-elastic-load-balancing-works.html"
+
+- id: aws-load-balancing-004
+  domain: aws
+  subtopic: load-balancing
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Какой target type у target group ALB позволяет отправлять трафик напрямую в поды EKS
+    и в серверы on-prem за Direct Connect?
+  options:
+    a: "`ip`"
+    b: "`instance`"
+    c: "`lambda`"
+    d: "`eni`"
+  answer: a
+  explanation: |
+    `ip` регистрирует адреса из подсетей VPC и частных диапазонов RFC 1918 и RFC 6598 —
+    в том числе поды, пиринговые VPC и on-prem через Direct Connect или VPN; публичные
+    адреса регистрировать нельзя. `instance` отправляет на основной приватный адрес
+    инстанса по его ID, и в поды трафик тогда идёт через порт узла. `lambda` — одна функция.
+    Target type не меняется после создания группы.
+  ref: "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html"

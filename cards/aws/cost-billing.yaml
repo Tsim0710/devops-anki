@@ -1,0 +1,114 @@
+# aws / cost-billing
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Стоимость межзонального трафика — в networks/cloud-vpc, NAT и gateway endpoint —
+# в aws/vpc-networking, T3 unlimited — в aws/ec2-compute.
+
+- id: aws-cost-billing-001
+  domain: aws
+  subtopic: cost-billing
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Что может сделать AWS Budgets при превышении порога, кроме уведомления?
+  options:
+    a: "Ничего: бюджеты только уведомляют"
+    b: "Автоматически отключить биллинг аккаунта"
+    c: "Удалить ресурсы, созданные после начала периода"
+    d: "Выполнить budget action: применить IAM policy или SCP, остановить инстансы EC2 или RDS — сразу или после подтверждения"
+  answer: d
+  explanation: |
+    Без настроенных actions бюджет только уведомляет. Budget actions превращают порог
+    в ограничитель: deny-политика на создание ресурсов, SCP на аккаунт, остановка конкретных
+    инстансов. Из management account можно применить SCP к другому аккаунту, но остановить
+    EC2 или RDS в чужом аккаунте нельзя. Данные о затратах обновляются не мгновенно, поэтому
+    пороги ставят с запасом.
+  ref: "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-controls.html"
+
+- id: aws-cost-billing-002
+  domain: aws
+  subtopic: cost-billing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем Compute Savings Plans отличаются от EC2 Instance Savings Plans?
+  answer: |
+    **Compute Savings Plans** применяются к EC2 любого семейства, размера, региона и ОС,
+    а также к Fargate и Lambda — скидка до 66%. **EC2 Instance Savings Plans** привязаны
+    к семейству инстансов в конкретном регионе, но свободны в размере, ОС и tenancy — скидка
+    до 72%. В обоих случаях покупается обязательство тратить сумму в час, и его условия
+    после покупки не меняются.
+  explanation: |
+    Выбор — между размером скидки и свободой архитектуры. Instance-план выгоднее, пока
+    семейство и регион стабильны; переезд на другое семейство, в другой регион или в Fargate
+    обнуляет его выгоду, а Compute-план такие изменения переживает. Покупают на устойчивую
+    базовую нагрузку, пики оставляют on-demand и Spot.
+  ref: "https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html"
+
+- id: aws-cost-billing-003
+  domain: aws
+  subtopic: cost-billing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Ресурсы помечены тегом `team`, но в Cost Explorer разбивки по нему нет. Почему?
+  answer: |
+    User-defined теги нужно **активировать** как cost allocation tags в консоли Billing
+    или через API. Ключ тега появляется в списке для активации в течение 24 часов после
+    применения, и сама активация занимает ещё до 24 часов.
+  explanation: |
+    Биллинг не использует теги автоматически: активируется ключ тега, и после этого
+    учитываются все его значения. Поэтому активацию делают сразу вместе с политикой
+    тегирования, а не в день, когда финансы попросили отчёт. Тег `awsApplication`
+    из AppRegistry активируется сам.
+  ref: "https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/activating-tags.html"
+
+- id: aws-cost-billing-004
+  domain: aws
+  subtopic: cost-billing
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В счёте заметная строка за публичные IPv4, хотя все Elastic IP привязаны к работающим
+    инстансам. Разве привязанный адрес не бесплатен?
+  answer: |
+    Нет: AWS тарифицирует **каждый публичный IPv4** — и простаивающий, и используемый —
+    по $0.005 в час, включая Elastic IP на работающих инстансах и автоматически назначенные
+    публичные адреса.
+  explanation: |
+    Многие архитектуры выросли на привычке, что публичный адрес на машине ничего не стоит,
+    и раздают его каждому инстансу. Экономят, выключая автоназначение публичных адресов
+    в подсетях, выводя входящий трафик через общий балансировщик, а исходящий — через NAT,
+    и переходя на IPv6, где клиенты это позволяют.
+  ref: "https://aws.amazon.com/vpc/pricing/"
+
+- id: aws-cost-billing-005
+  domain: aws
+  subtopic: cost-billing
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В AWS Organizations Savings Plan куплен в одном аккаунте, а экономия видна в другом.
+    Как это работает и когда мешает?
+  answer: |
+    Consolidated billing объединяет использование всех аккаунтов организации: объёмные
+    скидки считаются по сумме, а скидки Reserved Instances и Savings Plans делятся между
+    аккаунтами — неиспользованная часть плана одного аккаунта покрывает использование
+    другого. Счета member-аккаунтов носят информационный характер.
+  explanation: |
+    Для организации в целом это максимум экономии, но внутренний chargeback искажается:
+    команда, купившая план, платит за обязательство, а скидку получают соседи. Management
+    account может перераспределять эти скидки, поэтому расчёты между командами строят
+    по данным биллинга с учётом распределения, а не по принципу «кто купил».
+  ref: "https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/consolidated-billing.html"

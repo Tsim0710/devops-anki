@@ -1,0 +1,208 @@
+# aws / iam
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: aws-iam-001
+  domain: aws
+  subtopic: iam
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем IAM role отличается от IAM user и почему нагрузкам и людям выдают роли?
+  answer: |
+    User — постоянная идентичность с долгоживущими учётными данными: пароль, access keys.
+    У role своих ключей нет: её принимают через `sts:AssumeRole` и получают временные
+    учётные данные. Кто может её принять, решает **trust policy**, что она может —
+    **permissions policies**.
+  explanation: |
+    Временные учётные данные истекают сами, так что утечка ограничена сроком сессии,
+    а не жизнью ключа. Поэтому EC2, Lambda и поды EKS получают роли, а людям доступ дают
+    через IAM Identity Center или федерацию, а не через IAM users с ключами. У роли две
+    независимые половины — «кому можно» и «что можно», — и ошибка в любой из них даёт
+    отказ.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/troubleshoot_roles.html"
+
+- id: aws-iam-002
+  domain: aws
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Роль из аккаунта A читает бакет в аккаунте B. Bucket policy в B явно разрешает эту
+    роль, но запрос получает `AccessDenied`. Чего не хватает?
+  options:
+    a: "Роль нужно добавить в ACL бакета: bucket policy не действует на чужие аккаунты"
+    b: "Нужен VPC endpoint между аккаунтами"
+    c: "Identity policy роли в аккаунте A тоже должна разрешать доступ к этому бакету"
+    d: "Оба аккаунта должны быть в одной организации AWS Organizations"
+  answer: c
+  explanation: |
+    Внутри одного аккаунта права — объединение: хватает разрешения либо в identity policy,
+    либо в resource policy. Между аккаунтами нужны обе стороны: владелец ресурса разрешает
+    в resource policy, аккаунт вызывающего — в identity policy своей роли. Явный deny
+    в любой политике перебивает всё. Та же логика у ключей KMS: key policy в одном аккаунте
+    плюс IAM-политика в другом.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html"
+
+- id: aws-iam-003
+  domain: aws
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    `aws sts assume-role` падает с `is not authorized to perform: sts:AssumeRole`.
+    Какие две стороны проверить?
+  answer: |
+    - **Вызывающий**: его политики должны разрешать `sts:AssumeRole` на ARN этой роли.
+    - **Роль**: её trust policy должна называть вызывающего или его аккаунт в `Principal`,
+      и все условия в ней — external ID, MFA, время — должны выполняться.
+  explanation: |
+    Trust policy — resource policy самой роли, и права вызывающего её не заменяют.
+    Имя роли в ARN чувствительно к регистру, так что опечатка даёт тот же отказ.
+    Отдельная грабля — role chaining: сессия роли, принятой из-под другой роли, живёт
+    не больше часа, и запрос `DurationSeconds` сверх этого падает.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/troubleshoot_roles.html"
+
+- id: aws-iam-004
+  domain: aws
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Разработчики должны сами создавать роли для своих Lambda, но так, чтобы роль нельзя
+    было сделать шире разрешённого. Каким механизмом это делают?
+  answer: |
+    **Permissions boundary.** Им разрешают `iam:CreateRole` только с условием
+    `iam:PermissionsBoundary`, указывающим на заданную managed policy. Эффективные права
+    созданной роли — пересечение её identity policies и boundary, так что шире boundary
+    роль не станет, что бы в неё ни положили.
+  explanation: |
+    Boundary не выдаёт прав, а только ограничивает сверху. Схему замыкают запретом менять
+    саму boundary-политику и снимать boundary с ролей — иначе делегированный администратор
+    выйдет из клетки. Нюанс: неявный отказ boundary не ограничивает права, выданные
+    resource policy напрямую IAM user или сессии роли в том же аккаунте, так что boundary —
+    не единственный рубеж.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html"
+
+- id: aws-iam-005
+  domain: aws
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    В организации действует SCP, запрещающая выключать CloudTrail. На кого она **не**
+    распространяется?
+  options:
+    a: "На пользователей и роли management account, а также на service-linked roles"
+    b: "На root user member-аккаунтов"
+    c: "На роли с политикой `AdministratorAccess`"
+    d: "На member-аккаунты, назначенные delegated administrator"
+  answer: a
+  explanation: |
+    SCP ограничивает всех в member-аккаунтах, включая их root user и администраторов
+    с `*:*`, — в этом смысл guardrail. На management account она не действует вовсе,
+    поэтому в нём не держат нагрузку и выдают минимум доступа. Service-linked roles SCP
+    тоже не ограничивает. Delegated administrator остаётся member-аккаунтом и под SCP
+    попадает. Сама SCP ничего не выдаёт — только задаёт потолок.
+  ref: "https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html"
+
+- id: aws-iam-006
+  domain: aws
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Terraform создаёт Lambda с execution role и падает на
+    `not authorized to perform: iam:PassRole`, хотя `lambda:CreateFunction` у него есть.
+    Почему этого мало?
+  answer: |
+    Передать роль сервису — отдельное право `iam:PassRole` на ARN этой роли. Оно
+    проверяется, когда роль указывают при создании ресурса: функции Lambda, instance
+    profile EC2, задачи ECS. Без этой проверки можно было бы запустить код с правами
+    любой роли аккаунта.
+  explanation: |
+    Сужают его через `Resource` — конкретные роли или префикс — и условие
+    `iam:PassedToService`, чтобы роль уходила только нужному сервису. PassRole — не
+    API-вызов, а permission: своего события в CloudTrail у него нет, передачу роли видно
+    только в событии создания ресурса, например `CreateFunction`. Поэтому аудит «кто
+    какую роль передавал» собирают по событиям сервисов.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_passrole.html"
+
+- id: aws-iam-007
+  domain: aws
+  subtopic: iam
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сторонний SaaS-сервис просит создать роль, которую будет принимать его аккаунт.
+    Зачем в trust policy условие `sts:ExternalId`?
+  answer: |
+    Против **confused deputy**. ARN роли не секрет: другой клиент того же сервиса может
+    указать ваш ARN как свой, и сервис примет вашу роль от его имени. External ID —
+    уникальное значение, которое сервис выдаёт каждому клиенту и сам подставляет
+    в `AssumeRole`; подменить его чужой клиент не может.
+  explanation: |
+    Условие «принимает аккаунт сервиса» недостаточно, потому что аккаунт один на всех
+    клиентов. External ID привязывает доверие к конкретному клиенту внутри сервиса, поэтому
+    генерирует его сервис, а не вы. Для service principals — например, CloudTrail, пишущего
+    в бакет, — ту же задачу решают условия `aws:SourceArn` и `aws:SourceAccount`
+    в resource policy.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html"
+
+- id: aws-iam-008
+  domain: aws
+  subtopic: iam
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Для чего в AWS всё-таки нужен root user, если им не рекомендуют пользоваться?
+  answer: |
+    Для немногих задач, доступных только ему: например, сменить email или закрыть
+    standalone-аккаунт, вернуть права, если единственный IAM-администратор их у себя
+    отнял, снять bucket policy, запрещающую доступ всем. Всё остальное делают через роли.
+    Root защищают MFA и не держат ему access keys.
+  explanation: |
+    Root user не ограничивается IAM-политиками своего аккаунта и не удаляется, поэтому
+    его компрометация — потеря аккаунта. Отсюда модель «сейфа»: MFA, никакой ежедневной
+    работы, оповещение о входах. В AWS Organizations root-доступ member-аккаунтов можно
+    централизовать и удалить их root-учётные данные, выполняя привилегированные задачи
+    из management account.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_root-user.html"
+
+- id: aws-iam-009
+  domain: aws
+  subtopic: iam
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как найти в аккаунте ресурсы, которые через свои политики доступны кому-то снаружи —
+    другим аккаунтам или всем?
+  answer: |
+    **IAM Access Analyzer** с external access analyzer. Он анализирует resource-based
+    policies бакетов, ролей, ключей KMS, секретов, очередей и других ресурсов и заводит
+    finding на каждый доступ извне зоны доверия — аккаунта или организации.
+  explanation: |
+    Анализ логический, а не по логам: он показывает, что политика **разрешает**, даже если
+    доступом ещё никто не воспользовался. Access Analyzer также находит неиспользуемые
+    роли, ключи и права и генерирует политику по реальной активности из CloudTrail —
+    практичный путь к наименьшим привилегиям. External access analyzer региональный,
+    его включают в каждом используемом регионе.
+  ref: "https://docs.aws.amazon.com/IAM/latest/UserGuide/what-is-access-analyzer.html"

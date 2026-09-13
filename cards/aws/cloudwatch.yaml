@@ -1,0 +1,155 @@
+# aws / cloudwatch
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+
+- id: aws-cloudwatch-001
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сколько CloudWatch Logs хранит логи по умолчанию и чем это грозит?
+  answer: |
+    **Бессрочно**: у новой log group retention — «Never expire». Логи копятся, и счёт
+    за хранение растёт, пока на каждой группе не задан срок хранения.
+  explanation: |
+    Log groups создаются автоматически — Lambda, EKS, агенты, — и срок им никто не ставит,
+    поэтому забытые группы годами хранят отладочный шум. Срок задают в IaC при создании
+    группы. После уменьшения срока старые события удаляются не мгновенно — обычно в течение
+    72 часов.
+  ref: "https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Working-with-log-groups-and-streams.html"
+
+- id: aws-cloudwatch-002
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Метрика ошибок публикуется только когда ошибки есть, и alarm на ней постоянно висит
+    в `INSUFFICIENT_DATA`. Что поменять?
+  options:
+    a: "`TreatMissingData` = `notBreaching`: отсутствие точек считать нормой"
+    b: "`TreatMissingData` = `breaching`"
+    c: "Уменьшить период alarm до 10 секунд"
+    d: "Сделать метрику high-resolution"
+  answer: a
+  explanation: |
+    По умолчанию пропуски — `missing`: если в окне оценки нет ни одной точки, alarm уходит
+    в `INSUFFICIENT_DATA`. Для редкой метрики, где отсутствие данных означает «ошибок нет»,
+    правильно `notBreaching`. Для метрики, которая обязана идти всегда, логика обратная:
+    пропуск — признак беды, и уместно `breaching`. Выбирают по смыслу метрики, а не одним
+    правилом на всё.
+  ref: "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/alarms-and-missing-data.html"
+
+- id: aws-cloudwatch-003
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Alarm на `CPUUtilization` инстанса EC2 реагирует на всплеск с опозданием в несколько
+    минут. Самая вероятная причина?
+  options:
+    a: "CloudWatch оценивает alarms раз в 15 минут"
+    b: "У инстанса basic monitoring: метрики идут пятиминутными периодами"
+    c: "Метрики CPU EC2 требуют CloudWatch agent"
+    d: "Alarm без SNS-топика оценивается реже"
+  answer: b
+  explanation: |
+    Basic monitoring бесплатен и отдаёт метрики EC2 пятиминутными периодами, кроме
+    status checks — они поминутные. Detailed monitoring даёт поминутные периоды за плату.
+    Период alarm меньше разрешения метрики смысла не имеет: при basic monitoring ставят
+    не меньше 300 секунд. CPU гипервизор отдаёт и без агента.
+  ref: "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/manage-detailed-monitoring.html"
+
+- id: aws-cloudwatch-004
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис публикует custom metric `Latency` с dimension `UserId`. Почему это дорого и почему
+    по такой метрике не получить общую латентность сервиса?
+  answer: |
+    Каждая уникальная комбинация dimensions — **отдельная метрика**, и платят за каждую:
+    миллион пользователей — миллион метрик. А для custom metrics CloudWatch не агрегирует
+    по dimensions: статистику можно получить только для опубликованных комбинаций.
+  explanation: |
+    Это та же проблема cardinality, что в Prometheus, только взрывается она счётом. Общую
+    латентность публикуют отдельной метрикой без dimensions или с грубыми — сервис,
+    эндпоинт, — а разрезы по пользователю оставляют логам и Logs Insights. Metric math
+    с `SEARCH` умеет собрать много метрик в один график, но стоимость хранения это
+    не снимает.
+  ref: "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html"
+
+- id: aws-cloudwatch-005
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Нужно выяснить, кто полгода назад удалил security group и кто вчера скачал объект
+    из бакета. Что даст CloudTrail без дополнительной настройки?
+  answer: |
+    Ни того, ни другого. **Event history** включена по умолчанию, но хранит только
+    **management events** за **90 дней** — полугодовое удаление уже не найти. Скачивание
+    объекта — **data event**, а они по умолчанию не пишутся вовсе и оплачиваются отдельно.
+  explanation: |
+    Для расследований trail или event data store заводят заранее: trail доставляет события
+    в S3, где их хранят сколько нужно, в том числе по всей организации. Data events
+    включают точечно — на чувствительные бакеты, функции, таблицы, — иначе объём и цена
+    огромны. Event history ещё и региональна: событие ищут в регионе, где оно произошло.
+  ref: "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/view-cloudtrail-events.html"
+
+- id: aws-cloudwatch-006
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    При падении базы дежурному приходит сорок alarm'ов от всех зависимых сервисов. Какой
+    механизм CloudWatch сокращает этот шум?
+  answer: |
+    **Composite alarm**: он оценивает логическое выражение над состояниями других alarm'ов
+    (`ALARM`, `OK`, `INSUFFICIENT_DATA` с `AND`, `OR`, `NOT`). Уведомление вешают на него,
+    а отдельные alarms оставляют без действий.
+  explanation: |
+    Шум рождается, когда уведомляет каждый симптом. Composite alarm позволяет уведомлять
+    о ситуации — «ошибки API **и** рост латентности» — или подавлять действия зависимых
+    alarms, пока в `ALARM` корневой alarm базы. Составные alarms можно вкладывать, но
+    циклическая зависимость между ними останавливает их оценку.
+  ref: "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Create_Composite_Alarm.html"
+
+- id: aws-cloudwatch-007
+  domain: aws
+  subtopic: cloudwatch
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Поминутный график метрики трёхмесячной давности в CloudWatch показывает только часовые
+    точки. Данные потерялись?
+  answer: |
+    Нет, так устроено хранение: поминутные точки доступны **15 дней**, затем агрегируются
+    до 5 минут и хранятся **63 дня**, затем до часа и хранятся **455 дней** (15 месяцев).
+    Точки с периодом меньше минуты живут 3 часа.
+  explanation: |
+    Для разбора давнего инцидента детализации уже нет: всплеск в пару минут растворяется
+    в часовом агрегате. Если детальная история нужна дольше, метрики выгружают, например
+    через metric streams, или держат ключевые показатели в логах. Метрики без новых данных
+    дольше двух недель ещё и пропадают из консоли и `list-metrics`, хотя данные по имени
+    метрики достаются.
+  ref: "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html"

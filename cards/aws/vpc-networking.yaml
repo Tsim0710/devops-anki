@@ -1,0 +1,185 @@
+# aws / vpc-networking
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Механизмы облачных сетей уже в networks: публичная подсеть через маршрут, NAT Gateway
+# в публичной подсети, пиринг и его нетранзитивность, PrivateLink, SSM против bastion
+# (cloud-vpc), SG против NACL и эфемерные порты (firewall), egress-only IGW (ipv6).
+# Здесь — устройство VPC в AWS сверх этого.
+
+- id: aws-vpc-networking-001
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: junior
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Сколько адресов подсети `/24` в AWS VPC доступно под ресурсы?
+  options:
+    a: "254"
+    b: "251"
+    c: "256"
+    d: "250"
+  answer: b
+  explanation: |
+    AWS резервирует пять адресов каждой подсети: сетевой, `.1` под роутер VPC, `.2` под DNS,
+    `.3` на будущее и последний — broadcast, хотя broadcast в VPC не поддерживается.
+    Из 256 остаётся 251. На больших подсетях это незаметно, но в минимальной `/28` из 16
+    адресов под ресурсы остаётся 11, и под поды EKS или Lambda в VPC такие подсети
+    кончаются мгновенно.
+  ref: "https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html"
+
+- id: aws-vpc-networking-002
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Почему в правиле Security Group базы источником указывают Security Group приложения,
+    а не CIDR подсети приложения?
+  answer: |
+    Правило со ссылкой на SG пропускает трафик с приватных адресов всех интерфейсов,
+    к которым эта SG привязана, — какие бы адреса у них ни были. Инстансы Auto Scaling
+    приходят и уходят, а правило остаётся верным. Правила ссылаемой группы при этом
+    не копируются.
+  explanation: |
+    CIDR пропускает всё, что окажется в подсети, включая чужие сервисы, а список адресов
+    устаревает при каждом скейле. Ссылка на SG описывает доступ через роль компонента:
+    «база принимает от приложения, приложение — от балансировщика». Это работает внутри
+    VPC и через пиринг, а для входящих правил — и через Transit Gateway.
+  ref: "https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html"
+
+- id: aws-vpc-networking-003
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Инстансы в приватных подсетях гоняют терабайты в S3 своего региона через NAT Gateway,
+    и счёт за NAT растёт. Что поставить?
+  options:
+    a: "Второй NAT Gateway в другой зоне"
+    b: "Interface endpoint для каждого бакета"
+    c: "Публичные IP инстансам и маршрут через Internet Gateway"
+    d: "Gateway endpoint для S3 в route tables приватных подсетей"
+  answer: d
+  explanation: |
+    NAT Gateway берёт плату за каждый обработанный гигабайт, куда бы ни шёл трафик.
+    Gateway endpoint добавляет в route table маршрут на prefix list S3, и этот трафик идёт
+    мимо NAT; за сам endpoint отдельно не платят. Gateway endpoints есть только у S3
+    и DynamoDB и, в отличие от interface endpoints, не используют PrivateLink.
+    Security group инстансов должна разрешать исходящий трафик на prefix list сервиса.
+  ref: "https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html"
+
+- id: aws-vpc-networking-004
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В VPC три зоны и один NAT Gateway в `eu-west-1a`, на который смотрят маршруты всех
+    приватных подсетей. Что будет при сбое зоны `a`?
+  answer: |
+    Выход в интернет потеряют приватные подсети **всех** зон: NAT Gateway создаётся
+    в конкретной зоне и резервирован только внутри неё. Правильно — NAT Gateway в каждой
+    зоне и route table каждой приватной подсети с маршрутом на NAT своей зоны.
+  explanation: |
+    Экономия на NAT делает зону `a` общей точкой отказа исходящего трафика и обесценивает
+    мультизональность сервисов; трафик других зон через него вдобавок межзональный.
+    К NAT Gateway нельзя привязать Security Group, а на один публичный IPv4 он держит
+    до 55 000 одновременных соединений к одному назначению — при упоре в лимит добавляют
+    адреса.
+  ref: "https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html"
+
+- id: aws-vpc-networking-005
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Сервис в аккаунте A и его потребитель в аккаунте B оба размещены в `us-east-1a`,
+    но трафик между ними всё равно межзональный. Как такое возможно?
+  answer: |
+    Имена зон сопоставлены физическим зонам **случайно для каждого аккаунта**:
+    `us-east-1a` в A и в B могут быть разными площадками. Одну и ту же физическую зону
+    во всех аккаунтах обозначает **AZ ID**, например `use1-az1`.
+  explanation: |
+    Случайное сопоставление размазывает ресурсы по зонам, иначе все складывались бы в «a».
+    Цена — многоаккаунтные схемы нельзя выравнивать по именам: при расшаривании подсетей
+    через RAM, размещении сервисов PrivateLink и планировании задержек сверяют AZ ID.
+    `aws ec2 describe-availability-zones` показывает оба поля.
+  ref: "https://docs.aws.amazon.com/ram/latest/userguide/working-with-az-ids.html"
+
+- id: aws-vpc-networking-006
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Все VPC подключены к одному Transit Gateway. Как сделать, чтобы prod и dev не видели
+    друг друга, но оба ходили в shared services?
+  answer: |
+    Несколько **route tables** на Transit Gateway. **Association** решает, по какой таблице
+    маршрутизируется трафик из attachment'а, **propagation** — в какие таблицы попадают
+    маршруты attachment'а. В таблицы prod и dev распространяются только маршруты shared,
+    в таблицу shared — маршруты обоих.
+  explanation: |
+    С одной таблицей и настройками по умолчанию TGW делает все подключённые сети взаимно
+    достижимыми: транзитивность, которой нет у пиринга, оборачивается плоской сетью без
+    изоляции. Разделение association и propagation задаёт связность как граф, не трогая
+    сами VPC. Security groups и NACL остаются вторым рубежом: маршрут — ещё не разрешение.
+  ref: "https://docs.aws.amazon.com/vpc/latest/tgw/tgw-route-tables.html"
+
+- id: aws-vpc-networking-007
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Что покажут VPC Flow Logs, когда соединение до инстанса не устанавливается,
+    и чего в них не будет?
+  answer: |
+    Метаданные потоков на сетевых интерфейсах: адреса, порты, протокол, объём и решение
+    `ACCEPT` или `REJECT`. Содержимого пакетов нет. `REJECT` на входе говорит, что трафик
+    режет security group или NACL; если попыток в логе нет вовсе, пакеты, скорее всего,
+    не дошли до интерфейса, и искать надо на маршруте.
+  explanation: |
+    Это самый дешёвый способ отделить сетевой отказ от прикладного: `ACCEPT` в обе стороны
+    при неработающем сервисе переводит поиск в приложение. Логи собираются вне пути трафика,
+    поэтому их включение не влияет на пропускную способность и задержки. Платят за приём
+    и хранение в CloudWatch Logs, S3 или Firehose.
+  ref: "https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs.html"
+
+- id: aws-vpc-networking-008
+  domain: aws
+  subtopic: vpc-networking
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    У инстанса Security Group без единого исходящего правила, а DNS-запросы к резолверу
+    VPC всё равно проходят. Почему и как такой трафик фильтровать?
+  answer: |
+    Security groups не умеют блокировать запросы к Route 53 Resolver на адресе VPC+2.
+    Фильтруют DNS через **Route 53 Resolver DNS Firewall**: списки разрешённых
+    и запрещённых доменов на уровне резолвера.
+  explanation: |
+    DNS остаётся открытым каналом даже в «наглухо закрытой» подсети, и через него возможна
+    утечка данных туннелированием в запросы. Поэтому в изолированных средах одних SG и NACL
+    недостаточно. Та же деталь объясняет, почему закрытый egress не ломает резолв имён,
+    а ломает всё, что после него.
+  ref: "https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html"

@@ -1,0 +1,140 @@
+# aws / eks
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# Kubernetes как таковой — в домене k8s, Karpenter против Cluster Autoscaler —
+# в k8s/autoscaling. Здесь то, что специфично для EKS.
+
+- id: aws-eks-001
+  domain: aws
+  subtopic: eks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Как в EKS выдать IAM-роли доступ к Kubernetes API, не редактируя ConfigMap `aws-auth`?
+  answer: |
+    Через **access entries** в API EKS. Access entry связывает IAM-принципала с правами
+    в кластере — либо готовыми access policies вроде `AmazonEKSClusterAdminPolicy`, либо
+    Kubernetes-группами, на которые навешан RBAC.
+  explanation: |
+    `aws-auth` жил внутри кластера: чтобы починить ошибку в нём, нужен был доступ к тому
+    самому API, который она сломала, и одна опечатка отрезала всех. Access entries
+    управляются снаружи, через API EKS, поэтому доступ восстанавливается без Kubernetes API,
+    описывается в IaC и виден в CloudTrail. При переводе старого кластера автоматически
+    появляется только запись создателя — роли из `aws-auth` переносят вручную.
+  ref: "https://docs.aws.amazon.com/eks/latest/userguide/access-entries.html"
+
+- id: aws-eks-002
+  domain: aws
+  subtopic: eks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Под с IRSA получает `AccessDenied` на `AssumeRoleWithWebIdentity`. Что проверить
+    в цепочке?
+  answer: |
+    - в IAM зарегистрирован **OIDC provider** кластера;
+    - trust policy роли доверяет этому провайдеру, в условии `sub` точно указан
+      `system:serviceaccount:NAMESPACE:SA_NAME`, а `aud` — `sts.amazonaws.com`;
+    - на ServiceAccount пода стоит аннотация `eks.amazonaws.com/role-arn`, и под создан
+      уже после её добавления.
+  explanation: |
+    IRSA — федерация: кластер выпускает подписанный токен ServiceAccount, STS проверяет его
+    через OIDC provider и сверяет claims с условиями trust policy. Ошибка в namespace или
+    имени SA в `sub` даёт ровно этот отказ и встречается чаще всего. Токен и переменные
+    окружения подставляются в под при создании, поэтому аннотация, добавленная к уже
+    запущенному поду, на него не действует.
+  ref: "https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html"
+
+- id: aws-eks-003
+  domain: aws
+  subtopic: eks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Чем EKS Pod Identity удобнее IRSA, когда одно приложение работает в десятке кластеров?
+  answer: |
+    Не нужны OIDC provider на каждый кластер и правка trust policy под каждый новый кластер:
+    роль один раз доверяет сервисному принципалу `pods.eks.amazonaws.com`, а связь роли
+    с ServiceAccount задаётся **pod identity association** в API EKS каждого кластера.
+    Учётные данные выдаёт EKS Pod Identity Agent на узле.
+  explanation: |
+    В IRSA trust policy перечисляет OIDC-провайдеры кластеров, и каждый новый кластер
+    означает изменение роли в IAM — часто работу другой команды. Pod Identity разделяет
+    ответственность: IAM описывает права, EKS — кто ими пользуется. Ограничения: агент
+    должен работать на узлах, а на Fargate Pod Identity не поддерживается — там остаётся
+    IRSA.
+  ref: "https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html"
+
+- id: aws-eks-004
+  domain: aws
+  subtopic: eks
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    На узлах EKS свободны CPU и память, но новые поды не получают адреса. Как Amazon VPC CNI
+    раздаёт адреса и что с этим делать?
+  answer: |
+    VPC CNI даёт каждому поду **адрес из подсети VPC**, назначая вторичные IP на сетевые
+    интерфейсы узла. Число подов на узле ограничено тем, сколько ENI и адресов на ENI
+    поддерживает тип инстанса, а общее число — размером подсетей. Плотность поднимают
+    **prefix delegation**: на интерфейс назначаются префиксы `/28` вместо отдельных адресов.
+  explanation: |
+    Плюс модели — поды адресуемы в VPC напрямую, без оверлея; минус — адреса подсети
+    тратятся на поды, и маленькие подсети кончаются раньше вычислительной ёмкости. Prefix
+    delegation заодно сокращает число вызовов EC2 API при запуске подов. Переходить на неё
+    советуют новыми node groups, а не заменой узлов на ходу: смешение адресов и префиксов
+    на одном узле искажает объявленную ёмкость.
+  ref: "https://docs.aws.amazon.com/eks/latest/userguide/cni-increase-ip-addresses.html"
+
+- id: aws-eks-005
+  domain: aws
+  subtopic: eks
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Service типа `LoadBalancer` в EKS остаётся без внешнего адреса, а AWS Load Balancer
+    Controller пишет, что не нашёл подсети. Что не так?
+  answer: |
+    У подсетей нет тегов для auto-discovery: публичные должны иметь
+    `kubernetes.io/role/elb=1`, приватные — `kubernetes.io/role/internal-elb=1`. Второй путь —
+    явно перечислить подсети аннотацией на Service или Ingress.
+  explanation: |
+    Контроллер, в отличие от старого встроенного cloud provider, не определяет публичность
+    подсети по route table и опирается только на теги. Без них он не знает, где создавать
+    internet-facing или internal балансировщик. VPC из `eksctl` и шаблонов EKS получают
+    теги сразу, а самописный Terraform — нет, отсюда типовой затык на первом же Service.
+  ref: "https://docs.aws.amazon.com/eks/latest/userguide/network-load-balancing.html"
+
+- id: aws-eks-006
+  domain: aws
+  subtopic: eks
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Счёт за control plane старого EKS-кластера заметно вырос, хотя нагрузка не менялась.
+    Что случилось?
+  answer: |
+    Версия Kubernetes вышла из **standard support** (14 месяцев) и перешла в **extended
+    support** (ещё 12 месяцев), который оплачивается дополнительной почасовой ставкой
+    за кластер. Extended support включён по умолчанию. После его окончания EKS сам обновит
+    control plane до старейшей поддерживаемой версии.
+  explanation: |
+    Механизм спасает от внезапного принудительного апгрейда, но превращает откладывание
+    обновлений в статью расходов. Автоматический апгрейд касается только control plane:
+    managed node groups и self-managed узлы остаются на старой версии, и перекос версий
+    закрывать придётся самим. Если extended support отключить, принудительный апгрейд
+    случится уже в конце standard support.
+  ref: "https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html"

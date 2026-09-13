@@ -1,0 +1,184 @@
+# aws / s3-storage
+# Многострочные поля — только | (literal). Значения с двоеточием — в кавычках.
+# id вечен: он же GUID заметки в Anki.
+#
+# S3 как backend Terraform — в terraform/backends.
+
+- id: aws-s3-storage-001
+  domain: aws
+  subtopic: s3-storage
+  difficulty: junior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Приложение записало объект в S3 и сразу читает его и листинг бакета. Может ли оно
+    увидеть старые данные?
+  answer: |
+    Нет: S3 даёт **strong read-after-write consistency** для PUT и DELETE объектов, включая
+    перезапись, и листинг сразу отражает изменения. Eventual consistency осталась
+    у конфигурации бакета: например, после первого включения versioning AWS советует
+    подождать 15 минут перед записью.
+  explanation: |
+    Многие старые советы «подождать после записи» и держать внешний индекс для листинга
+    относятся к модели до перехода S3 на сильную консистентность. Остающаяся грабля —
+    конкурентная запись в один ключ: S3 не блокирует объекты, выигрывает запись с последней
+    меткой времени, так что координацию писателей делает приложение.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html"
+
+- id: aws-s3-storage-002
+  domain: aws
+  subtopic: s3-storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Разработчик добавил bucket policy с `"Principal": "*"` для раздачи статики, а файлы
+    по-прежнему недоступны. Какой механизм мешает?
+  answer: |
+    **S3 Block Public Access.** У новых бакетов он включён по умолчанию: `BlockPublicPolicy`
+    не даёт сохранить публичную политику, а `RestrictPublicBuckets` отсекает уже
+    существующую. Настройки бывают на бакете, аккаунте и организации, и действует самое
+    строгое сочетание.
+  explanation: |
+    BPA перекрывает политики и ACL, не изменяя их: снимешь его — старая публичная политика
+    снова заработает. Поэтому BPA держат включённым на уровне аккаунта, а статику раздают
+    через CloudFront из закрытого бакета, а не публичным бакетом. ACL у новых бакетов
+    по умолчанию тоже выключены — доступ описывается только политиками.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+
+- id: aws-s3-storage-003
+  domain: aws
+  subtopic: s3-storage
+  difficulty: middle
+  source: core
+  type: mcq
+  verified: false
+  prompt: |
+    Объекты лежат в S3 Glacier Flexible Retrieval, и данные нужны срочно, сегодня.
+    Как их прочитать?
+  options:
+    a: "Обычным GET — все классы S3 отдают данные за миллисекунды"
+    b: "Сменить класс объекта на Standard через `copy-object` — это мгновенно"
+    c: "Скачать через S3 Transfer Acceleration"
+    d: "Запросить восстановление через `RestoreObject` с tier Expedited — обычно 1–5 минут"
+  answer: d
+  explanation: |
+    Flexible Retrieval и Deep Archive требуют restore перед чтением; сразу доступен только
+    Glacier Instant Retrieval. Скорость задаёт tier: Expedited — 1–5 минут для объектов
+    до 250 MB, Standard — 3–5 часов, Bulk — 5–12 часов, у Deep Archive — до 12 и до 48
+    часов. Этим S3 отличается от GCP, где даже Archive читается за миллисекунды: в S3 класс
+    определяет не только цену, но и время доступа.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html"
+
+- id: aws-s3-storage-004
+  domain: aws
+  subtopic: s3-storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    В бакете с versioning объект удалили обычным DELETE. Он пропал из листинга, GET отдаёт
+    `404`, но объём бакета не уменьшился. Что произошло и как вернуть объект?
+  answer: |
+    S3 создал **delete marker** — пустую версию, ставшую текущей. Сам объект остался
+    noncurrent-версией и тарифицируется. Чтобы вернуть его, удаляют delete marker по его
+    version ID — предыдущая версия снова становится текущей.
+  explanation: |
+    Простой DELETE в версионированном бакете ничего не стирает, поэтому versioning спасает
+    от случайного удаления — и поэтому же без lifecycle-правил для noncurrent-версий
+    и оставшихся delete markers бакет копит объём. Ответы на такие объекты содержат
+    `x-amz-delete-marker: true`, а GET по version ID самого маркера отдаёт `405`.
+    Маркеры видны только в списке версий.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/DeleteMarker.html"
+
+- id: aws-s3-storage-005
+  domain: aws
+  subtopic: s3-storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Для бэкапов под требования регулятора выбирают режим S3 Object Lock. Чем governance
+    отличается от compliance?
+  answer: |
+    В **governance** защищённую версию не удалить и не перезаписать без права
+    `s3:BypassGovernanceRetention` и заголовка обхода — доверенные администраторы это могут.
+    В **compliance** до конца срока версию не удалит никто, включая root user; режим
+    не сменить, срок не сократить.
+  explanation: |
+    Governance защищает от ошибок и подходит для обкатки сроков, compliance — когда
+    недоверенным считается и собственный администратор, например при ransomware
+    с украденными админскими правами. Цена compliance — ошибку в сроке не исправить:
+    удалить объект раньше можно только удалив аккаунт. Object Lock требует versioning
+    и защищает версии, а не ключ: новые версии и delete markers поверх создавать можно.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html"
+
+- id: aws-s3-storage-006
+  domain: aws
+  subtopic: s3-storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Lambda выдаёт presigned URL на скачивание со сроком 7 дней, а ссылки перестают работать
+    через несколько часов. Почему?
+  answer: |
+    Ссылка подписана **временными** учётными данными execution role, а presigned URL живёт
+    не дольше учётных данных, которыми подписан, — даже если указан больший срок. Семь дней
+    с SigV4 возможны только при подписи долгоживущими ключами IAM user.
+  explanation: |
+    Presigned URL — заранее подписанный запрос от имени создателя, и S3 учитывает жизнь его
+    учётных данных. Сессии ролей короткие: у сессии `AssumeRole` по умолчанию час,
+    у учётных данных инстанса EC2 — порядка шести часов. Для долгих ссылок либо выдают
+    свежие по запросу через приложение, либо используют CloudFront signed URLs; подпись
+    ключами пользователя противоречит отказу от долгоживущих ключей.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html"
+
+- id: aws-s3-storage-007
+  domain: aws
+  subtopic: s3-storage
+  difficulty: senior
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Массовая загрузка мелких файлов в S3 упирается в ответы `503 Slow Down`. Какой лимит
+    задет и что делать?
+  answer: |
+    Скорость запросов **на префикс**: S3 выдерживает не меньше 3 500 PUT/COPY/POST/DELETE
+    и 5 500 GET/HEAD в секунду на префикс, а масштабируется к более высоким уровням
+    постепенно — пока идёт рост, S3 отвечает `503`. Лечат экспоненциальным backoff
+    и распределением ключей по нескольким префиксам.
+  explanation: |
+    Число префиксов в бакете не ограничено, так что параллелизм по префиксам масштабирует
+    пропускную способность: десять префиксов — до 55 000 чтений в секунду. `503` при резком
+    росте нагрузки — ожидаемое поведение, а не авария, и клиент обязан повторять. SDK делают
+    это сами, но самописные загрузчики без backoff превращают кратковременный `503` в сбой.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html"
+
+- id: aws-s3-storage-008
+  domain: aws
+  subtopic: s3-storage
+  difficulty: middle
+  source: core
+  type: basic
+  verified: false
+  prompt: |
+    Бакет с SSE-KMS и миллиардами объектов генерирует огромный счёт за запросы к KMS.
+    Что включить и что при этом может сломаться?
+  answer: |
+    **S3 Bucket Keys**: S3 берёт у KMS короткоживущий ключ уровня бакета и сам выпускает
+    из него data keys для объектов, сокращая запросы к KMS до 99%. Encryption context при
+    этом становится ARN бакета, а не объекта, и IAM- или key policies, завязанные на ARN
+    объекта в encryption context, перестанут работать.
+  explanation: |
+    Без bucket key каждый объект шифруется своим data key, и каждое чтение — вызов KMS:
+    это и деньги, и риск упереться в квоты запросов KMS. Событий KMS в CloudTrail тоже
+    становится меньше, и в них виден ARN бакета — это стоит учесть в аудите.
+    Уже существующие объекты bucket key не получают, их перешифровывают копированием.
+  ref: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-key.html"
